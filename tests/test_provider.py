@@ -256,6 +256,24 @@ class ProviderTests(unittest.TestCase):
         self.assertIn(b"READY=1", notification)
         self.assertIn(b"KUKSA authenticated", notification)
 
+    def test_sighup_requests_unavailability_in_the_main_process(self) -> None:
+        handlers = {}
+
+        def save_handler(signal_number, handler) -> None:
+            handlers[signal_number] = handler
+
+        with mock.patch.object(
+            runtime, "load_configuration", return_value=mock.sentinel.configuration
+        ), mock.patch.object(
+            runtime.signal, "signal", side_effect=save_handler
+        ), mock.patch.object(runtime, "run", return_value=0) as run:
+            self.assertEqual(runtime.main(["--config", "/tmp/provider.json"]), 0)
+
+        handlers[runtime.signal.SIGHUP](runtime.signal.SIGHUP, None)
+        unavailable_requested = run.call_args.args[2]
+        self.assertTrue(unavailable_requested.is_set())
+        self.assertFalse(run.call_args.args[1].is_set())
+
 
 if __name__ == "__main__":
     unittest.main()

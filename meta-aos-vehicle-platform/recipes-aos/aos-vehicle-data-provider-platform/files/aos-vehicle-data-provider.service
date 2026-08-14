@@ -17,7 +17,7 @@ DynamicUser=yes
 Environment=AOS_VEHICLE_DATA_PROVIDER_CONFIGURATION=/var/aos/workdirs/sm/runtimes/systemd-slot-component/configuration/provider.json
 Environment=AOS_VEHICLE_DATA_PROVIDER_VISS_CA=/var/aos/workdirs/sm/runtimes/systemd-slot-component/trust/viss-ca.pem
 ExecStart=/usr/libexec/aos-vehicle-data-provider-launcher
-ExecReload=/usr/libexec/aos-vehicle-data-provider-launcher --mark-unavailable
+ExecReload=/bin/kill -HUP $MAINPID
 LoadCredential=kuksa-token:/var/aos/workdirs/sm/runtimes/systemd-slot-component/credentials/kuksa-token
 Restart=on-failure
 RestartSec=2s

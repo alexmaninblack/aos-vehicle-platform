@@ -136,7 +136,11 @@ class KuksaSink:
             self._client = None
 
 
-def run(configuration: Configuration, stop: threading.Event) -> int:
+def run(
+    configuration: Configuration,
+    stop: threading.Event,
+    unavailable_requested: threading.Event,
+) -> int:
     from websockets.sync.client import connect
 
     sink = KuksaSink(configuration.kuksa)
@@ -154,13 +158,21 @@ def run(configuration: Configuration, stop: threading.Event) -> int:
     reconnect_delay = configuration.payload.reconnect_initial_ms / 1000.0
     maximum_delay = configuration.payload.reconnect_max_ms / 1000.0
 
+    def apply_unavailable_request() -> None:
+        if unavailable_requested.is_set():
+            bridge.mark_unavailable()
+            unavailable_requested.clear()
+            LOG.info("Explicit unavailability request completed")
+
     try:
         # KUKSA authentication and fail-safe unavailability are the readiness
         # boundary. CARLA may remain absent without failing component health.
         bridge.mark_unavailable()
+        unavailable_requested.clear()
         notify_ready()
         LOG.info("Provider is ready; CARLA availability is not required")
         while not stop.is_set():
+            apply_unavailable_request()
             try:
                 with connect(
                     configuration.viss.uri,
@@ -185,6 +197,7 @@ def run(configuration: Configuration, stop: threading.Event) -> int:
                         configuration.payload.reconnect_initial_ms / 1000.0
                     )
                     while not stop.is_set():
+                        apply_unavailable_request()
                         try:
                             message = websocket.recv(timeout=0.1)
                         except TimeoutError:
@@ -215,7 +228,13 @@ def run(configuration: Configuration, stop: threading.Event) -> int:
                     reconnect_delay,
                     error,
                 )
-                stop.wait(reconnect_delay)
+                deadline = time.monotonic() + reconnect_delay
+                while not stop.is_set():
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    unavailable_requested.wait(min(remaining, 0.1))
+                    apply_unavailable_request()
                 reconnect_delay = min(reconnect_delay * 2, maximum_delay)
     finally:
         try:
@@ -504,13 +523,18 @@ def main(arguments: list[str] | None = None) -> int:
 
         configuration = load_configuration(options.config)
         stop = threading.Event()
+        unavailable_requested = threading.Event()
 
         def request_stop(_signal_number, _frame) -> None:
             stop.set()
 
+        def request_unavailable(_signal_number, _frame) -> None:
+            unavailable_requested.set()
+
         signal.signal(signal.SIGTERM, request_stop)
         signal.signal(signal.SIGINT, request_stop)
-        return run(configuration, stop)
+        signal.signal(signal.SIGHUP, request_unavailable)
+        return run(configuration, stop, unavailable_requested)
     except Exception as error:
         LOG.error("Provider failed: %s", error)
         return 1

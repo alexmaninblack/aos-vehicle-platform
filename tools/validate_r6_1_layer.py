@@ -202,7 +202,10 @@ def validate_layer() -> None:
     require("ConditionFileIsExecutable=" in unit, "provider executable condition is missing")
     require("ProtectSystem=strict" in unit, "provider unit does not protect rootfs")
     require("CapabilityBoundingSet=\n" in unit, "provider capabilities are not empty")
-    require("ExecReload=" in unit, "provider unavailability reload hook is missing")
+    require(
+        "ExecReload=/bin/kill -HUP $MAINPID" in unit,
+        "provider unavailability signal hook is missing",
+    )
     for token in (
         "AOS_VEHICLE_DATA_PROVIDER_CONFIGURATION="
         f"{COMPONENT_ROOT}/configuration/provider.json",

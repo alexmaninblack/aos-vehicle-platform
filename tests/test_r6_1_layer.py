@@ -41,7 +41,7 @@ class R61LayerTests(unittest.TestCase):
         self.assertIn("systemctl is-active", health)
         self.assertIn("--self-test", launcher)
         self.assertIn("--mark-unavailable", launcher)
-        self.assertIn("ExecReload=", unit)
+        self.assertIn("ExecReload=/bin/kill -HUP $MAINPID", unit)
 
 
 if __name__ == "__main__":
