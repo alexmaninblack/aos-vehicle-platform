@@ -23,7 +23,7 @@ corenet_tcp_connect_all_ports(vehicle_data_provider_t)
 corecmd_exec_bin(vehicle_data_provider_t)
 corecmd_exec_shell(vehicle_data_provider_t)
 files_read_etc_files(vehicle_data_provider_t)
-init_read_runtime(vehicle_data_provider_t)
+init_read_runtime_files(vehicle_data_provider_t)
 logging_send_syslog_msg(vehicle_data_provider_t)
 miscfiles_read_generic_certs(vehicle_data_provider_t)
 

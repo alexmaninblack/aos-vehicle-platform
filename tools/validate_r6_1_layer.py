@@ -121,6 +121,14 @@ def validate_layer() -> None:
     require("vehicle_data_provider_store_t" in policy, "provider store type is missing")
     require("manage_dirs_pattern(aos_t" in policy, "Service Manager cannot own the store")
     require("permissive" not in policy, "provider SELinux policy is permissive")
+    require(
+        "init_read_runtime_files(vehicle_data_provider_t)" in policy,
+        "provider policy is not compatible with the pinned refpolicy runtime interface",
+    )
+    require(
+        "init_read_runtime(vehicle_data_provider_t)" not in policy,
+        "provider policy uses an unavailable refpolicy runtime interface",
+    )
 
     policy_append = read(POLICY_APPEND)
     require(

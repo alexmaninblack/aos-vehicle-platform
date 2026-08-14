@@ -26,6 +26,11 @@ class R61LayerTests(unittest.TestCase):
         self.assertIn("do_compile:prepend()", content)
         self.assertNotIn("do_patch:append()", content)
 
+    def test_refpolicy_uses_the_pinned_runtime_interface(self) -> None:
+        content = validate_r6_1_layer.POLICY.read_text(encoding="utf-8")
+        self.assertIn("init_read_runtime_files(vehicle_data_provider_t)", content)
+        self.assertNotIn("init_read_runtime(vehicle_data_provider_t)", content)
+
 
 if __name__ == "__main__":
     unittest.main()
