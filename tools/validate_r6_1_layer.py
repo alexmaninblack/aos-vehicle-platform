@@ -120,6 +120,10 @@ def validate_layer() -> None:
         in service_manager_append,
         "cross-compiled test discovery is not deferred to the ARM64 VM",
     )
+    require(
+        'find "${D}${prefix}/usr" -depth -delete' in service_manager_append,
+        "test-only CMake staging data can leak into production packages",
+    )
 
     patch = read(PATCH)
     require("SystemdSlotComponentRuntime" in patch, "runtime factory patch is missing")

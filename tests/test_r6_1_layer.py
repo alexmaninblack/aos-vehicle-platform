@@ -52,6 +52,7 @@ class R61LayerTests(unittest.TestCase):
         self.assertIn(
             "-DCMAKE_GTEST_DISCOVER_TESTS_DISCOVERY_MODE=PRE_TEST", append
         )
+        self.assertIn('find "${D}${prefix}/usr" -depth -delete', append)
 
 
 if __name__ == "__main__":
