@@ -36,7 +36,8 @@ Error ProviderProfile::StopProvider() {
 }
 
 Error ProviderProfile::StartProvider() {
-  if (auto err = mSystemdConn->ResetFailedUnit(mConfig.mUnit); !err.IsNone()) {
+  if (auto err = mSystemdConn->ResetFailedUnit(mConfig.mUnit);
+      !err.IsNone() && !err.Is(ErrorEnum::eNotFound)) {
     return AOS_ERROR_WRAP(err);
   }
 
