@@ -1,0 +1,39 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+policy_module(vehicle_data_provider, 1.0.0)
+
+type vehicle_data_provider_t;
+type vehicle_data_provider_exec_t;
+init_daemon_domain(vehicle_data_provider_t, vehicle_data_provider_exec_t)
+
+type vehicle_data_provider_store_t;
+files_type(vehicle_data_provider_store_t)
+
+type vehicle_data_provider_unit_t;
+init_unit_file(vehicle_data_provider_unit_t)
+
+allow vehicle_data_provider_t self:tcp_socket create_stream_socket_perms;
+allow vehicle_data_provider_t vehicle_data_provider_store_t:dir list_dir_perms;
+allow vehicle_data_provider_t vehicle_data_provider_store_t:file { execute execute_no_trans map };
+allow vehicle_data_provider_t vehicle_data_provider_store_t:lnk_file read_lnk_file_perms;
+read_files_pattern(vehicle_data_provider_t, vehicle_data_provider_store_t, vehicle_data_provider_store_t)
+
+corenet_tcp_connect_all_ports(vehicle_data_provider_t)
+corecmd_exec_bin(vehicle_data_provider_t)
+corecmd_exec_shell(vehicle_data_provider_t)
+files_read_etc_files(vehicle_data_provider_t)
+init_read_runtime(vehicle_data_provider_t)
+logging_send_syslog_msg(vehicle_data_provider_t)
+miscfiles_read_generic_certs(vehicle_data_provider_t)
+
+systemd_tmpfilesd_managed(vehicle_data_provider_store_t)
+
+gen_require(`
+    type aos_t;
+')
+
+manage_dirs_pattern(aos_t, vehicle_data_provider_store_t, vehicle_data_provider_store_t)
+manage_files_pattern(aos_t, vehicle_data_provider_store_t, vehicle_data_provider_store_t)
+manage_lnk_files_pattern(aos_t, vehicle_data_provider_store_t, vehicle_data_provider_store_t)
+allow aos_t vehicle_data_provider_unit_t:service { start stop status };

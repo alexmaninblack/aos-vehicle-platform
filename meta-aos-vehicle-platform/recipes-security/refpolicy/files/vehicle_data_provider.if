@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+## <summary>Policy interfaces for the Aos vehicle data provider.</summary>
+
+########################################
+## <summary>
+## Read the vehicle data provider component store.
+## </summary>
+## <param name="domain"><summary>Calling domain.</summary></param>
+#
+interface(`vehicle_data_provider_read_store',`
+    gen_require(`
+        type vehicle_data_provider_store_t;
+    ')
+
+    list_dirs_pattern($1, vehicle_data_provider_store_t, vehicle_data_provider_store_t)
+    read_files_pattern($1, vehicle_data_provider_store_t, vehicle_data_provider_store_t)
+    read_lnk_files_pattern($1, vehicle_data_provider_store_t, vehicle_data_provider_store_t)
+')

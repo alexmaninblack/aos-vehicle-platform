@@ -1,0 +1,70 @@
+SPDX-FileCopyrightText: 2026 maninblack
+SPDX-License-Identifier: Apache-2.0
+
+diff --git a/src/sm/launcher/CMakeLists.txt b/src/sm/launcher/CMakeLists.txt
+index e3aa20d..ee6a213 100644
+--- a/src/sm/launcher/CMakeLists.txt
++++ b/src/sm/launcher/CMakeLists.txt
+@@ -20,6 +20,10 @@ set(LIBRARIES Poco::JSON aos::core::common::tools aos::sm::runtimes::container a
+               aos::sm::runtimes::rootfs aos::sm::utils
+ )
+ 
++if(AOS_SYSTEMD_SLOT_COMPONENT_DIR)
++    list(APPEND LIBRARIES aos::sm::runtimes::systemdslotcomponent)
++endif()
++
+ # ######################################################################################################################
+ # Target
+ # ######################################################################################################################
+diff --git a/src/sm/launcher/runtimes.cpp b/src/sm/launcher/runtimes.cpp
+index 4de938c..a4594a1 100644
+--- a/src/sm/launcher/runtimes.cpp
++++ b/src/sm/launcher/runtimes.cpp
+@@ -10,6 +10,10 @@
+ #include "runtimes/boot/boot.hpp"
+ #include "runtimes/rootfs/rootfs.hpp"
+ 
++#ifdef AOS_SYSTEMD_SLOT_COMPONENT_RUNTIME
++#include <runtime.hpp>
++#endif
++
+ namespace aos::sm::launcher {
+ 
+ /***********************************************************************************************************************
+@@ -59,6 +63,18 @@ Error Runtimes::Init(const Config& config, iamclient::CurrentNodeInfoProviderItf
+             }
+ 
+             mRuntimes.emplace_back(std::move(runtime));
++#ifdef AOS_SYSTEMD_SLOT_COMPONENT_RUNTIME
++        } else if (runtimeConfig.mPlugin == cRuntimeSystemdSlotComponent) {
++            auto runtime = std::make_unique<SystemdSlotComponentRuntime>();
++
++            if (auto err = runtime->Init(runtimeConfig, currentNodeInfoProvider, itemInfoProvider, ociSpec,
++                    statusReceiver, systemdConn);
++                !err.IsNone()) {
++                return AOS_ERROR_WRAP(err);
++            }
++
++            mRuntimes.emplace_back(std::move(runtime));
++#endif
+         } else {
+             return AOS_ERROR_WRAP(Error(ErrorEnum::eNotSupported, "runtime is not supported"));
+         }
+diff --git a/src/sm/launcher/runtimes/CMakeLists.txt b/src/sm/launcher/runtimes/CMakeLists.txt
+index 5bde7a1..05f984e 100644
+--- a/src/sm/launcher/runtimes/CMakeLists.txt
++++ b/src/sm/launcher/runtimes/CMakeLists.txt
+@@ -19,3 +19,13 @@ add_subdirectory(boot)
+ add_subdirectory(container)
+ add_subdirectory(rootfs)
+ add_subdirectory(utils)
++
++if(AOS_SYSTEMD_SLOT_COMPONENT_DIR)
++    if(NOT IS_ABSOLUTE "${AOS_SYSTEMD_SLOT_COMPONENT_DIR}"
++       OR NOT EXISTS "${AOS_SYSTEMD_SLOT_COMPONENT_DIR}/CMakeLists.txt"
++    )
++        message(FATAL_ERROR "AOS_SYSTEMD_SLOT_COMPONENT_DIR must be an absolute runtime source directory")
++    endif()
++
++    add_subdirectory("${AOS_SYSTEMD_SLOT_COMPONENT_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/systemd-slot-component")
++endif()

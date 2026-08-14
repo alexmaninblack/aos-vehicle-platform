@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+/usr/libexec/aos-vehicle-data-provider-launcher -- gen_context(system_u:object_r:vehicle_data_provider_exec_t,s0)
+/usr/libexec/aos-vehicle-data-provider-health   -- gen_context(system_u:object_r:vehicle_data_provider_exec_t,s0)
+/usr/lib/systemd/system/aos-vehicle-data-provider.* -- gen_context(system_u:object_r:vehicle_data_provider_unit_t,s0)
+/var/aos/workdirs/sm/runtimes/systemd-slot-component(/.*)? gen_context(system_u:object_r:vehicle_data_provider_store_t,s0)

@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+[Unit]
+Description=Prepare the Aos vehicle data provider component store
+RequiresMountsFor=/var/aos/workdirs
+ConditionPathIsMountPoint=/var/aos/workdirs
+Before=aos-sm.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemd-tmpfiles --create /usr/lib/tmpfiles.d/aos-vehicle-data-provider.conf
+RemainAfterExit=yes
+
+[Install]
+WantedBy=aos.target

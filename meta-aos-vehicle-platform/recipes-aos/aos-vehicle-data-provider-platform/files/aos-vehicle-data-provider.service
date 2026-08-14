@@ -1,0 +1,39 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+[Unit]
+Description=Aos vehicle data provider component
+Documentation=https://github.com/alexmaninblack/aos-vehicle-platform
+After=network-online.target kuksa-databroker.service
+Wants=network-online.target
+Requires=kuksa-databroker.service
+ConditionPathIsSymbolicLink=/var/aos/workdirs/sm/runtimes/systemd-slot-component/active
+ConditionFileIsExecutable=/var/aos/workdirs/sm/runtimes/systemd-slot-component/active/bin/vehicle-data-provider
+
+[Service]
+Type=simple
+DynamicUser=yes
+ExecStart=/usr/libexec/aos-vehicle-data-provider-launcher
+LoadCredential=kuksa-token:/var/aos/workdirs/sm/runtimes/systemd-slot-component/credentials/kuksa-token
+Restart=on-failure
+RestartSec=2s
+TimeoutStartSec=15s
+TimeoutStopSec=8s
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+# The Service Manager runtime owns activation. This unit must not be enabled.

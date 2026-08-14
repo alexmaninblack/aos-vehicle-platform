@@ -45,6 +45,34 @@
   ],
   "build": [
     {
+      "name": "AosVM Yocto layer",
+      "revision": "b13320898a2ed1cce504f90f70451638232d6a83",
+      "displayVersion": "v6.1.0",
+      "license": "Apache-2.0",
+      "source": "https://github.com/AosEdge/meta-aos-vm"
+    },
+    {
+      "name": "AosCore Yocto layer",
+      "revision": "176da6346b1199f854106dede4cc49604174619c",
+      "displayVersion": "v9.1.0",
+      "license": "Apache-2.0",
+      "source": "https://github.com/AosEdge/meta-aos"
+    },
+    {
+      "name": "AosEdge SELinux refpolicy",
+      "revision": "c8be82c7e62f69cb6530de8cc1da3beb389a6681",
+      "displayVersion": "9.0.0 recipe baseline",
+      "license": "GPL-2.0-only",
+      "source": "https://github.com/AosEdge/refpolicy"
+    },
+    {
+      "name": "OpenEmbedded meta-selinux",
+      "revision": "536df5a4fbce3c9fd63f51580f43d248a0d1b0ef",
+      "displayVersion": "scarthgap pinned baseline",
+      "license": "MIT",
+      "source": "https://git.yoctoproject.org/meta-selinux"
+    },
+    {
       "name": "AosCore C++",
       "revision": "9eecb80c4994937b5c8cbe0464970f81e8ad4c2d",
       "displayVersion": "AosVM 6.1.0 Service Manager recipe SRCREV",

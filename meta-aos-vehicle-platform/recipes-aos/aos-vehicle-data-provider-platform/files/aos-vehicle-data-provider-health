@@ -1,0 +1,28 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+set -eu
+
+root=/var/aos/workdirs/sm/runtimes/systemd-slot-component
+active=$root/active
+
+if [ ! -L "$active" ]; then
+    printf 'STATE=EMPTY\n'
+    exit 3
+fi
+
+case "$(readlink "$active")" in
+    slots/a|slots/b) ;;
+    *)
+        printf 'STATE=INVALID_ACTIVE_SLOT\n' >&2
+        exit 1
+        ;;
+esac
+
+if ! systemctl is-active --quiet aos-vehicle-data-provider.service; then
+    printf 'STATE=INACTIVE\n' >&2
+    exit 1
+fi
+
+printf 'STATE=HEALTHY\n'
