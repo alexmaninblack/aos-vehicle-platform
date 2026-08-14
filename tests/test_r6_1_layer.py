@@ -21,6 +21,11 @@ class R61LayerTests(unittest.TestCase):
         )
         self.assertEqual(validate_r6_1_layer.COMPONENT_TYPE, "vehicle-data-provider")
 
+    def test_refpolicy_files_are_installed_from_a_shell_task(self) -> None:
+        content = validate_r6_1_layer.POLICY_APPEND.read_text(encoding="utf-8")
+        self.assertIn("do_compile:prepend()", content)
+        self.assertNotIn("do_patch:append()", content)
+
 
 if __name__ == "__main__":
     unittest.main()

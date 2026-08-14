@@ -31,6 +31,7 @@ TMPFILES = (
     / "recipes-aos/aos-vehicle-data-provider-platform/files/aos-vehicle-data-provider.conf"
 )
 POLICY = LAYER / "recipes-security/refpolicy/files/vehicle_data_provider.te"
+POLICY_APPEND = LAYER / "recipes-security/refpolicy/refpolicy-aos_git.bbappend"
 COMPONENT_ROOT = "/var/aos/workdirs/sm/runtimes/systemd-slot-component"
 COMPONENT_TYPE = "vehicle-data-provider"
 
@@ -120,6 +121,16 @@ def validate_layer() -> None:
     require("vehicle_data_provider_store_t" in policy, "provider store type is missing")
     require("manage_dirs_pattern(aos_t" in policy, "Service Manager cannot own the store")
     require("permissive" not in policy, "provider SELinux policy is permissive")
+
+    policy_append = read(POLICY_APPEND)
+    require(
+        "do_compile:prepend()" in policy_append,
+        "provider policy is not installed by a shell compile task",
+    )
+    require(
+        "do_patch:append()" not in policy_append,
+        "provider policy shell commands are appended to the Python patch task",
+    )
 
     all_text = "\n".join(read(path) for path in LAYER.rglob("*") if path.is_file())
     for forbidden in (
