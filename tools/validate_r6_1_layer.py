@@ -129,6 +129,10 @@ def validate_layer() -> None:
         "init_read_runtime(vehicle_data_provider_t)" not in policy,
         "provider policy uses an unavailable refpolicy runtime interface",
     )
+    require(
+        "class service { start stop status };" in policy,
+        "provider policy does not declare its systemd service permissions",
+    )
 
     policy_append = read(POLICY_APPEND)
     require(

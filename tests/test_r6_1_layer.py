@@ -30,6 +30,7 @@ class R61LayerTests(unittest.TestCase):
         content = validate_r6_1_layer.POLICY.read_text(encoding="utf-8")
         self.assertIn("init_read_runtime_files(vehicle_data_provider_t)", content)
         self.assertNotIn("init_read_runtime(vehicle_data_provider_t)", content)
+        self.assertIn("class service { start stop status };", content)
 
 
 if __name__ == "__main__":

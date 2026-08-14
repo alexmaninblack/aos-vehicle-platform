@@ -31,6 +31,7 @@ systemd_tmpfilesd_managed(vehicle_data_provider_store_t)
 
 gen_require(`
     type aos_t;
+    class service { start stop status };
 ')
 
 manage_dirs_pattern(aos_t, vehicle_data_provider_store_t, vehicle_data_provider_store_t)
