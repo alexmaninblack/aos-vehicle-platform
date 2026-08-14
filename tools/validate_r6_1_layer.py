@@ -111,6 +111,10 @@ def validate_layer() -> None:
         "-DWITH_TEST=ON" in service_manager_append,
         "ARM64 runtime qualifier is not a reproducible build output",
     )
+    require(
+        'DEPENDS:append = " softhsm"' in service_manager_append,
+        "ARM64 test-only SoftHSM dependency is not declared",
+    )
 
     patch = read(PATCH)
     require("SystemdSlotComponentRuntime" in patch, "runtime factory patch is missing")

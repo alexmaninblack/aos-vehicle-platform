@@ -48,6 +48,7 @@ class R61LayerTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("-DWITH_TEST=ON", append)
+        self.assertIn('DEPENDS:append = " softhsm"', append)
 
 
 if __name__ == "__main__":

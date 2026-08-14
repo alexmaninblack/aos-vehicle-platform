@@ -3,6 +3,10 @@
 
 FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 
+# Build-only dependency required by the upstream ARM64 test targets. It is not
+# a runtime dependency and is not installed into aos-image-vm.
+DEPENDS:append = " softhsm"
+
 SRC_URI += " \
     file://0001-add-production-systemd-slot-component-runtime.patch \
     file://systemd-slot-component \
