@@ -9,10 +9,11 @@ umask 077
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 repository_root=$(CDPATH='' cd -- "$script_dir/../.." && pwd)
 python=${PYTHON:-python3}
+version=0.1.1
 output_root=${1:-"$repository_root/build/aosvm"}
 requirements="$script_dir/runtime/requirements-arm64.txt"
-bundle_root="$output_root/carla-kuksa-provider-0.1.0-arm64"
-archive="$output_root/carla-kuksa-provider-0.1.0-arm64.tar.gz"
+bundle_root="$output_root/carla-kuksa-provider-$version-arm64"
+archive="$output_root/carla-kuksa-provider-$version-arm64.tar.gz"
 bundle_parent=''
 
 fail() {
@@ -45,7 +46,7 @@ mkdir -p "$wheels"
     --require-hashes \
     --requirement "$requirements"
 
-bundle_root="$bundle_parent/carla-kuksa-provider-0.1.0-arm64"
+bundle_root="$bundle_parent/carla-kuksa-provider-$version-arm64"
 mkdir -p "$bundle_root/app" "$bundle_root/wheels" "$bundle_root/packaging"
 cp -R "$repository_root/providers/carla-viss-kuksa/src/carla_viss_kuksa_provider" \
     "$bundle_root/app/"

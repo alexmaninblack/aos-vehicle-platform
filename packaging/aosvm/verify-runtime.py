@@ -19,7 +19,7 @@ import carla_viss_kuksa_provider.runtime
 EXPECTED = {
     "grpcio": "1.75.0",
     "kuksa_client": "0.5.0",
-    "protobuf": "5.29.5",
+    "protobuf": "5.29.6",
     "typing_extensions": "4.15.0",
     "websockets": "15.0.1",
 }

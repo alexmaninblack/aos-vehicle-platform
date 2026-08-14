@@ -100,10 +100,13 @@ AOS-2 is accepted only after the integration repository proves:
 ## Qualification result
 
 AOS-2 passed on 2026-08-14 against the official AosVM 6.1.0 Main Node. The
-normalized ARM64 provider bundle reproduced byte-for-byte with SHA-256
-`4d73c196f8ed8812c0a3912ee9231e4fb2d3ffc9d4ba2f16686777d0c35e5a87`.
+normalized ARM64 provider 0.1.1 bundle reproduced byte-for-byte with SHA-256
+`8d6b40b3854572cf1706cb43283916640c0ef6116307a805b63fe1323ab0e100`.
 All seven contract paths were present in the embedded VSS 5.0 tree, and the
 runtime imported successfully from the five hash-locked ARM64 wheels.
+The final lock uses Protocol Buffers 5.29.6, which includes the fix for
+CVE-2026-0994; the initially evaluated 5.29.5 wheel is not part of the accepted
+bundle.
 
 The provider negotiated verified TLS and `VISSv3` with the loopback-only CARLA
 endpoint, then published 41 consecutive atomic seven-path KUKSA batches at an

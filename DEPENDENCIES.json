@@ -20,11 +20,11 @@
     },
     {
       "name": "Protocol Buffers Python runtime",
-      "revision": "f5de0a0495faa63b4186fc767324f8b9a7bf4fc4",
-      "displayVersion": "5.29.5",
+      "revision": "e9e7dd6d624098aea6b41f220361cc5d1eadf59f",
+      "displayVersion": "5.29.6",
       "license": "BSD-3-Clause",
       "source": "https://github.com/protocolbuffers/protobuf",
-      "artifactSha256": "fa18533a299d7ab6c55a238bf8629311439995f2e7eca5caaff08663606e9015"
+      "artifactSha256": "a8866b2cff111f0f863c1b3b9e7572dc7eaea23a7fae27f6fc613304046483e6"
     },
     {
       "name": "websockets",

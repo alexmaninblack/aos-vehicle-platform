@@ -10,7 +10,7 @@ runtime dependencies:
 | --- | --- | --- | --- |
 | Eclipse KUKSA Python SDK | 0.5.0 | Apache-2.0 | <https://github.com/eclipse-kuksa/kuksa-python-sdk> |
 | gRPC Python | 1.75.0 | Apache-2.0 | <https://github.com/grpc/grpc> |
-| Protocol Buffers Python runtime | 5.29.5 | BSD-3-Clause | <https://github.com/protocolbuffers/protobuf> |
+| Protocol Buffers Python runtime | 5.29.6 | BSD-3-Clause | <https://github.com/protocolbuffers/protobuf> |
 | websockets | 15.0.1 | BSD-3-Clause | <https://github.com/python-websockets/websockets> |
 | typing_extensions | 4.15.0 | PSF-2.0 | <https://github.com/python/typing_extensions> |
 
