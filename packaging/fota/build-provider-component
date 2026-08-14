@@ -243,6 +243,9 @@ def create_payload(
             "runtimeInterface": 1,
             "schemaVersion": 1,
             "wheelNormalization": {
+                "embeddedPublicTrust": (
+                    "grpcio-extension-inert-explicit-kuksa-ca-required"
+                ),
                 "excludedMembers": sorted(EXCLUDED_WHEEL_MEMBERS),
                 "fileMode": "0644",
             },

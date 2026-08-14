@@ -8,6 +8,10 @@ runtime dependencies. The legacy 0.1.1 side-load archive contains the original
 wheels. The R6.1 component extracts and normalizes their runtime files at build
 time; it omits gRPC's default public `roots.pem` bundle because the platform
 always supplies the explicitly selected KUKSA trust anchor instead.
+The upstream native gRPC extension also embeds public default roots internally;
+those bytes cannot be removed without rebuilding gRPC. They are inert in this
+provider because every KUKSA connection passes the platform-owned CA file
+explicitly. No private key or vehicle identity is included.
 
 | Component | Version | License | Source |
 | --- | --- | --- | --- |

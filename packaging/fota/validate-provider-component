@@ -36,8 +36,9 @@ REQUIRED_ROOT_FILES = {
     ENTRYPOINT,
 }
 FORBIDDEN = (
-    b"BEGIN PRIVATE KEY",
-    b"BEGIN CERTIFICATE",
+    b"-----BEGIN " + b"PRIVATE KEY-----",
+    b"-----BEGIN " + b"RSA PRIVATE KEY-----",
+    b"-----BEGIN " + b"EC PRIVATE KEY-----",
     b"/Users/",
     b".p12",
     b".pfx",
@@ -171,6 +172,11 @@ def validate_payload(layer: Path, expected_revision: str) -> None:
     provenance = json.loads(members["provenance/provenance.json"][1])
     require(provenance.get("sourceRevision") == expected_revision, "source revision mismatch")
     require(len(provenance.get("wheelInputs", [])) == 5, "wheel provenance is incomplete")
+    require(
+        provenance.get("wheelNormalization", {}).get("embeddedPublicTrust")
+        == "grpcio-extension-inert-explicit-kuksa-ca-required",
+        "embedded public trust classification is missing",
+    )
     sbom = json.loads(members["sbom/spdx.json"][1])
     require(sbom.get("spdxVersion") == "SPDX-2.3", "SPDX version changed")
     require(len(sbom.get("packages", [])) == 5, "SBOM package set is incomplete")
