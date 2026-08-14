@@ -284,10 +284,10 @@ TEST_F(SystemdSlotComponentRuntimeTest,
   config.mConfig->set("maxPayloadBytes", 128 * 1024 * 1024);
   sm::utils::SystemdConn systemdConn;
   SystemdSlotComponentRuntime runtime;
-  ASSERT_TRUE(runtime
-                  .Init(config, mNodeInfoProvider, mItemInfoProvider, mOCISpec,
-                        mStatusReceiver, systemdConn)
-                  .IsNone());
+  const auto initError =
+      runtime.Init(config, mNodeInfoProvider, mItemInfoProvider, mOCISpec,
+                   mStatusReceiver, systemdConn);
+  ASSERT_TRUE(initError.IsNone()) << tests::utils::ErrorToStr(initError);
   ASSERT_TRUE(runtime.Start().IsNone());
 
   RuntimeInfo info;
@@ -324,10 +324,10 @@ TEST_F(SystemdSlotComponentRuntimeTest,
   config.mConfig->set("maxPayloadBytes", 128 * 1024 * 1024);
   sm::utils::SystemdConn systemdConn;
   SystemdSlotComponentRuntime runtime;
-  ASSERT_TRUE(runtime
-                  .Init(config, mNodeInfoProvider, mItemInfoProvider, mOCISpec,
-                        mStatusReceiver, systemdConn)
-                  .IsNone());
+  const auto initError =
+      runtime.Init(config, mNodeInfoProvider, mItemInfoProvider, mOCISpec,
+                   mStatusReceiver, systemdConn);
+  ASSERT_TRUE(initError.IsNone()) << tests::utils::ErrorToStr(initError);
   ASSERT_TRUE(runtime.Start().IsNone());
 
   RuntimeInfo info;

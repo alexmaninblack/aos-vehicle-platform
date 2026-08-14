@@ -16,7 +16,7 @@ Error ProviderProfile::Init(const SystemdSlotComponentConfig &config,
 
   auto [status, err] = mSystemdConn->GetUnitStatus(mConfig.mUnit);
   (void)status;
-  if (!err.IsNone()) {
+  if (!err.IsNone() && !err.Is(ErrorEnum::eNotFound)) {
     return AOS_ERROR_WRAP(err);
   }
 
