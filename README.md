@@ -8,9 +8,12 @@ providers.
 
 ## Status
 
-This repository is in its governance bootstrap phase. No provider,
-Authorization Adapter, or production vehicle integration is implemented or
-claimed operational yet.
+Repository separation R-0 through R-5 and AOS-2 are complete. The
+development-only CARLA VISS-to-KUKSA provider, its ARM64 offline runtime lock,
+guarded AosVM packaging, fail-safe stale handling, and clean-restart behavior
+passed end-to-end qualification on 2026-08-14. The future Authorization
+Adapter and production vehicle providers aren't implemented or claimed
+operational yet.
 
 ## Ownership Boundary
 
@@ -30,10 +33,11 @@ owned here. The first telemetry application belongs to
 `vehicle-telemetry-service`; end-to-end macOS/AosVM orchestration belongs to
 `carla-aosedge-integration`.
 
-The current reviewable artifact is the draft
-[vehicle telemetry profile 0.1.0](contracts/vehicle-telemetry-profile/v0.1/profile.json).
-It defines the platform/service boundary but does not claim that a provider,
-consumer, package, or authorization flow has been implemented.
+The stable application boundary remains the draft
+[vehicle telemetry profile 0.1.1](contracts/vehicle-telemetry-profile/v0.1.1/profile.json).
+The AOS-2 implementation is described in
+[the provider design](docs/aos2-provider-design.md), including the accepted
+end-to-end CARLA-to-KUKSA qualification result.
 
 ## Repository Layout
 

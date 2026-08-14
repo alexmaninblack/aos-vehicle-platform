@@ -24,6 +24,12 @@ class ContractTests(unittest.TestCase):
     def test_published_profile_is_valid(self) -> None:
         VALIDATOR.validate_profile(self.profile)
 
+    def test_superseded_profile_remains_valid(self) -> None:
+        historical = VALIDATOR.load_profile(
+            ROOT / "contracts/vehicle-telemetry-profile/v0.1/profile.json"
+        )
+        VALIDATOR.validate_profile(historical)
+
     def test_carla_overlay_is_rejected(self) -> None:
         profile = copy.deepcopy(self.profile)
         profile["signals"][0]["path"] = "Vehicle.CarlaSimulation.Frame"

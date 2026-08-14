@@ -1,0 +1,108 @@
+{
+  "$schema": "../contract.schema.json",
+  "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: Apache-2.0",
+  "license": {
+    "copyright": "2026 maninblack",
+    "spdx": "Apache-2.0"
+  },
+  "schemaVersion": 1,
+  "contract": {
+    "id": "io.github.alexmaninblack.vehicle-telemetry-profile",
+    "version": "0.1.1",
+    "status": "draft",
+    "description": "Prototype vehicle dynamics telemetry shared by platform providers and Aos services."
+  },
+  "compatibility": {
+    "brokerVssVersion": "5.0",
+    "sourceVssVersion": "6.0",
+    "kuksaDatabrokerVersion": "0.5.0",
+    "kuksaApi": "kuksa.val.v1",
+    "architecture": "arm64"
+  },
+  "defaults": {
+    "nominalUpdateRateHz": 30,
+    "minimumUpdateRateHz": 20,
+    "freshnessTimeoutMs": 250,
+    "staleBehavior": "mark-unavailable",
+    "unavailableBehavior": "do-not-substitute"
+  },
+  "signals": [
+    {
+      "path": "Vehicle.Speed",
+      "datatype": "float",
+      "unit": "km/h",
+      "required": true,
+      "validRange": { "kind": "minimum", "minimum": 0 },
+      "permissions": {
+        "provider": "provide:Vehicle.Speed",
+        "consumer": "read:Vehicle.Speed"
+      }
+    },
+    {
+      "path": "Vehicle.Acceleration.Longitudinal",
+      "datatype": "float",
+      "unit": "m/s^2",
+      "required": true,
+      "validRange": { "kind": "finite" },
+      "permissions": {
+        "provider": "provide:Vehicle.Acceleration.Longitudinal",
+        "consumer": "read:Vehicle.Acceleration.Longitudinal"
+      }
+    },
+    {
+      "path": "Vehicle.Acceleration.Lateral",
+      "datatype": "float",
+      "unit": "m/s^2",
+      "required": true,
+      "validRange": { "kind": "finite" },
+      "permissions": {
+        "provider": "provide:Vehicle.Acceleration.Lateral",
+        "consumer": "read:Vehicle.Acceleration.Lateral"
+      }
+    },
+    {
+      "path": "Vehicle.Acceleration.Vertical",
+      "datatype": "float",
+      "unit": "m/s^2",
+      "required": true,
+      "validRange": { "kind": "finite" },
+      "permissions": {
+        "provider": "provide:Vehicle.Acceleration.Vertical",
+        "consumer": "read:Vehicle.Acceleration.Vertical"
+      }
+    },
+    {
+      "path": "Vehicle.Chassis.Accelerator.PedalPosition",
+      "datatype": "uint8",
+      "unit": "percent",
+      "required": true,
+      "validRange": { "kind": "closed", "minimum": 0, "maximum": 100 },
+      "permissions": {
+        "provider": "provide:Vehicle.Chassis.Accelerator.PedalPosition",
+        "consumer": "read:Vehicle.Chassis.Accelerator.PedalPosition"
+      }
+    },
+    {
+      "path": "Vehicle.Chassis.Brake.PedalPosition",
+      "datatype": "uint8",
+      "unit": "percent",
+      "required": true,
+      "validRange": { "kind": "closed", "minimum": 0, "maximum": 100 },
+      "permissions": {
+        "provider": "provide:Vehicle.Chassis.Brake.PedalPosition",
+        "consumer": "read:Vehicle.Chassis.Brake.PedalPosition"
+      }
+    },
+    {
+      "path": "Vehicle.Chassis.Axle.Row1.SteeringAngle",
+      "datatype": "float",
+      "unit": "degrees",
+      "required": true,
+      "validRange": { "kind": "finite" },
+      "permissions": {
+        "provider": "provide:Vehicle.Chassis.Axle.Row1.SteeringAngle",
+        "consumer": "read:Vehicle.Chassis.Axle.Row1.SteeringAngle"
+      }
+    }
+  ]
+}

@@ -1,0 +1,114 @@
+#!/bin/sh
+
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+set -eu
+umask 077
+
+version=0.1.0
+bundle_root=${1:-}
+viss_ca=${2:-}
+kuksa_token=${3:-}
+kuksa_public_key=${4:-}
+platform_parent=/var/lib/aos-vehicle-platform
+platform_root="$platform_parent/carla-viss-kuksa"
+version_root="$platform_root/$version"
+staging_root="$platform_root/.$version.$$"
+root_remounted_rw=0
+
+fail() {
+    printf 'Error: %s\n' "$*" >&2
+    exit 1
+}
+
+cleanup() {
+    if [ -d "$staging_root" ] && [ ! -L "$staging_root" ]; then
+        rm -rf "$staging_root"
+    fi
+    if [ "$root_remounted_rw" -eq 1 ]; then
+        mount -o remount,ro / >/dev/null 2>&1 || true
+    fi
+}
+trap cleanup EXIT HUP INT TERM
+
+[ "$(uname -m)" = aarch64 ] || fail 'the provider package requires an AArch64 guest'
+[ -e /var/aos/.provisionstate ] || fail 'the AosVM is not provisioned'
+[ -n "$bundle_root" ] && [ -d "$bundle_root" ] && [ ! -L "$bundle_root" ] ||
+    fail 'a safe extracted bundle directory is required'
+for input_file in "$viss_ca" "$kuksa_token" "$kuksa_public_key"; do
+    [ -f "$input_file" ] && [ ! -L "$input_file" ] ||
+        fail "required input is not a safe regular file: $input_file"
+done
+[ "$(wc -l <"$kuksa_token" | tr -d ' ')" = 1 ] ||
+    fail 'the KUKSA token must contain exactly one line'
+findmnt -n -o OPTIONS / | tr ',' '\n' | grep -qx ro ||
+    fail 'the root filesystem must be read-only before installation'
+systemctl is-active --quiet kuksa-databroker.service ||
+    fail 'KUKSA Databroker must be active before installation'
+
+mkdir -p "$platform_parent" "$platform_root" "$platform_root/trust" \
+    "$platform_root/credentials"
+chmod 0755 "$platform_parent" "$platform_root" "$platform_root/trust"
+chmod 0700 "$platform_root/credentials"
+
+if [ ! -d "$version_root" ]; then
+    [ ! -e "$staging_root" ] || fail "unsafe staging collision: $staging_root"
+    mkdir -p "$staging_root/app" "$staging_root/wheels"
+    cp -R "$bundle_root/app/carla_viss_kuksa_provider" "$staging_root/app/"
+    cp "$bundle_root/requirements-arm64.txt" "$staging_root/"
+    cp "$bundle_root/wheels"/*.whl "$staging_root/wheels/"
+    python3 -m venv "$staging_root/venv"
+    "$staging_root/venv/bin/pip" install \
+        --no-index --no-deps --require-hashes \
+        --find-links "$staging_root/wheels" \
+        --requirement "$staging_root/requirements-arm64.txt"
+    PYTHONPATH="$staging_root/app" "$staging_root/venv/bin/python" \
+        "$bundle_root/packaging/verify-runtime.py"
+    chmod -R go+rX "$staging_root"
+    mv "$staging_root" "$version_root"
+fi
+
+install -m 0644 "$bundle_root/config.json" "$platform_root/.config.json.new"
+mv "$platform_root/.config.json.new" "$platform_root/config.json"
+install -m 0644 "$viss_ca" "$platform_root/trust/.carla-viss-ca.pem.new"
+mv "$platform_root/trust/.carla-viss-ca.pem.new" \
+    "$platform_root/trust/carla-viss-ca.pem"
+install -m 0644 "$kuksa_public_key" \
+    "$platform_root/trust/.kuksa-jwt-public.pem.new"
+mv "$platform_root/trust/.kuksa-jwt-public.pem.new" \
+    "$platform_root/trust/kuksa-jwt-public.pem"
+install -m 0600 "$kuksa_token" "$platform_root/credentials/.kuksa-token.new"
+mv "$platform_root/credentials/.kuksa-token.new" \
+    "$platform_root/credentials/kuksa-token"
+ln -sfn "$version_root" "$platform_root/current"
+restorecon -RF "$platform_root" >/dev/null 2>&1 || true
+
+mount -o remount,rw / || fail 'cannot remount the root filesystem read-write'
+root_remounted_rw=1
+install -m 0644 "$bundle_root/packaging/carla-kuksa-provider.service" \
+    /etc/systemd/system/carla-kuksa-provider.service
+mkdir -p /etc/systemd/system/kuksa-databroker.service.d
+install -m 0644 "$bundle_root/packaging/kuksa-databroker-jwt.conf" \
+    /etc/systemd/system/kuksa-databroker.service.d/20-aos-vehicle-platform-jwt.conf
+restorecon -F /etc/systemd/system/carla-kuksa-provider.service \
+    /etc/systemd/system/kuksa-databroker.service.d/20-aos-vehicle-platform-jwt.conf \
+    >/dev/null 2>&1 || true
+systemctl daemon-reload
+systemctl enable carla-kuksa-provider.service
+systemctl reset-failed carla-kuksa-provider.service >/dev/null 2>&1 || true
+mount -o remount,ro / || fail 'cannot return the root filesystem to read-only mode'
+root_remounted_rw=0
+
+systemctl restart kuksa-databroker.service
+systemctl restart carla-kuksa-provider.service
+systemctl is-active --quiet kuksa-databroker.service ||
+    fail 'KUKSA Databroker did not recover after JWT trust update'
+systemctl show kuksa-databroker.service -p ExecStart --value |
+    grep -Fq "$platform_root/trust/kuksa-jwt-public.pem" ||
+    fail 'KUKSA Databroker did not activate the project-owned JWT verifier'
+systemctl is-active --quiet carla-kuksa-provider.service ||
+    fail 'CARLA KUKSA provider did not become active'
+
+printf 'Installed CARLA VISS-to-KUKSA provider %s in the persistent AosVM overlay.\n' \
+    "$version"

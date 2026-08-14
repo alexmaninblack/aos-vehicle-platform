@@ -77,7 +77,7 @@
       "properties": {
         "path": { "type": "string", "pattern": "^Vehicle\\." },
         "datatype": { "enum": ["float", "uint8"] },
-        "unit": { "enum": ["km/h", "m/s^2", "percent", "degree"] },
+        "unit": { "enum": ["km/h", "m/s^2", "percent", "degree", "degrees"] },
         "required": { "const": true },
         "validRange": {
           "oneOf": [

@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+# Runtime-only wheel set for CPython 3.12 on manylinux2014 AArch64.
+# grpcio-tools and the KUKSA CLI-only packages aren't needed by the provider.
+kuksa-client==0.5.0 \
+    --hash=sha256:c60404292e5ded4e0436b1c8568e9daf4981c4db94907b96f482173ed9ce2c4a
+grpcio==1.75.0 \
+    --hash=sha256:36764a4ad9dc1eb891042fab51e8cdf7cc014ad82cee807c10796fb708455041
+protobuf==5.29.5 \
+    --hash=sha256:fa18533a299d7ab6c55a238bf8629311439995f2e7eca5caaff08663606e9015
+websockets==15.0.1 \
+    --hash=sha256:e8b56bdcdb4505c8078cb6c7157d9811a85790f2f2b3632c7d1462ab5783d215
+typing-extensions==4.15.0 \
+    --hash=sha256:f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548

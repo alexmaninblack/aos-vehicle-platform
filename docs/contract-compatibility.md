@@ -15,6 +15,11 @@ The contract uses semantic versioning independently from repository releases.
 Consumers declare a compatible contract range. An integration baseline pins
 one exact contract file and its SHA-256 digest.
 
+Draft 0.1.1 is a metadata-only patch: both pinned VSS trees use the unit token
+`degrees` for `Vehicle.Chassis.Axle.Row1.SteeringAngle`, while draft 0.1.0 used
+the non-standard singular spelling. The underlying value remains degrees and
+no provider or consumer conversion changes.
+
 ## Availability and Freshness
 
 Every profile signal is part of the required interface, but a live value can

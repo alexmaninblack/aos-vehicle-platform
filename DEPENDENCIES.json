@@ -1,7 +1,48 @@
 {
   "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: Apache-2.0",
   "schemaVersion": 1,
-  "runtime": [],
+  "runtime": [
+    {
+      "name": "Eclipse KUKSA Python SDK",
+      "revision": "e47a0b97f7f24b2fc1226c18538e4d8a376f8c69",
+      "displayVersion": "0.5.0",
+      "license": "Apache-2.0",
+      "source": "https://github.com/eclipse-kuksa/kuksa-python-sdk",
+      "artifactSha256": "c60404292e5ded4e0436b1c8568e9daf4981c4db94907b96f482173ed9ce2c4a"
+    },
+    {
+      "name": "gRPC Python",
+      "revision": "093085cc925e0d5aa6e92bc29e917f9bdc00add2",
+      "displayVersion": "1.75.0",
+      "license": "Apache-2.0",
+      "source": "https://github.com/grpc/grpc",
+      "artifactSha256": "36764a4ad9dc1eb891042fab51e8cdf7cc014ad82cee807c10796fb708455041"
+    },
+    {
+      "name": "Protocol Buffers Python runtime",
+      "revision": "f5de0a0495faa63b4186fc767324f8b9a7bf4fc4",
+      "displayVersion": "5.29.5",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/protocolbuffers/protobuf",
+      "artifactSha256": "fa18533a299d7ab6c55a238bf8629311439995f2e7eca5caaff08663606e9015"
+    },
+    {
+      "name": "websockets",
+      "revision": "37c9bc0781f0cc5af7c729947ef1833c1e12b70d",
+      "displayVersion": "15.0.1",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/python-websockets/websockets",
+      "artifactSha256": "e8b56bdcdb4505c8078cb6c7157d9811a85790f2f2b3632c7d1462ab5783d215"
+    },
+    {
+      "name": "typing_extensions",
+      "revision": "9d1637e264b5c1a6b7acee3e907015f89b20c2c9",
+      "displayVersion": "4.15.0",
+      "license": "PSF-2.0",
+      "source": "https://github.com/python/typing_extensions",
+      "artifactSha256": "f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548"
+    }
+  ],
   "build": [],
   "ci": [
     {

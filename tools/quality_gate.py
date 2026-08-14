@@ -20,7 +20,15 @@ BINARY_SUFFIXES = {
     ".jar", ".jks", ".key", ".ova", ".ovf", ".p12", ".pfx", ".pem",
     ".qcow2", ".tar", ".war", ".zip",
 }
-ALLOWED_DEPENDENCY_LICENSES = {"Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "GPL-3.0-or-later", "MIT", "MPL-2.0"}
+ALLOWED_DEPENDENCY_LICENSES = {
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "GPL-3.0-or-later",
+    "MIT",
+    "MPL-2.0",
+    "PSF-2.0",
+}
 
 
 def tracked_files() -> list[Path]:

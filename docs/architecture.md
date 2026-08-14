@@ -56,6 +56,7 @@ design and must never be committed.
 
 ## Current Status
 
-R-2 publishes a reviewable draft contract and static gates only. Provider
-behavior, KUKSA configuration, AosVM packaging, and Authorization Adapter
-behavior remain intentionally unimplemented.
+R-0 through R-5 and AOS-2 are accepted. The integration repository qualified
+live VISS input, atomic KUKSA output, unavailable/stale handling, restart
+behavior, and the host-only network boundary on the provisioned ARM64 AosVM.
+The Authorization Adapter remains deferred to AOS-5.

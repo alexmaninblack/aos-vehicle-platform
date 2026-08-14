@@ -16,7 +16,7 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_PROFILE = ROOT / "contracts/vehicle-telemetry-profile/v0.1/profile.json"
+DEFAULT_PROFILE = ROOT / "contracts/vehicle-telemetry-profile/v0.1.1/profile.json"
 EXPECTED_SIGNALS = {
     "Vehicle.Speed": ("float", "km/h"),
     "Vehicle.Acceleration.Longitudinal": ("float", "m/s^2"),
@@ -24,7 +24,7 @@ EXPECTED_SIGNALS = {
     "Vehicle.Acceleration.Vertical": ("float", "m/s^2"),
     "Vehicle.Chassis.Accelerator.PedalPosition": ("uint8", "percent"),
     "Vehicle.Chassis.Brake.PedalPosition": ("uint8", "percent"),
-    "Vehicle.Chassis.Axle.Row1.SteeringAngle": ("float", "degree"),
+    "Vehicle.Chassis.Axle.Row1.SteeringAngle": ("float", "degrees"),
 }
 
 
@@ -71,6 +71,12 @@ def validate_profile(profile: dict[str, Any]) -> None:
         "R-2 contract version must be semantic version 0.x",
     )
     _require(contract.get("status") == "draft", "R-2 contract must remain draft")
+    expected_signals = dict(EXPECTED_SIGNALS)
+    if version == "0.1.0":
+        expected_signals["Vehicle.Chassis.Axle.Row1.SteeringAngle"] = (
+            "float",
+            "degree",
+        )
 
     compatibility = profile.get("compatibility")
     expected_compatibility = {
@@ -114,7 +120,7 @@ def validate_profile(profile: dict[str, Any]) -> None:
         _require("CarlaSimulation" not in path, f"{path} is a CARLA-specific overlay path")
         paths.append(path)
 
-        expected_type_unit = EXPECTED_SIGNALS.get(path)
+        expected_type_unit = expected_signals.get(path)
         _require(expected_type_unit is not None, f"unexpected signal path: {path}")
         _require(
             (signal.get("datatype"), signal.get("unit")) == expected_type_unit,
@@ -138,7 +144,10 @@ def validate_profile(profile: dict[str, Any]) -> None:
             _require(valid_range["minimum"] <= valid_range["maximum"], f"{path} range is inverted")
 
     _require(len(paths) == len(set(paths)), "signal paths must be unique")
-    _require(set(paths) == set(EXPECTED_SIGNALS), "profile must contain the approved R-2 signal set")
+    _require(
+        set(paths) == set(expected_signals),
+        "profile must contain the approved R-2 signal set",
+    )
 
 
 def main() -> int:
