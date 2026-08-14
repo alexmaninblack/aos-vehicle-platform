@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sys/stat.h>
@@ -18,6 +19,7 @@
 #include <core/sm/tests/mocks/iteminfoprovidermock.hpp>
 
 #include <sm/tests/mocks/systemdconnmock.hpp>
+#include <sm/utils/systemdconn.hpp>
 
 #include "providerarchive.hpp"
 #include "providerprofile.hpp"
@@ -87,7 +89,11 @@ protected:
     ON_CALL(mProfile, CheckHealth()).WillByDefault(Return(ErrorEnum::eNone));
   }
 
-  void TearDown() override { std::filesystem::remove_all(mWorkingDir); }
+  void TearDown() override {
+    if (!mPreserveWorkingDir) {
+      std::filesystem::remove_all(mWorkingDir);
+    }
+  }
 
   RuntimeConfig CreateConfig(uint64_t minimumFreeBytes = 1) const {
     auto config = Poco::makeShared<Poco::JSON::Object>();
@@ -256,7 +262,102 @@ protected:
   NiceMock<ProviderProfileMock> mProfile;
   std::filesystem::path mWorkingDir;
   NodeInfo mNodeInfo;
+  bool mPreserveWorkingDir{};
 };
+
+TEST_F(SystemdSlotComponentRuntimeTest,
+       RealProviderFirstInstallThroughProductionProfile) {
+  const char *payloadValue = std::getenv("R61_REAL_PROVIDER_PAYLOAD_020");
+  if (payloadValue == nullptr) {
+    GTEST_SKIP() << "real provider qualification is not requested";
+  }
+  ASSERT_EQ(getuid(), 0);
+
+  std::filesystem::remove_all(mWorkingDir);
+  mWorkingDir =
+      "/var/aos/workdirs/sm/runtimes/systemd-slot-component";
+  mPreserveWorkingDir = true;
+  ASSERT_FALSE(std::filesystem::exists(mWorkingDir / "active"));
+  ASSERT_TRUE(std::filesystem::is_empty(mWorkingDir / "slots"));
+
+  auto config = CreateConfig(64 * 1024 * 1024);
+  config.mConfig->set("maxPayloadBytes", 128 * 1024 * 1024);
+  sm::utils::SystemdConn systemdConn;
+  SystemdSlotComponentRuntime runtime;
+  ASSERT_TRUE(runtime
+                  .Init(config, mNodeInfoProvider, mItemInfoProvider, mOCISpec,
+                        mStatusReceiver, systemdConn)
+                  .IsNone());
+  ASSERT_TRUE(runtime.Start().IsNone());
+
+  RuntimeInfo info;
+  ASSERT_TRUE(runtime.GetRuntimeInfo(info).IsNone());
+  const auto instance =
+      CreateInstance(info, "0.2.0", "sha256:r61-real-provider-020");
+  ExpectPayload(instance, payloadValue, 32 * 1024 * 1024);
+
+  InstanceStatus status;
+  const auto error = runtime.StartInstance(instance, status);
+  ASSERT_TRUE(error.IsNone()) << tests::utils::ErrorToStr(error);
+  EXPECT_EQ(status.mState, InstanceStateEnum::eActive);
+  EXPECT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
+            std::filesystem::path("slots/a"));
+}
+
+TEST_F(SystemdSlotComponentRuntimeTest,
+       RealProviderUpdateAndRollbackThroughProductionProfile) {
+  const char *updateValue = std::getenv("R61_REAL_PROVIDER_PAYLOAD_030");
+  const char *badValue = std::getenv("R61_REAL_PROVIDER_PAYLOAD_040_BAD");
+  if (updateValue == nullptr || badValue == nullptr) {
+    GTEST_SKIP() << "real provider qualification is not requested";
+  }
+  ASSERT_EQ(getuid(), 0);
+
+  std::filesystem::remove_all(mWorkingDir);
+  mWorkingDir =
+      "/var/aos/workdirs/sm/runtimes/systemd-slot-component";
+  mPreserveWorkingDir = true;
+  ASSERT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
+            std::filesystem::path("slots/a"));
+
+  auto config = CreateConfig(64 * 1024 * 1024);
+  config.mConfig->set("maxPayloadBytes", 128 * 1024 * 1024);
+  sm::utils::SystemdConn systemdConn;
+  SystemdSlotComponentRuntime runtime;
+  ASSERT_TRUE(runtime
+                  .Init(config, mNodeInfoProvider, mItemInfoProvider, mOCISpec,
+                        mStatusReceiver, systemdConn)
+                  .IsNone());
+  ASSERT_TRUE(runtime.Start().IsNone());
+
+  RuntimeInfo info;
+  ASSERT_TRUE(runtime.GetRuntimeInfo(info).IsNone());
+  const auto update =
+      CreateInstance(info, "0.3.0", "sha256:r61-real-provider-030");
+  ExpectPayload(update, updateValue, 32 * 1024 * 1024);
+  InstanceStatus status;
+  auto error = runtime.StartInstance(update, status);
+  ASSERT_TRUE(error.IsNone()) << tests::utils::ErrorToStr(error);
+  ASSERT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
+            std::filesystem::path("slots/b"));
+
+  const auto downgrade =
+      CreateInstance(info, "0.2.0", "sha256:r61-real-provider-downgrade");
+  error = runtime.StartInstance(downgrade, status);
+  EXPECT_TRUE(error.Is(ErrorEnum::eInvalidArgument))
+      << tests::utils::ErrorToStr(error);
+  EXPECT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
+            std::filesystem::path("slots/b"));
+
+  const auto bad =
+      CreateInstance(info, "0.4.0", "sha256:r61-real-provider-bad");
+  ExpectPayload(bad, badValue, 32 * 1024 * 1024);
+  error = runtime.StartInstance(bad, status);
+  EXPECT_FALSE(error.IsNone());
+  EXPECT_EQ(status.mState, InstanceStateEnum::eFailed);
+  EXPECT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
+            std::filesystem::path("slots/b"));
+}
 
 TEST_F(SystemdSlotComponentRuntimeTest, RequiresTheFixedBootstrapContract) {
   SystemdSlotComponentRuntime runtime(&mProfile);

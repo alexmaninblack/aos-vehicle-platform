@@ -11,6 +11,7 @@ set(LIBRARIES
     aos::core::sm::tests::mocks
     aos::sm::imagemanager
     aos::sm::runtimes::systemdslotcomponent
+    aos::sm::utils
     GTest::gmock_main
 )
 
