@@ -22,3 +22,8 @@ to this repository.
 
 AosEdge, COVESA VSS, CARLA, and their protocols are also referenced for
 architecture and compatibility. Their code isn't copied into this repository.
+
+The R6.1 qualification probe compiles against exact Apache-2.0 AosCore C++ and
+AosCore API revisions. A small Apache-2.0 downstream patch adds an explicit,
+disabled-by-default external runtime hook and extends upstream tests. The
+upstream source is fetched only into the isolated builder and isn't vendored.

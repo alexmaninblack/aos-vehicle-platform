@@ -43,7 +43,29 @@
       "artifactSha256": "f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548"
     }
   ],
-  "build": [],
+  "build": [
+    {
+      "name": "AosCore C++",
+      "revision": "9eecb80c4994937b5c8cbe0464970f81e8ad4c2d",
+      "displayVersion": "AosVM 6.1.0 Service Manager recipe SRCREV",
+      "license": "Apache-2.0",
+      "source": "https://github.com/AosEdge/aos_core_cpp"
+    },
+    {
+      "name": "AosCore C++ library",
+      "revision": "60cb83535f773762c61ac5f544b31b7b88c502e3",
+      "displayVersion": "v9.1.0",
+      "license": "Apache-2.0",
+      "source": "https://github.com/AosEdge/aos_core_lib_cpp"
+    },
+    {
+      "name": "AosCore API",
+      "revision": "af3552a0a5eb0237eff7f5f183780ca46c339cd3",
+      "displayVersion": "v9.1.0",
+      "license": "Apache-2.0",
+      "source": "https://github.com/AosEdge/aos_core_api"
+    }
+  ],
   "ci": [
     {
       "name": "actions/checkout",

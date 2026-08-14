@@ -11,8 +11,10 @@ providers.
 Repository separation R-0 through R-5 and AOS-2 are complete. The
 development-only CARLA VISS-to-KUKSA provider, its ARM64 offline runtime lock,
 guarded AosVM packaging, fail-safe stale handling, and clean-restart behavior
-passed end-to-end qualification on 2026-08-14. The future Authorization
-Adapter and production vehicle providers aren't implemented or claimed
+passed end-to-end qualification on 2026-08-14. R6.1-1 also proved and accepted
+the Service Manager runtime mechanism for a future independent provider FOTA
+component. The production A/B runtime, FOTA payload, future Authorization
+Adapter, and production vehicle providers aren't implemented or claimed
 operational yet.
 
 ## Ownership Boundary
@@ -47,6 +49,7 @@ end-to-end CARLA-to-KUKSA qualification result.
 - `config/kuksa/`: non-secret KUKSA platform configuration boundary;
 - `packaging/aosvm/`: system packaging boundary;
 - `authorization/aos-kuksa/`: deferred AOS-5 Authorization Adapter boundary;
+- `qualification/r6-1/`: qualification-only Service Manager runtime probe;
 - `tests/` and `tools/`: static contract and repository quality gates;
 - `docs/`: architecture and compatibility policy.
 
