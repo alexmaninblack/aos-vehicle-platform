@@ -390,12 +390,12 @@ TEST_F(SystemdSlotComponentRuntimeTest, InstallsFirstReleaseAtomically) {
   const auto instance = CreateInstance(info, "0.2.0", "sha256:release020");
   const auto payload = CreatePayload("020", "0.2.0");
   ExpectPayload(instance, payload);
+  EXPECT_CALL(mProfile, StopProvider()).Times(0);
 
   {
     InSequence sequence;
     EXPECT_CALL(mProfile, OfflineSelfTest(mWorkingDir / "slots/a"));
     EXPECT_CALL(mProfile, MarkUnavailable());
-    EXPECT_CALL(mProfile, StopProvider());
     EXPECT_CALL(mProfile, StartProvider());
     EXPECT_CALL(mProfile, CheckHealth());
   }

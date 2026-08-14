@@ -1000,8 +1000,10 @@ Error SystemdSlotComponentRuntime::Activate(
     return AOS_ERROR_WRAP(err);
   }
 
-  if (auto err = mProfile->StopProvider(); !err.IsNone()) {
-    return AOS_ERROR_WRAP(err);
+  if (previous.has_value()) {
+    if (auto err = mProfile->StopProvider(); !err.IsNone()) {
+      return AOS_ERROR_WRAP(err);
+    }
   }
   transaction->mPhase = ComponentTransactionPhase::ePreviousStopped;
   if (auto err = SaveTransaction(*transaction); !err.IsNone()) {
