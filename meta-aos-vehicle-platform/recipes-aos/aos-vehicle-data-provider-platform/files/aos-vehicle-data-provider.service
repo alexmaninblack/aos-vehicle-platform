@@ -14,6 +14,7 @@ ConditionFileIsExecutable=/var/aos/workdirs/sm/runtimes/systemd-slot-component/a
 Type=simple
 DynamicUser=yes
 ExecStart=/usr/libexec/aos-vehicle-data-provider-launcher
+ExecReload=/usr/libexec/aos-vehicle-data-provider-launcher --mark-unavailable
 LoadCredential=kuksa-token:/var/aos/workdirs/sm/runtimes/systemd-slot-component/credentials/kuksa-token
 Restart=on-failure
 RestartSec=2s

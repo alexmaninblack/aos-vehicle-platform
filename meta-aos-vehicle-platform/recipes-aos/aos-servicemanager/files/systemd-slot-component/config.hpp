@@ -20,7 +20,12 @@ namespace aos::sm::launcher {
 struct SystemdSlotComponentConfig {
   std::filesystem::path mWorkingDir;
   std::string mUnit;
+  std::filesystem::path mHealthAdapter;
   uint32_t mLayoutVersion{};
+  uint64_t mMaxPayloadBytes{};
+  uint64_t mMinimumFreeBytes{};
+  uint32_t mStartTimeoutSeconds{};
+  uint32_t mStopTimeoutSeconds{};
 };
 
 /** Parses and validates the bootstrap runtime configuration. */

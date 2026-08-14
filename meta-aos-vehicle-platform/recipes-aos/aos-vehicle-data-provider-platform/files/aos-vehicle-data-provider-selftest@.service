@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+[Unit]
+Description=Aos vehicle data provider component self-test for slot %i
+ConditionPathIsDirectory=/var/aos/workdirs/sm/runtimes/systemd-slot-component/slots/%i
+ConditionFileIsExecutable=/var/aos/workdirs/sm/runtimes/systemd-slot-component/slots/%i/bin/vehicle-data-provider
+
+[Service]
+Type=oneshot
+DynamicUser=yes
+ExecStart=/usr/libexec/aos-vehicle-data-provider-launcher --self-test %i
+TimeoutStartSec=25s
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 SUMMARY = "Bootstrap profile for the Aos vehicle data provider component"
-DESCRIPTION = "Fixed launcher, empty-store, health, and systemd interfaces for the OEM FOTA provider runtime"
+DESCRIPTION = "Fixed launcher, atomic A/B lifecycle, health, and systemd interfaces for the OEM FOTA provider runtime"
 LICENSE = "Apache-2.0"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/Apache-2.0;md5=89aea4e17d99a7cacdbeed46a0096b10"
 
@@ -10,6 +10,7 @@ SRC_URI = " \
     file://aos-vehicle-data-provider-launcher.c \
     file://aos-vehicle-data-provider-health \
     file://aos-vehicle-data-provider.service \
+    file://aos-vehicle-data-provider-selftest@.service \
     file://aos-vehicle-data-provider-bootstrap.service \
     file://aos-vehicle-data-provider.conf \
     file://30-aos-vehicle-data-provider.conf \
@@ -35,6 +36,8 @@ do_install() {
 
     install -d ${D}${systemd_system_unitdir}
     install -m 0644 ${WORKDIR}/aos-vehicle-data-provider.service ${D}${systemd_system_unitdir}
+    install -m 0644 ${WORKDIR}/aos-vehicle-data-provider-selftest@.service \
+        ${D}${systemd_system_unitdir}
     install -m 0644 ${WORKDIR}/aos-vehicle-data-provider-bootstrap.service ${D}${systemd_system_unitdir}
 
     install -d ${D}${nonarch_libdir}/tmpfiles.d
@@ -49,6 +52,7 @@ FILES:${PN} += " \
     ${libexecdir}/aos-vehicle-data-provider-launcher \
     ${libexecdir}/aos-vehicle-data-provider-health \
     ${systemd_system_unitdir}/aos-vehicle-data-provider.service \
+    ${systemd_system_unitdir}/aos-vehicle-data-provider-selftest@.service \
     ${nonarch_libdir}/tmpfiles.d/aos-vehicle-data-provider.conf \
     ${sysconfdir}/systemd/system/aos-sm.service.d/30-aos-vehicle-data-provider.conf \
 "

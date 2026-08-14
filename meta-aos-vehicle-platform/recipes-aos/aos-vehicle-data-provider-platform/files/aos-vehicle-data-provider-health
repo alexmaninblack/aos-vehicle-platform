@@ -6,6 +6,87 @@ set -eu
 
 root=/var/aos/workdirs/sm/runtimes/systemd-slot-component
 active=$root/active
+unit=aos-vehicle-data-provider.service
+
+fail() {
+    printf 'STATE=%s\n' "$1" >&2
+    exit 1
+}
+
+run_bounded() {
+    seconds=$1
+    shift
+    "$@" >/dev/null &
+    command_pid=$!
+    (
+        sleep "$seconds"
+        kill -TERM "$command_pid" 2>/dev/null || exit 0
+        sleep 1
+        kill -KILL "$command_pid" 2>/dev/null || true
+    ) &
+    watchdog_pid=$!
+
+    set +e
+    wait "$command_pid"
+    command_status=$?
+    kill -TERM "$watchdog_pid" 2>/dev/null
+    wait "$watchdog_pid" 2>/dev/null
+    set -e
+
+    return "$command_status"
+}
+
+validate_slot() {
+    slot=${1:-}
+    case "$slot" in
+        "$root/slots/a"|"$root/slots/b") ;;
+        *) fail INVALID_SLOT ;;
+    esac
+    [ -d "$slot" ] && [ ! -L "$slot" ] || fail INVALID_SLOT
+    [ -f "$slot/bin/vehicle-data-provider" ] &&
+        [ ! -L "$slot/bin/vehicle-data-provider" ] &&
+        [ -x "$slot/bin/vehicle-data-provider" ] || fail INVALID_ENTRYPOINT
+    [ -f "$slot/config/provider.json" ] &&
+        [ ! -L "$slot/config/provider.json" ] || fail INVALID_CONFIGURATION
+}
+
+operation=${1:-active}
+
+case "$operation" in
+    offline)
+        [ "$#" -eq 2 ] || fail INVALID_ARGUMENTS
+        validate_slot "$2"
+        case "$2" in
+            "$root/slots/a") slot=a ;;
+            "$root/slots/b") slot=b ;;
+        esac
+        run_bounded 30 systemctl start \
+            "aos-vehicle-data-provider-selftest@$slot.service" ||
+            fail OFFLINE_SELF_TEST_FAILED
+        printf 'STATE=PREPARED\n'
+        exit 0
+        ;;
+    unavailable)
+        [ "$#" -eq 1 ] || fail INVALID_ARGUMENTS
+        if [ ! -L "$active" ]; then
+            printf 'STATE=UNAVAILABLE\n'
+            exit 0
+        fi
+        case "$(readlink "$active")" in
+            slots/a|slots/b) ;;
+            *) fail INVALID_ACTIVE_SLOT ;;
+        esac
+        validate_slot "$root/$(readlink "$active")"
+        run_bounded 15 systemctl reload "$unit" ||
+            fail UNAVAILABLE_UPDATE_FAILED
+        printf 'STATE=UNAVAILABLE\n'
+        exit 0
+        ;;
+    active)
+        [ "$#" -eq 1 ] || fail INVALID_ARGUMENTS
+        ;;
+    *) fail INVALID_OPERATION ;;
+esac
 
 if [ ! -L "$active" ]; then
     printf 'STATE=EMPTY\n'
@@ -20,7 +101,7 @@ case "$(readlink "$active")" in
         ;;
 esac
 
-if ! systemctl is-active --quiet aos-vehicle-data-provider.service; then
+if ! run_bounded 5 systemctl is-active --quiet "$unit"; then
     printf 'STATE=INACTIVE\n' >&2
     exit 1
 fi

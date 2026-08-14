@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 maninblack
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for the R6.1-2 Yocto bootstrap layer validator."""
+"""Tests for the R6.1 atomic component lifecycle layer validator."""
 
 from __future__ import annotations
 
@@ -30,7 +30,18 @@ class R61LayerTests(unittest.TestCase):
         content = validate_r6_1_layer.POLICY.read_text(encoding="utf-8")
         self.assertIn("init_read_runtime_files(vehicle_data_provider_t)", content)
         self.assertNotIn("init_read_runtime(vehicle_data_provider_t)", content)
-        self.assertIn("class service { start stop status };", content)
+        self.assertIn("class service { start stop status reload };", content)
+
+    def test_component_profile_is_bootstrap_owned(self) -> None:
+        health = validate_r6_1_layer.HEALTH_ADAPTER.read_text(encoding="utf-8")
+        launcher = validate_r6_1_layer.LAUNCHER.read_text(encoding="utf-8")
+        unit = validate_r6_1_layer.UNIT.read_text(encoding="utf-8")
+        self.assertIn("aos-vehicle-data-provider-selftest@$slot.service", health)
+        self.assertIn('systemctl reload "$unit"', health)
+        self.assertIn("systemctl is-active", health)
+        self.assertIn("--self-test", launcher)
+        self.assertIn("--mark-unavailable", launcher)
+        self.assertIn("ExecReload=", unit)
 
 
 if __name__ == "__main__":

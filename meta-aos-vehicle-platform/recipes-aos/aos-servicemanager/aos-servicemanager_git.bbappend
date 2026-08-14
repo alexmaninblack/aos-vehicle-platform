@@ -11,3 +11,9 @@ SRC_URI += " \
 EXTRA_OECMAKE:append = " \
     -DAOS_SYSTEMD_SLOT_COMPONENT_DIR=${WORKDIR}/systemd-slot-component \
 "
+
+do_configure:prepend() {
+    install -m 0644 \
+        ${WORKDIR}/systemd-slot-component/providerarchive.hpp \
+        ${S}/src/sm/imagemanager/providerarchive.hpp
+}

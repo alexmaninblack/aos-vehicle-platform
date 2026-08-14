@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 maninblack
 # SPDX-License-Identifier: Apache-2.0
 
-"""Validate the R6.1-2 Yocto bootstrap layer contract."""
+"""Validate the R6.1 atomic component lifecycle Yocto layer contract."""
 
 from __future__ import annotations
 
@@ -22,9 +22,25 @@ PATCH = (
     LAYER
     / "recipes-aos/aos-servicemanager/files/0001-add-production-systemd-slot-component-runtime.patch"
 )
+ARCHIVE = (
+    LAYER
+    / "recipes-aos/aos-servicemanager/files/systemd-slot-component/providerarchive.hpp"
+)
 UNIT = (
     LAYER
     / "recipes-aos/aos-vehicle-data-provider-platform/files/aos-vehicle-data-provider.service"
+)
+SELFTEST_UNIT = (
+    LAYER
+    / "recipes-aos/aos-vehicle-data-provider-platform/files/aos-vehicle-data-provider-selftest@.service"
+)
+LAUNCHER = (
+    LAYER
+    / "recipes-aos/aos-vehicle-data-provider-platform/files/aos-vehicle-data-provider-launcher.c"
+)
+HEALTH_ADAPTER = (
+    LAYER
+    / "recipes-aos/aos-vehicle-data-provider-platform/files/aos-vehicle-data-provider-health"
 )
 TMPFILES = (
     LAYER
@@ -91,22 +107,116 @@ def validate_layer() -> None:
     require("SystemdSlotComponentRuntime" in patch, "runtime factory patch is missing")
     require("qualification" not in patch.lower(), "qualification patch is selected")
     require("src/cm/" not in patch, "factory patch changes Communication Manager tests")
+    require(
+        "ValidateProviderArchive" in patch,
+        "Image Manager does not preflight the provider archive",
+    )
+    require(
+        "cProviderLayerMediaType" in patch,
+        "provider-specific OCI media type is not wired into Image Manager",
+    )
+
+    archive = read(ARCHIVE)
+    for token in (
+        "application/vnd.aos.vehicle-data-provider.layer.v1.tar",
+        "ValidateChecksum",
+        "ValidatePath",
+        "provider archive contains a link or special file",
+        "provider archive contains a duplicate path",
+        "provider archive permissions are unsafe",
+        "provider archive path is bootstrap-reserved",
+    ):
+        require(token in archive, f"provider archive preflight is missing: {token}")
 
     runtime = read(RUNTIME)
-    require("EnsureEmptyStore" in runtime, "empty-store bootstrap is missing")
+    for field, value in (
+        ("healthAdapter", "/usr/libexec/aos-vehicle-data-provider-health"),
+        ("maxPayloadBytes", 536870912),
+        ("minimumFreeBytes", 134217728),
+        ("startTimeoutSeconds", 30),
+        ("stopTimeoutSeconds", 15),
+    ):
+        require(runtime_config.get(field) == value, f"{field} changed")
+
+    for token in (
+        "ComponentTransactionPhase::ePrepared",
+        "ComponentTransactionPhase::eUnavailable",
+        "ComponentTransactionPhase::ePreviousStopped",
+        "ComponentTransactionPhase::eSwitched",
+        "ComponentTransactionPhase::eCandidateStarted",
+        "ValidateAndCopyPayload",
+        "OfflineSelfTest",
+        "MarkUnavailable",
+        "StopProvider",
+        "SwitchActive",
+        "StartProvider",
+        "CheckHealth",
+        "Rollback",
+        "SaveTransaction",
+        "SaveRelease",
+        "RemoveStateFile",
+    ):
+        require(token in runtime, f"atomic lifecycle operation is missing: {token}")
+    require("EnsureEmptyStore" not in runtime, "obsolete empty-store runtime remains")
     require(
-        "atomic component lifecycle is deferred to R6.1-3" in runtime,
-        "lifecycle gate is missing",
+        "atomic component lifecycle is deferred" not in runtime,
+        "obsolete lifecycle deferral remains",
     )
-    require("eNotSupported" in runtime, "bootstrap runtime does not fail closed")
+    require("RebootRequired" not in runtime, "component lifecycle requests a Node reboot")
+
+    profile = read(
+        LAYER
+        / "recipes-aos/aos-servicemanager/files/systemd-slot-component/providerprofile.cpp"
+    )
+    for operation in ("offline", "unavailable", "active"):
+        require(f'RunAdapter("{operation}"' in profile, f"{operation} profile call is missing")
+    require("StartUnit(" in profile, "provider start is not delegated to systemd")
+    require("StopUnit(" in profile, "provider stop is not delegated to systemd")
+
+    health = read(HEALTH_ADAPTER)
+    for operation in ("offline)", "unavailable)", "active)"):
+        require(operation in health, f"health adapter operation is missing: {operation}")
+    require(
+        "aos-vehicle-data-provider-selftest@$slot.service" in health,
+        "sandboxed offline provider self-test is missing",
+    )
+    require(
+        'systemctl reload "$unit"' in health,
+        "sandboxed fail-safe unavailability call is missing",
+    )
+    require(
+        "/bin/vehicle-data-provider\" --" not in health,
+        "health adapter executes provider payload directly",
+    )
+    require(
+        "run_bounded 5 systemctl is-active" in health,
+        "active provider health gate is missing or unbounded",
+    )
+    require("run_bounded" in health, "provider helper calls are not bounded")
+    require("timeout " not in health, "unavailable timeout binary leaked into profile")
 
     unit = read(UNIT)
     require("DynamicUser=yes" in unit, "provider unit lacks DynamicUser")
     require("ConditionFileIsExecutable=" in unit, "provider executable condition is missing")
     require("ProtectSystem=strict" in unit, "provider unit does not protect rootfs")
     require("CapabilityBoundingSet=\n" in unit, "provider capabilities are not empty")
+    require("ExecReload=" in unit, "provider unavailability reload hook is missing")
     install_section = unit.split("[Install]", 1)[1]
     require("WantedBy=" not in install_section, "provider unit must not be enabled")
+
+    selftest_unit = read(SELFTEST_UNIT)
+    require("Type=oneshot" in selftest_unit, "provider self-test is not one-shot")
+    require("DynamicUser=yes" in selftest_unit, "provider self-test lacks DynamicUser")
+    require("PrivateNetwork=yes" in selftest_unit, "provider self-test has network access")
+    require(
+        "CapabilityBoundingSet=\n" in selftest_unit,
+        "provider self-test capabilities are not empty",
+    )
+    require("[Install]" not in selftest_unit, "provider self-test must not be enabled")
+
+    launcher = read(LAUNCHER)
+    require("--self-test" in launcher, "launcher self-test mode is missing")
+    require("--mark-unavailable" in launcher, "launcher reload mode is missing")
 
     tmpfiles = read(TMPFILES)
     require(COMPONENT_ROOT in tmpfiles, "persistent component root is missing")
@@ -130,8 +240,14 @@ def validate_layer() -> None:
         "provider policy uses an unavailable refpolicy runtime interface",
     )
     require(
-        "class service { start stop status };" in policy,
+        "class service { start stop status reload };" in policy,
         "provider policy does not declare its systemd service permissions",
+    )
+    require(
+        "aos-vehicle-data-provider-health" not in read(
+            LAYER / "recipes-security/refpolicy/files/vehicle_data_provider.fc"
+        ),
+        "health controller incorrectly transitions into the payload domain",
     )
 
     policy_append = read(POLICY_APPEND)
@@ -161,7 +277,7 @@ def main() -> int:
     except LayerError as error:
         print(f"R6.1 Yocto layer validation failed: {error}", file=sys.stderr)
         return 1
-    print("R6.1 Yocto bootstrap layer validation passed.")
+    print("R6.1 Yocto atomic component lifecycle validation passed.")
     return 0
 
 

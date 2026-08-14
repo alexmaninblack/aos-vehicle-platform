@@ -3,8 +3,8 @@
 
 set(TARGET_NAME systemdslotcomponent)
 
-set(SOURCES config.cpp runtime.cpp)
-set(HEADERS config.hpp runtime.hpp)
+set(SOURCES config.cpp providerprofile.cpp runtime.cpp)
+set(HEADERS config.hpp providerarchive.hpp providerprofile.hpp runtime.hpp)
 
 set(LIBRARIES Poco::JSON aos::sm::runtimes::utils)
 set(HEADERS_BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR})
