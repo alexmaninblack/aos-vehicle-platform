@@ -5,7 +5,7 @@
 set -eu
 
 case "$0" in
-    /var/aos/workdirs/sm/runtimes/systemd-slot-component/slots/a/bin/vehicle-data-provider|
+    /var/aos/workdirs/sm/runtimes/systemd-slot-component/slots/a/bin/vehicle-data-provider|\
     /var/aos/workdirs/sm/runtimes/systemd-slot-component/slots/b/bin/vehicle-data-provider)
         component_root=${0%/bin/vehicle-data-provider}
         ;;

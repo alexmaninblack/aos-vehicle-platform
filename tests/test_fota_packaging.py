@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -39,6 +40,9 @@ class FotaPackagingTests(unittest.TestCase):
         self.assertIn("systemd-slot-component/slots/b/bin/vehicle-data-provider", entrypoint)
         self.assertIn("/usr/bin/python3 -I", entrypoint)
         self.assertNotIn("pip install", entrypoint)
+        subprocess.run(
+            ["sh", "-n", str(FOTA / "vehicle-data-provider")], check=True
+        )
 
     def test_builder_locks_the_normalized_arm64_runtime(self) -> None:
         builder = (FOTA / "build-provider-component").read_text(encoding="utf-8")
