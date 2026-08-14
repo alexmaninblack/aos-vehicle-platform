@@ -115,6 +115,11 @@ def validate_layer() -> None:
         'DEPENDS:append = " softhsm"' in service_manager_append,
         "ARM64 test-only SoftHSM dependency is not declared",
     )
+    require(
+        "-DCMAKE_GTEST_DISCOVER_TESTS_DISCOVERY_MODE=PRE_TEST"
+        in service_manager_append,
+        "cross-compiled test discovery is not deferred to the ARM64 VM",
+    )
 
     patch = read(PATCH)
     require("SystemdSlotComponentRuntime" in patch, "runtime factory patch is missing")

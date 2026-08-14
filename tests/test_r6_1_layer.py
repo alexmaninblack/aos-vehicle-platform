@@ -49,6 +49,9 @@ class R61LayerTests(unittest.TestCase):
         )
         self.assertIn("-DWITH_TEST=ON", append)
         self.assertIn('DEPENDS:append = " softhsm"', append)
+        self.assertIn(
+            "-DCMAKE_GTEST_DISCOVER_TESTS_DISCOVERY_MODE=PRE_TEST", append
+        )
 
 
 if __name__ == "__main__":
