@@ -30,6 +30,30 @@ owned here. The first telemetry application belongs to
 `vehicle-telemetry-service`; end-to-end macOS/AosVM orchestration belongs to
 `carla-aosedge-integration`.
 
+The current reviewable artifact is the draft
+[vehicle telemetry profile 0.1.0](contracts/vehicle-telemetry-profile/v0.1/profile.json).
+It defines the platform/service boundary but does not claim that a provider,
+consumer, package, or authorization flow has been implemented.
+
+## Repository Layout
+
+- `contracts/vehicle-telemetry-profile/`: versioned, machine-readable data
+  contract;
+- `providers/carla-viss-kuksa/`: development-only provider boundary;
+- `config/kuksa/`: non-secret KUKSA platform configuration boundary;
+- `packaging/aosvm/`: system packaging boundary;
+- `authorization/aos-kuksa/`: deferred AOS-5 Authorization Adapter boundary;
+- `tests/` and `tools/`: static contract and repository quality gates;
+- `docs/`: architecture and compatibility policy.
+
+Run the local gates with:
+
+```text
+python3 tools/validate_contract.py
+python3 -m unittest discover -s tests -p 'test_*.py'
+python3 tools/quality_gate.py
+```
+
 ## Security and Secrets
 
 Do not commit private keys, access tokens, certificates, provisioned device

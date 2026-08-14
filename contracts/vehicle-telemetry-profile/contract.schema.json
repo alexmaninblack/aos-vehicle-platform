@@ -1,0 +1,123 @@
+{
+  "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: Apache-2.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/alexmaninblack/aos-vehicle-platform/contracts/vehicle-telemetry-profile/contract.schema.json",
+  "title": "Aos vehicle telemetry profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "$comment",
+    "license",
+    "schemaVersion",
+    "contract",
+    "compatibility",
+    "defaults",
+    "signals"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "$comment": { "type": "string" },
+    "license": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["copyright", "spdx"],
+      "properties": {
+        "copyright": { "const": "2026 maninblack" },
+        "spdx": { "const": "Apache-2.0" }
+      }
+    },
+    "schemaVersion": { "const": 1 },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "status", "description"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$" },
+        "version": { "type": "string", "pattern": "^0\\.[0-9]+\\.[0-9]+$" },
+        "status": { "enum": ["draft", "stable", "deprecated"] },
+        "description": { "type": "string", "minLength": 1 }
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["brokerVssVersion", "sourceVssVersion", "kuksaDatabrokerVersion", "kuksaApi", "architecture"],
+      "properties": {
+        "brokerVssVersion": { "const": "5.0" },
+        "sourceVssVersion": { "const": "6.0" },
+        "kuksaDatabrokerVersion": { "const": "0.5.0" },
+        "kuksaApi": { "const": "kuksa.val.v1" },
+        "architecture": { "const": "arm64" }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nominalUpdateRateHz", "minimumUpdateRateHz", "freshnessTimeoutMs", "staleBehavior", "unavailableBehavior"],
+      "properties": {
+        "nominalUpdateRateHz": { "type": "number", "exclusiveMinimum": 0 },
+        "minimumUpdateRateHz": { "type": "number", "exclusiveMinimum": 0 },
+        "freshnessTimeoutMs": { "type": "integer", "minimum": 1 },
+        "staleBehavior": { "const": "mark-unavailable" },
+        "unavailableBehavior": { "const": "do-not-substitute" }
+      }
+    },
+    "signals": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/signal" }
+    }
+  },
+  "$defs": {
+    "signal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "datatype", "unit", "required", "validRange", "permissions"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^Vehicle\\." },
+        "datatype": { "enum": ["float", "uint8"] },
+        "unit": { "enum": ["km/h", "m/s^2", "percent", "degree"] },
+        "required": { "const": true },
+        "validRange": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind"],
+              "properties": { "kind": { "const": "finite" } }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "minimum", "maximum"],
+              "properties": {
+                "kind": { "const": "closed" },
+                "minimum": { "type": "number" },
+                "maximum": { "type": "number" }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "minimum"],
+              "properties": {
+                "kind": { "const": "minimum" },
+                "minimum": { "type": "number" }
+              }
+            }
+          ]
+        },
+        "permissions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["provider", "consumer"],
+          "properties": {
+            "provider": { "type": "string", "pattern": "^provide:Vehicle\\." },
+            "consumer": { "type": "string", "pattern": "^read:Vehicle\\." }
+          }
+        }
+      }
+    }
+  }
+}

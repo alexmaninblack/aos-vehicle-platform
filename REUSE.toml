@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+version = 1
+SPDX-PackageName = "Aos Vehicle Platform"
+SPDX-PackageSupplier = "Person: maninblack"
+SPDX-PackageDownloadLocation = "https://github.com/alexmaninblack/aos-vehicle-platform"
+
+[[annotations]]
+path = ["LICENSE", "NOTICE"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 maninblack"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = [
+    "DEPENDENCIES.json",
+    "contracts/vehicle-telemetry-profile/contract.schema.json",
+    "contracts/vehicle-telemetry-profile/v0.1/profile.json",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 maninblack"
+SPDX-License-Identifier = "Apache-2.0"
