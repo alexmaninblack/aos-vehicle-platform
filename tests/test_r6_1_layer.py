@@ -43,6 +43,12 @@ class R61LayerTests(unittest.TestCase):
         self.assertIn("--mark-unavailable", launcher)
         self.assertIn("ExecReload=/bin/kill -HUP $MAINPID", unit)
 
+    def test_arm64_runtime_qualifier_is_a_build_output(self) -> None:
+        append = validate_r6_1_layer.SERVICE_MANAGER_APPEND.read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("-DWITH_TEST=ON", append)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -14,6 +14,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 LAYER = ROOT / "meta-aos-vehicle-platform"
 SM_CONFIG = LAYER / "recipes-aos/aos-servicemanager/files/sm.cfg"
+SERVICE_MANAGER_APPEND = (
+    LAYER / "recipes-aos/aos-servicemanager/aos-servicemanager_git.bbappend"
+)
 RUNTIME = (
     LAYER
     / "recipes-aos/aos-servicemanager/files/systemd-slot-component/runtime.cpp"
@@ -102,6 +105,12 @@ def validate_layer() -> None:
     require("qualificationMode" not in rendered_config, "qualification probe leaked into image")
     require("bootx64.efi" not in rendered_config, "ARM64 image contains the x86 bootloader path")
     require("bootaa64.efi" in rendered_config, "ARM64 bootloader path is missing")
+
+    service_manager_append = read(SERVICE_MANAGER_APPEND)
+    require(
+        "-DWITH_TEST=ON" in service_manager_append,
+        "ARM64 runtime qualifier is not a reproducible build output",
+    )
 
     patch = read(PATCH)
     require("SystemdSlotComponentRuntime" in patch, "runtime factory patch is missing")

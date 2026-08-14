@@ -10,6 +10,7 @@ SRC_URI += " \
 
 EXTRA_OECMAKE:append = " \
     -DAOS_SYSTEMD_SLOT_COMPONENT_DIR=${WORKDIR}/systemd-slot-component \
+    -DWITH_TEST=ON \
 "
 
 do_configure:prepend() {
