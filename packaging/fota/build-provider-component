@@ -1,0 +1,409 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+"""Build the deterministic unsigned ARM64 vehicle-data-provider candidate."""
+
+from __future__ import annotations
+
+import argparse
+import datetime
+import gzip
+import hashlib
+import io
+import json
+import os
+import shutil
+import stat
+import subprocess
+import sys
+import tarfile
+import tempfile
+import zipfile
+from pathlib import Path, PurePosixPath
+
+
+ROOT = Path(__file__).resolve().parents[2]
+VERSION = "0.2.0"
+COMPONENT_TYPE = "aos-vm-1.0.0-main-qemuarm64-vehicle-data-provider"
+LAYER_NAME = f"provider-{VERSION}-arm64.tar"
+LAYER_PATH = f"vehicle-data-provider/{LAYER_NAME}"
+MEDIA_TYPE = "application/vnd.aos.vehicle-data-provider.layer.v1.tar"
+REQUIREMENTS = ROOT / "packaging/aosvm/runtime/requirements-arm64.txt"
+SOURCE = ROOT / "providers/carla-viss-kuksa/src/carla_viss_kuksa_provider"
+PAYLOAD_CONFIG = ROOT / "providers/carla-viss-kuksa/config/component.json"
+ENTRYPOINT = ROOT / "packaging/fota/vehicle-data-provider"
+MAIN = ROOT / "packaging/fota/provider_main.py"
+ENVELOPE_CONFIG = ROOT / "packaging/fota/config.yaml"
+DEPENDENCIES = ROOT / "DEPENDENCIES.json"
+NOTICES = ROOT / "THIRD_PARTY_NOTICES.md"
+LICENSE = ROOT / "LICENSES/Apache-2.0.txt"
+EXPECTED_WHEELS = {
+    "c60404292e5ded4e0436b1c8568e9daf4981c4db94907b96f482173ed9ce2c4a",
+    "36764a4ad9dc1eb891042fab51e8cdf7cc014ad82cee807c10796fb708455041",
+    "a8866b2cff111f0f863c1b3b9e7572dc7eaea23a7fae27f6fc613304046483e6",
+    "e8b56bdcdb4505c8078cb6c7157d9811a85790f2f2b3632c7d1462ab5783d215",
+    "f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548",
+}
+EXCLUDED_WHEEL_MEMBERS = {"grpc/_cython/_credentials/roots.pem"}
+
+
+class BuildError(RuntimeError):
+    """Raised when the candidate cannot be reproduced safely."""
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def canonical_json(value: object) -> bytes:
+    return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode()
+
+
+def git_revision() -> str:
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=no"],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout
+    if status:
+        raise BuildError("tracked source tree must be clean")
+    revision = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout.strip()
+    if len(revision) != 40:
+        raise BuildError("source revision is not a full commit")
+    return revision
+
+
+def git_created() -> str:
+    value = subprocess.run(
+        ["git", "show", "-s", "--format=%cI", "HEAD"],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout.strip()
+    created = datetime.datetime.fromisoformat(value).astimezone(datetime.timezone.utc)
+    return created.isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def download_wheels(destination: Path) -> None:
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "download",
+            "--dest",
+            str(destination),
+            "--no-deps",
+            "--only-binary=:all:",
+            "--platform",
+            "manylinux2014_aarch64",
+            "--python-version",
+            "3.12",
+            "--implementation",
+            "cp",
+            "--abi",
+            "cp312",
+            "--require-hashes",
+            "--requirement",
+            str(REQUIREMENTS),
+        ],
+        cwd=ROOT,
+        check=True,
+    )
+
+
+def validate_wheels(wheelhouse: Path) -> list[Path]:
+    wheels = sorted(wheelhouse.glob("*.whl"))
+    if len(wheels) != len(EXPECTED_WHEELS):
+        raise BuildError("wheel set is incomplete or contains extra files")
+    observed = {sha256(wheel) for wheel in wheels}
+    if observed != EXPECTED_WHEELS:
+        raise BuildError("wheel digest set does not match the runtime lock")
+    return wheels
+
+
+def safe_member(name: str) -> PurePosixPath:
+    path = PurePosixPath(name)
+    if (
+        not name
+        or path.is_absolute()
+        or any(part in {"", ".", ".."} for part in path.parts)
+        or any(ord(character) < 32 or ord(character) == 127 for character in name)
+    ):
+        raise BuildError(f"wheel contains an unsafe path: {name!r}")
+    return path
+
+
+def extract_wheels(wheels: list[Path], destination: Path) -> None:
+    observed: set[PurePosixPath] = set()
+    excluded: set[str] = set()
+    for wheel in wheels:
+        with zipfile.ZipFile(wheel) as archive:
+            for member in sorted(archive.infolist(), key=lambda item: item.filename):
+                if member.filename in EXCLUDED_WHEEL_MEMBERS:
+                    excluded.add(member.filename)
+                    continue
+                relative = safe_member(member.filename.rstrip("/"))
+                mode = (member.external_attr >> 16) & 0xFFFF
+                file_type = stat.S_IFMT(mode)
+                if file_type not in {0, stat.S_IFREG, stat.S_IFDIR}:
+                    raise BuildError(f"wheel contains a link or special file: {member.filename}")
+                if member.is_dir():
+                    continue
+                if relative in observed:
+                    raise BuildError(f"wheel path collision: {relative}")
+                observed.add(relative)
+                target = destination.joinpath(*relative.parts)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with archive.open(member) as source, target.open("wb") as output:
+                    shutil.copyfileobj(source, output)
+    if excluded != EXCLUDED_WHEEL_MEMBERS:
+        raise BuildError("expected redundant wheel trust bundle is absent")
+
+
+def copy_tree(source: Path, destination: Path) -> None:
+    for path in sorted(source.rglob("*")):
+        if path.is_symlink():
+            raise BuildError(f"source contains a symbolic link: {path}")
+        if path.is_dir():
+            continue
+        if not path.is_file() or path.suffix in {".pyc", ".pyo"}:
+            continue
+        relative = path.relative_to(source)
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, target)
+
+
+def write_json(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(canonical_json(value))
+
+
+def create_payload(
+    root: Path, wheels: list[Path], revision: str, created: str
+) -> None:
+    (root / "bin").mkdir(parents=True)
+    (root / "config").mkdir()
+    (root / "python/site-packages").mkdir(parents=True)
+    (root / "licenses").mkdir()
+    shutil.copyfile(ENTRYPOINT, root / "bin/vehicle-data-provider")
+    shutil.copyfile(MAIN, root / "python/provider_main.py")
+    shutil.copyfile(PAYLOAD_CONFIG, root / "config/provider.json")
+    shutil.copyfile(LICENSE, root / "licenses/Apache-2.0.txt")
+    shutil.copyfile(NOTICES, root / "THIRD_PARTY_NOTICES.md")
+    shutil.copyfile(DEPENDENCIES, root / "DEPENDENCIES.json")
+    copy_tree(SOURCE, root / "python/carla_viss_kuksa_provider")
+    extract_wheels(wheels, root / "python/site-packages")
+    write_json(
+        root / "component.json",
+        {
+            "architecture": "arm64",
+            "component": "vehicle-data-provider",
+            "configuration": "config/provider.json",
+            "entrypoint": "bin/vehicle-data-provider",
+            "os": "linux",
+            "runtimeInterface": 1,
+            "schemaVersion": 1,
+            "version": VERSION,
+        },
+    )
+    wheel_inputs = [
+        {"fileName": wheel.name, "sha256": sha256(wheel), "size": wheel.stat().st_size}
+        for wheel in wheels
+    ]
+    source_inputs = [
+        {
+            "path": path.relative_to(ROOT).as_posix(),
+            "sha256": sha256(path),
+        }
+        for path in sorted(SOURCE.glob("*.py"))
+    ]
+    write_json(
+        root / "provenance/provenance.json",
+        {
+            "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: Apache-2.0",
+            "architecture": "arm64",
+            "buildType": "reproducible-component-v1",
+            "componentType": COMPONENT_TYPE,
+            "runtimeInterface": 1,
+            "schemaVersion": 1,
+            "wheelNormalization": {
+                "excludedMembers": sorted(EXCLUDED_WHEEL_MEMBERS),
+                "fileMode": "0644",
+            },
+            "sourceInputs": source_inputs,
+            "sourceRevision": revision,
+            "version": VERSION,
+            "wheelInputs": wheel_inputs,
+        },
+    )
+    inventory = json.loads(DEPENDENCIES.read_text(encoding="utf-8"))["runtime"]
+    write_json(
+        root / "sbom/spdx.json",
+        {
+            "SPDXID": "SPDXRef-DOCUMENT",
+            "creationInfo": {
+                "created": created,
+                "creators": ["Person: maninblack"],
+            },
+            "dataLicense": "CC0-1.0",
+            "documentNamespace": (
+                "https://github.com/alexmaninblack/aos-vehicle-platform/"
+                f"sbom/vehicle-data-provider/{VERSION}/{revision}"
+            ),
+            "name": f"vehicle-data-provider-{VERSION}-arm64",
+            "packages": [
+                {
+                    "SPDXID": f"SPDXRef-Package-{index}",
+                    "downloadLocation": item["source"],
+                    "filesAnalyzed": False,
+                    "licenseConcluded": item["license"],
+                    "licenseDeclared": item["license"],
+                    "name": item["name"],
+                    "copyrightText": "NOASSERTION",
+                    "versionInfo": item["displayVersion"],
+                }
+                for index, item in enumerate(inventory, start=1)
+            ],
+            "spdxVersion": "SPDX-2.3",
+        },
+    )
+    for path in root.rglob("*"):
+        if path.is_dir():
+            path.chmod(0o755)
+        elif path == root / "bin/vehicle-data-provider":
+            path.chmod(0o755)
+        else:
+            path.chmod(0o644)
+
+
+def create_ustar(root: Path, output: Path) -> None:
+    with tarfile.open(output, "w", format=tarfile.USTAR_FORMAT) as archive:
+        for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+            relative = path.relative_to(root).as_posix()
+            info = tarfile.TarInfo(relative + ("/" if path.is_dir() else ""))
+            info.uid = 0
+            info.gid = 0
+            info.uname = "root"
+            info.gname = "root"
+            info.mtime = 0
+            if path.is_dir():
+                info.type = tarfile.DIRTYPE
+                info.mode = 0o755
+                archive.addfile(info)
+            else:
+                info.type = tarfile.REGTYPE
+                info.mode = 0o755 if relative == "bin/vehicle-data-provider" else 0o644
+                info.size = path.stat().st_size
+                with path.open("rb") as stream:
+                    archive.addfile(info, stream)
+
+
+def create_unsigned_envelope(config: Path, layer: Path, output: Path) -> None:
+    tar_bytes = io.BytesIO()
+    with tarfile.open(fileobj=tar_bytes, mode="w", format=tarfile.USTAR_FORMAT) as archive:
+        for name, source in (
+            ("config.yaml", config),
+            (LAYER_PATH, layer),
+        ):
+            info = tarfile.TarInfo(name)
+            info.uid = 0
+            info.gid = 0
+            info.uname = "root"
+            info.gname = "root"
+            info.mode = 0o644
+            info.mtime = 0
+            info.size = source.stat().st_size
+            with source.open("rb") as stream:
+                archive.addfile(info, stream)
+    tar_bytes.seek(0)
+    with output.open("wb") as raw:
+        with gzip.GzipFile(fileobj=raw, mode="wb", filename="", mtime=0) as compressed:
+            shutil.copyfileobj(tar_bytes, compressed)
+
+
+def build(output: Path, supplied_wheelhouse: Path | None) -> None:
+    if output.exists() or output.is_symlink():
+        raise BuildError(f"output already exists: {output}")
+    revision = git_revision()
+    created = git_created()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=output.parent) as temporary:
+        temporary_root = Path(temporary)
+        wheelhouse = supplied_wheelhouse or temporary_root / "wheels"
+        if supplied_wheelhouse is None:
+            wheelhouse.mkdir()
+            download_wheels(wheelhouse)
+        wheels = validate_wheels(wheelhouse)
+        payload_root = temporary_root / "payload"
+        payload_root.mkdir()
+        create_payload(payload_root, wheels, revision, created)
+        candidate = temporary_root / "candidate"
+        candidate.mkdir()
+        layer = candidate / LAYER_PATH
+        layer.parent.mkdir()
+        create_ustar(payload_root, layer)
+        shutil.copyfile(ENVELOPE_CONFIG, candidate / "config.yaml")
+        envelope = candidate / "unsigned-envelope.tar.gz"
+        create_unsigned_envelope(candidate / "config.yaml", layer, envelope)
+        write_json(
+            candidate / "candidate.json",
+            {
+                "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: Apache-2.0",
+                "architecture": "arm64",
+                "componentType": COMPONENT_TYPE,
+                "config": {"sha256": sha256(candidate / "config.yaml")},
+                "layer": {
+                    "fileName": LAYER_PATH,
+                    "mediaType": MEDIA_TYPE,
+                    "sha256": sha256(layer),
+                    "size": layer.stat().st_size,
+                },
+                "runtimeInterface": 1,
+                "schemaVersion": 1,
+                "signingState": "unsigned",
+                "sourceRevision": revision,
+                "unsignedEnvelope": {
+                    "fileName": envelope.name,
+                    "sha256": sha256(envelope),
+                    "size": envelope.stat().st_size,
+                },
+                "version": VERSION,
+            },
+        )
+        os.replace(candidate, output)
+    print(f"Unsigned provider candidate: {output}")
+    print(f"Layer SHA256: {sha256(output / LAYER_PATH)}")
+    print(f"Envelope SHA256: {sha256(output / 'unsigned-envelope.tar.gz')}")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("output", type=Path)
+    parser.add_argument("--wheelhouse", type=Path)
+    options = parser.parse_args()
+    try:
+        build(options.output.resolve(), options.wheelhouse.resolve() if options.wheelhouse else None)
+    except (BuildError, OSError, subprocess.CalledProcessError, zipfile.BadZipFile) as error:
+        print(f"Provider candidate build failed: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

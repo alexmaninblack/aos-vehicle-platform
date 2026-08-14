@@ -3,8 +3,11 @@
 
 # Third-Party Notices
 
-Generated ARM64 provider bundles contain unmodified Python wheels for these
-runtime dependencies:
+Generated ARM64 provider artifacts use hash-locked Python wheels for these
+runtime dependencies. The legacy 0.1.1 side-load archive contains the original
+wheels. The R6.1 component extracts and normalizes their runtime files at build
+time; it omits gRPC's default public `roots.pem` bundle because the platform
+always supplies the explicitly selected KUKSA trust anchor instead.
 
 | Component | Version | License | Source |
 | --- | --- | --- | --- |

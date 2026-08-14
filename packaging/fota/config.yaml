@@ -1,0 +1,31 @@
+{
+  "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: Apache-2.0",
+  "schemaVersion": 2,
+  "publisher": {
+    "author": "maninblack"
+  },
+  "items": [
+    {
+      "identity": {
+        "type": "component",
+        "codename": "aos-vm-1.0.0-main-qemuarm64-vehicle-data-provider",
+        "title": "Vehicle Data Provider",
+        "description": "CARLA VISS to KUKSA vehicle-data provider component"
+      },
+      "version": "0.2.0",
+      "sourceFolder": "vehicle-data-provider",
+      "images": [
+        {
+          "path": "provider-0.2.0-arm64.tar",
+          "mediaType": "application/vnd.aos.vehicle-data-provider.layer.v1.tar",
+          "osInfo": {
+            "os": "linux"
+          },
+          "archInfo": {
+            "architecture": "arm64"
+          }
+        }
+      ]
+    }
+  ]
+}

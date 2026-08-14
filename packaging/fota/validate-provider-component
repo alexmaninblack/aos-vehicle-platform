@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+"""Validate an unsigned vehicle-data-provider candidate without credentials."""
+
+from __future__ import annotations
+
+import argparse
+import gzip
+import hashlib
+import io
+import json
+import re
+import stat
+import sys
+import tarfile
+from pathlib import Path, PurePosixPath
+
+
+VERSION = "0.2.0"
+COMPONENT_TYPE = "aos-vm-1.0.0-main-qemuarm64-vehicle-data-provider"
+LAYER_NAME = f"provider-{VERSION}-arm64.tar"
+LAYER_PATH = f"vehicle-data-provider/{LAYER_NAME}"
+MEDIA_TYPE = "application/vnd.aos.vehicle-data-provider.layer.v1.tar"
+ENTRYPOINT = "bin/vehicle-data-provider"
+REQUIRED_ROOT_FILES = {
+    "component.json",
+    "config/provider.json",
+    "python/provider_main.py",
+    "DEPENDENCIES.json",
+    "THIRD_PARTY_NOTICES.md",
+    "licenses/Apache-2.0.txt",
+    "provenance/provenance.json",
+    "sbom/spdx.json",
+    ENTRYPOINT,
+}
+FORBIDDEN = (
+    b"BEGIN PRIVATE KEY",
+    b"BEGIN CERTIFICATE",
+    b"/Users/",
+    b".p12",
+    b".pfx",
+    b'"publish"',
+    b'"tlsKey"',
+    b"alex_agizim@epam.com",
+)
+
+
+class ValidationError(ValueError):
+    """Raised when the unsigned candidate violates its fixed contract."""
+
+
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        raise ValidationError(message)
+
+
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def regular_file(path: Path, label: str) -> None:
+    require(path.is_file() and not path.is_symlink(), f"{label} is missing or unsafe")
+
+
+def safe_path(name: str) -> None:
+    path = PurePosixPath(name)
+    require(bool(name) and not path.is_absolute(), f"unsafe archive path: {name!r}")
+    require(
+        all(part not in {"", ".", ".."} for part in path.parts),
+        f"non-normalized archive path: {name!r}",
+    )
+    require(
+        not any(ord(character) < 32 or ord(character) == 127 for character in name),
+        f"control character in archive path: {name!r}",
+    )
+
+
+def validate_raw_ustar(path: Path) -> None:
+    data = path.read_bytes()
+    require(len(data) >= 1024 and len(data) % 512 == 0, "layer has invalid size")
+    offset = 0
+    entries = 0
+    found_end = False
+    while offset < len(data):
+        header = data[offset : offset + 512]
+        offset += 512
+        if header == bytes(512):
+            require(data[offset : offset + 512] == bytes(512), "layer end marker is invalid")
+            require(not any(data[offset + 512 :]), "layer has data after its end marker")
+            found_end = True
+            break
+        entries += 1
+        require(header[257:262] == b"ustar", "layer is not USTAR")
+        type_flag = header[156:157]
+        require(type_flag in {b"0", b"5", b"\0"}, "layer contains a special file")
+        expected = int(header[148:156].rstrip(b"\0 ") or b"0", 8)
+        actual = sum(header[:148]) + 8 * ord(" ") + sum(header[156:])
+        require(expected == actual, "layer header checksum mismatch")
+        size = int(header[124:136].rstrip(b"\0 ") or b"0", 8)
+        offset += (size + 511) & ~511
+        require(offset <= len(data), "layer member is truncated")
+    require(found_end and entries > 0, "layer has no valid end marker")
+
+
+def member_map(path: Path, mode: str = "r:") -> dict[str, tuple[tarfile.TarInfo, bytes]]:
+    members: dict[str, tuple[tarfile.TarInfo, bytes]] = {}
+    with tarfile.open(path, mode) as archive:
+        for member in archive:
+            name = member.name.rstrip("/")
+            safe_path(name)
+            require(name not in members, f"duplicate archive path: {name}")
+            require(member.isfile() or member.isdir(), f"special archive member: {name}")
+            payload = b""
+            if member.isfile():
+                source = archive.extractfile(member)
+                require(source is not None, f"cannot read archive member: {name}")
+                payload = source.read()
+            members[name] = (member, payload)
+    return members
+
+
+def validate_payload(layer: Path, expected_revision: str) -> None:
+    validate_raw_ustar(layer)
+    members = member_map(layer)
+    require(REQUIRED_ROOT_FILES.issubset(members), "payload layout is incomplete")
+    require(len(members) <= 4096, "payload has too many entries")
+    for name, (member, data) in members.items():
+        require(member.uid == 0 and member.gid == 0, f"non-root archive owner: {name}")
+        require(member.mtime == 0, f"non-deterministic archive timestamp: {name}")
+        if member.isdir():
+            require(stat.S_IMODE(member.mode) == 0o755, f"unsafe directory mode: {name}")
+        else:
+            expected_mode = 0o755 if name == ENTRYPOINT else 0o644
+            require(stat.S_IMODE(member.mode) == expected_mode, f"unsafe file mode: {name}")
+            for marker in FORBIDDEN:
+                require(marker not in data, f"forbidden data in payload member: {name}")
+            if data.startswith(b"\x7fELF"):
+                require(len(data) >= 20, f"truncated ELF member: {name}")
+                require(data[4] == 2 and data[5] == 1, f"ELF ABI mismatch: {name}")
+                require(int.from_bytes(data[18:20], "little") == 183, f"ELF is not AArch64: {name}")
+
+    component = json.loads(members["component.json"][1])
+    require(
+        component
+        == {
+            "architecture": "arm64",
+            "component": "vehicle-data-provider",
+            "configuration": "config/provider.json",
+            "entrypoint": ENTRYPOINT,
+            "os": "linux",
+            "runtimeInterface": 1,
+            "schemaVersion": 1,
+            "version": VERSION,
+        },
+        "component metadata changed",
+    )
+    payload_config = json.loads(members["config/provider.json"][1])
+    require(payload_config.get("schemaVersion") == 2, "payload schema changed")
+    require(payload_config.get("runtimeInterface") == 1, "payload runtime interface changed")
+    require("viss" not in payload_config and "kuksa" not in payload_config, "vehicle data leaked into payload config")
+    provenance = json.loads(members["provenance/provenance.json"][1])
+    require(provenance.get("sourceRevision") == expected_revision, "source revision mismatch")
+    require(len(provenance.get("wheelInputs", [])) == 5, "wheel provenance is incomplete")
+    sbom = json.loads(members["sbom/spdx.json"][1])
+    require(sbom.get("spdxVersion") == "SPDX-2.3", "SPDX version changed")
+    require(len(sbom.get("packages", [])) == 5, "SBOM package set is incomplete")
+
+
+def validate_envelope(root: Path, layer: Path, candidate: dict[str, object]) -> None:
+    config_path = root / "config.yaml"
+    envelope = root / "unsigned-envelope.tar.gz"
+    regular_file(config_path, "unsigned config")
+    regular_file(envelope, "unsigned envelope")
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    require("publish" not in config, "unsigned config references publishing")
+    require(config.get("schemaVersion") == 2, "Aos config schema changed")
+    items = config.get("items")
+    require(isinstance(items, list) and len(items) == 1, "Aos item set changed")
+    item = items[0]
+    require(item.get("version") == VERSION, "Aos item version changed")
+    require(item.get("identity", {}).get("type") == "component", "Aos item type changed")
+    require(item.get("identity", {}).get("codename") == COMPONENT_TYPE, "Aos component type changed")
+    images = item.get("images")
+    require(isinstance(images, list) and len(images) == 1, "Aos image set changed")
+    require(images[0].get("mediaType") == MEDIA_TYPE, "Aos layer media type changed")
+    require(images[0].get("path") == LAYER_NAME, "Aos layer path changed")
+
+    with gzip.open(envelope, "rb") as stream:
+        decompressed = stream.read()
+    with tarfile.open(fileobj=io.BytesIO(decompressed), mode="r:") as archive:
+        observed = {}
+        for member in archive:
+            require(member.isfile(), "unsigned envelope contains a non-file")
+            source = archive.extractfile(member)
+            require(source is not None, "cannot read unsigned envelope member")
+            observed[member.name] = source.read()
+    require(set(observed) == {"config.yaml", LAYER_PATH}, "unsigned envelope layout changed")
+    require(observed["config.yaml"] == config_path.read_bytes(), "envelope config differs")
+    require(observed[LAYER_PATH] == layer.read_bytes(), "envelope layer differs")
+    envelope_record = candidate.get("unsignedEnvelope", {})
+    require(envelope_record.get("sha256") == sha256(envelope), "envelope digest mismatch")
+    require(envelope_record.get("size") == envelope.stat().st_size, "envelope size mismatch")
+
+
+def validate(root: Path) -> None:
+    require(root.is_dir() and not root.is_symlink(), "candidate root is unsafe")
+    candidate_path = root / "candidate.json"
+    layer = root / LAYER_PATH
+    regular_file(candidate_path, "candidate metadata")
+    regular_file(layer, "provider layer")
+    candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
+    require(candidate.get("schemaVersion") == 1, "candidate schema changed")
+    require(candidate.get("signingState") == "unsigned", "candidate is not unsigned")
+    require(candidate.get("version") == VERSION, "candidate version changed")
+    require(candidate.get("componentType") == COMPONENT_TYPE, "component type changed")
+    revision = candidate.get("sourceRevision")
+    require(isinstance(revision, str) and re.fullmatch(r"[0-9a-f]{40}", revision) is not None, "invalid source revision")
+    layer_record = candidate.get("layer", {})
+    require(layer_record.get("fileName") == LAYER_PATH, "layer filename changed")
+    require(layer_record.get("mediaType") == MEDIA_TYPE, "layer media type changed")
+    require(layer_record.get("sha256") == sha256(layer), "layer digest mismatch")
+    require(layer_record.get("size") == layer.stat().st_size, "layer size mismatch")
+    require(candidate.get("config", {}).get("sha256") == sha256(root / "config.yaml"), "config digest mismatch")
+    validate_payload(layer, revision)
+    validate_envelope(root, layer, candidate)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("candidate", type=Path)
+    options = parser.parse_args()
+    try:
+        validate(options.candidate.resolve())
+    except (ValidationError, OSError, json.JSONDecodeError, tarfile.TarError) as error:
+        print(f"Unsigned provider validation failed: {error}", file=sys.stderr)
+        return 1
+    print("R6_1_UNSIGNED_PROVIDER_CANDIDATE=PASS")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

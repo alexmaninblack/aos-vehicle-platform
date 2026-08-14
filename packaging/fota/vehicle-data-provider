@@ -1,0 +1,18 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+set -eu
+
+case "$0" in
+    /var/aos/workdirs/sm/runtimes/systemd-slot-component/slots/a/bin/vehicle-data-provider|
+    /var/aos/workdirs/sm/runtimes/systemd-slot-component/slots/b/bin/vehicle-data-provider)
+        component_root=${0%/bin/vehicle-data-provider}
+        ;;
+    *)
+        printf '%s\n' 'Vehicle data provider: unsafe component path' >&2
+        exit 1
+        ;;
+esac
+
+exec /usr/bin/python3 -I "$component_root/python/provider_main.py" "$@"
