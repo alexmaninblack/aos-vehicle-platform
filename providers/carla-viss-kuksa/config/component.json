@@ -1,0 +1,13 @@
+{
+  "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: Apache-2.0",
+  "schemaVersion": 2,
+  "provider": "carla-viss-kuksa",
+  "vehicleTelemetryProfile": "0.1.1",
+  "runtimeInterface": 1,
+  "timing": {
+    "subscriptionPeriodMs": 50,
+    "freshnessTimeoutMs": 250,
+    "reconnectInitialMs": 500,
+    "reconnectMaxMs": 10000
+  }
+}

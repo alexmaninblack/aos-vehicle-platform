@@ -196,11 +196,22 @@ def validate_layer() -> None:
     require("timeout " not in health, "unavailable timeout binary leaked into profile")
 
     unit = read(UNIT)
+    require("Type=notify" in unit, "provider readiness is process-only")
+    require("NotifyAccess=main" in unit, "provider readiness sender is ambiguous")
     require("DynamicUser=yes" in unit, "provider unit lacks DynamicUser")
     require("ConditionFileIsExecutable=" in unit, "provider executable condition is missing")
     require("ProtectSystem=strict" in unit, "provider unit does not protect rootfs")
     require("CapabilityBoundingSet=\n" in unit, "provider capabilities are not empty")
     require("ExecReload=" in unit, "provider unavailability reload hook is missing")
+    for token in (
+        "AOS_VEHICLE_DATA_PROVIDER_CONFIGURATION="
+        f"{COMPONENT_ROOT}/configuration/provider.json",
+        "AOS_VEHICLE_DATA_PROVIDER_VISS_CA="
+        f"{COMPONENT_ROOT}/trust/viss-ca.pem",
+        "LoadCredential=kuksa-token:"
+        f"{COMPONENT_ROOT}/credentials/kuksa-token",
+    ):
+        require(token in unit, f"provider platform boundary is missing: {token}")
     install_section = unit.split("[Install]", 1)[1]
     require("WantedBy=" not in install_section, "provider unit must not be enabled")
 
@@ -225,6 +236,14 @@ def validate_layer() -> None:
         f"{COMPONENT_ROOT}/credentials 0700" in tmpfiles,
         "credential boundary is not private",
     )
+    require(
+        f"{COMPONENT_ROOT}/configuration 0755" in tmpfiles,
+        "vehicle integration configuration boundary is missing",
+    )
+    require(
+        f"{COMPONENT_ROOT}/trust 0755" in tmpfiles,
+        "vehicle trust boundary is missing",
+    )
 
     policy = read(POLICY)
     require("vehicle_data_provider_t" in policy, "provider SELinux domain is missing")
@@ -234,6 +253,10 @@ def validate_layer() -> None:
     require(
         "init_read_runtime_files(vehicle_data_provider_t)" in policy,
         "provider policy is not compatible with the pinned refpolicy runtime interface",
+    )
+    require(
+        "init_dgram_send(vehicle_data_provider_t)" in policy,
+        "provider cannot report readiness to systemd",
     )
     require(
         "init_read_runtime(vehicle_data_provider_t)" not in policy,

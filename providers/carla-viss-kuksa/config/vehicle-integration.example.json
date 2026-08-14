@@ -1,0 +1,8 @@
+{
+  "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: Apache-2.0",
+  "schemaVersion": 1,
+  "viss": {
+    "uri": "wss://10.0.0.1:6443",
+    "tlsServerName": "127.0.0.1"
+  }
+}
