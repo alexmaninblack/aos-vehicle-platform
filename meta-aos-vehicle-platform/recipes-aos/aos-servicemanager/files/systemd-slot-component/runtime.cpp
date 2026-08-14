@@ -562,13 +562,13 @@ Error SystemdSlotComponentRuntime::Recover() {
   auto transactionError = LoadTransaction(*transaction);
   if (!transactionError.IsNone() &&
       !transactionError.Is(ErrorEnum::eNotFound)) {
-    return AOS_ERROR_WRAP(transactionError);
+    return FailClosed(transactionError);
   }
 
   auto installed = std::make_unique<ComponentRelease>();
   auto installedError = LoadRelease(StatePath(cInstalledFile), *installed);
   if (!installedError.IsNone() && !installedError.Is(ErrorEnum::eNotFound)) {
-    return AOS_ERROR_WRAP(installedError);
+    return FailClosed(installedError);
   }
 
   if (transactionError.Is(ErrorEnum::eNotFound)) {
@@ -579,19 +579,19 @@ Error SystemdSlotComponentRuntime::Recover() {
       if (activeError.Is(ErrorEnum::eNotFound)) {
         return ErrorEnum::eNone;
       }
-      return AOS_ERROR_WRAP(
+      return FailClosed(
           Error(ErrorEnum::eWrongState,
                 "active slot exists without committed component state"));
     }
 
     if (auto err = ValidateReleaseSlot(*installed); !err.IsNone()) {
-      return AOS_ERROR_WRAP(err);
+      return FailClosed(err);
     }
     std::string active;
     if (auto err = ReadActive(active);
         !err.IsNone() || active != installed->mSlot) {
-      return AOS_ERROR_WRAP(Error(ErrorEnum::eWrongState,
-                                  "installed component slot is not active"));
+      return FailClosed(Error(ErrorEnum::eWrongState,
+                              "installed component slot is not active"));
     }
     if (auto err = mProfile->CheckHealth(); !err.IsNone()) {
       if (auto startError = mProfile->StartProvider(); !startError.IsNone()) {
@@ -648,6 +648,22 @@ Error SystemdSlotComponentRuntime::Recover() {
   }
 
   return ErrorEnum::eNone;
+}
+
+Error SystemdSlotComponentRuntime::FailClosed(const Error &cause) {
+  if (auto err = mProfile->MarkUnavailable(); !err.IsNone()) {
+    LOG_ERR() << "Could not mark provider unavailable while rejecting state";
+  }
+  if (auto err = mProfile->StopProvider(); !err.IsNone()) {
+    LOG_ERR() << "Could not stop provider while rejecting state";
+  }
+  if (auto err = RemoveActive();
+      !err.IsNone() && !err.Is(ErrorEnum::eNotFound)) {
+    LOG_ERR() << "Could not remove active provider while rejecting state";
+  }
+  mInstalled.reset();
+
+  return AOS_ERROR_WRAP(cause);
 }
 
 Error SystemdSlotComponentRuntime::GarbageCollect() const {

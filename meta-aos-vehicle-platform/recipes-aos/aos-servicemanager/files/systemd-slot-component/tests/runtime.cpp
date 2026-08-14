@@ -866,6 +866,33 @@ TEST_F(SystemdSlotComponentRuntimeTest,
   EXPECT_TRUE(std::filesystem::exists(mWorkingDir / "state/last-failure.json"));
 }
 
+TEST_F(SystemdSlotComponentRuntimeTest,
+       CorruptedTransactionStateStopsProviderAndRemovesActiveSelection) {
+  auto runtime = StartEmptyRuntime(CreateConfig());
+  RuntimeInfo info;
+  ASSERT_TRUE(runtime->GetRuntimeInfo(info).IsNone());
+  const auto installed = CreateInstance(info, "0.2.0", "sha256:release020");
+  ExpectPayload(installed, CreatePayload("020", "0.2.0"));
+  InstanceStatus status;
+  ASSERT_TRUE(runtime->StartInstance(installed, status).IsNone());
+  ASSERT_TRUE(runtime->Stop().IsNone());
+
+  WriteFile(mWorkingDir / "state/transaction.json", "{not-json\n",
+            std::filesystem::perms::owner_read |
+                std::filesystem::perms::owner_write);
+  EXPECT_CALL(mProfile, MarkUnavailable()).Times(1);
+  EXPECT_CALL(mProfile, StopProvider()).Times(1);
+
+  auto recovered = std::make_unique<SystemdSlotComponentRuntime>(&mProfile);
+  ASSERT_TRUE(Init(*recovered, CreateConfig()).IsNone());
+  const auto error = recovered->Start();
+  EXPECT_FALSE(error.IsNone());
+  EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "active"));
+  EXPECT_TRUE(std::filesystem::exists(mWorkingDir / "state/installed.json"));
+  EXPECT_TRUE(
+      std::filesystem::exists(mWorkingDir / "state/transaction.json"));
+}
+
 INSTANTIATE_TEST_SUITE_P(AllTransactionPhases, SystemdSlotComponentRecoveryTest,
                          Values("prepared", "unavailable", "previous-stopped",
                                 "switched", "candidate-started"));

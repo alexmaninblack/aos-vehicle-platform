@@ -83,6 +83,7 @@ public:
 private:
   Error EnsureStore() const;
   Error Recover();
+  Error FailClosed(const Error &cause);
   Error GarbageCollect() const;
   Error PrepareCandidate(const InstanceInfo &instance,
                          ComponentRelease &candidate);
