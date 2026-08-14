@@ -19,7 +19,15 @@ run_bounded() {
     "$@" >/dev/null &
     command_pid=$!
     (
-        sleep "$seconds"
+        sleep "$seconds" &
+        sleep_pid=$!
+        trap '
+            kill -TERM "$sleep_pid" 2>/dev/null || true
+            wait "$sleep_pid" 2>/dev/null || true
+            exit 0
+        ' HUP INT TERM
+        wait "$sleep_pid"
+        trap - HUP INT TERM
         kill -TERM "$command_pid" 2>/dev/null || exit 0
         sleep 1
         kill -KILL "$command_pid" 2>/dev/null || true
