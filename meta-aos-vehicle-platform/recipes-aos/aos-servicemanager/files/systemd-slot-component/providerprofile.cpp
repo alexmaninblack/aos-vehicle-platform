@@ -14,6 +14,12 @@ Error ProviderProfile::Init(const SystemdSlotComponentConfig &config,
   mConfig = config;
   mSystemdConn = &systemdConn;
 
+  auto [status, err] = mSystemdConn->GetUnitStatus(mConfig.mUnit);
+  (void)status;
+  if (!err.IsNone()) {
+    return AOS_ERROR_WRAP(err);
+  }
+
   return ErrorEnum::eNone;
 }
 
