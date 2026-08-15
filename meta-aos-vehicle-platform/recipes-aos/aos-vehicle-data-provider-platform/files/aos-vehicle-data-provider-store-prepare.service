@@ -3,6 +3,7 @@
 
 [Unit]
 Description=Prepare the isolated Aos vehicle data provider store
+DefaultDependencies=no
 Requires=var-aos-workdirs.mount
 After=var-aos-workdirs.mount systemd-modules-load.service
 Before=aos-vehicle-data-provider-bootstrap.service aos-sm.service

@@ -369,6 +369,7 @@ def validate_layer() -> None:
 
     prepare_unit = read(STORE_PREPARE_UNIT)
     for token in (
+        "DefaultDependencies=no",
         "Requires=var-aos-workdirs.mount",
         "After=var-aos-workdirs.mount systemd-modules-load.service",
         "ConditionPathIsMountPoint=/var/aos/workdirs",
@@ -460,6 +461,10 @@ def validate_layer() -> None:
     require(
         "allow vehicle_data_provider_t aos_var_run_t:dir search;" in policy,
         "provider cannot traverse the fixed-context parent directories",
+    )
+    require(
+        "init_rw_script_stream_sockets(systemd_modules_load_t)" in policy,
+        "steady-state module loading cannot use its inherited init script socket",
     )
     broad_parent_rules = [
         line.strip()

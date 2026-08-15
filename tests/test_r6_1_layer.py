@@ -75,6 +75,14 @@ class R61LayerTests(unittest.TestCase):
             ["allow vehicle_data_provider_t aos_var_run_t:dir search;"], rules
         )
 
+    def test_early_store_preparation_has_no_local_fs_cycle(self) -> None:
+        unit = validate_r6_1_layer.STORE_PREPARE_UNIT.read_text(encoding="utf-8")
+        policy = validate_r6_1_layer.POLICY.read_text(encoding="utf-8")
+        self.assertIn("DefaultDependencies=no", unit)
+        self.assertIn(
+            "init_rw_script_stream_sockets(systemd_modules_load_t)", policy
+        )
+
     def test_arm64_runtime_qualifier_is_a_build_output(self) -> None:
         append = validate_r6_1_layer.SERVICE_MANAGER_APPEND.read_text(
             encoding="utf-8"
