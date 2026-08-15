@@ -292,15 +292,15 @@ def validate_layer() -> None:
     require("User=aos-vdp" in unit, "provider unit lacks the dedicated runtime user")
     require("Group=aos-vdp" in unit, "provider unit lacks the dedicated runtime group")
     require(
-        "ExecStart=!/usr/libexec/aos-vehicle-data-provider-launcher" in unit,
-        "provider launcher does not own the bounded privilege drop",
+        "ExecStart=/usr/libexec/aos-vehicle-data-provider-launcher" in unit,
+        "provider launcher does not receive the systemd runtime identity",
     )
     require("NoNewPrivileges=" not in unit, "systemd suppresses the SELinux transition")
     require("ConditionFileIsExecutable=" in unit, "provider executable condition is missing")
     require("ProtectSystem=strict" in unit, "provider unit does not protect rootfs")
     require(
-        "CapabilityBoundingSet=CAP_SETGID CAP_SETUID" in unit,
-        "provider launcher capabilities exceed the identity-drop boundary",
+        "CapabilityBoundingSet=\n" in unit,
+        "provider launcher retains a Linux capability",
     )
     require(
         "ExecReload=/bin/kill -HUP $MAINPID" in unit,
@@ -323,9 +323,9 @@ def validate_layer() -> None:
     require("User=aos-vdp" in selftest_unit, "provider self-test user changed")
     require("Group=aos-vdp" in selftest_unit, "provider self-test group changed")
     require(
-        "ExecStart=!/usr/libexec/aos-vehicle-data-provider-launcher --self-test %i"
+        "ExecStart=/usr/libexec/aos-vehicle-data-provider-launcher --self-test %i"
         in selftest_unit,
-        "provider self-test bypasses the audited privilege-drop launcher",
+        "provider self-test bypasses the audited identity-check launcher",
     )
     require(
         "NoNewPrivileges=" not in selftest_unit,
@@ -333,8 +333,8 @@ def validate_layer() -> None:
     )
     require("PrivateNetwork=yes" in selftest_unit, "provider self-test has network access")
     require(
-        "CapabilityBoundingSet=CAP_SETGID CAP_SETUID" in selftest_unit,
-        "provider self-test capabilities exceed the identity-drop boundary",
+        "CapabilityBoundingSet=\n" in selftest_unit,
+        "provider self-test retains a Linux capability",
     )
     require("[Install]" not in selftest_unit, "provider self-test must not be enabled")
 
@@ -354,11 +354,14 @@ def validate_layer() -> None:
     require("--mark-unavailable" in launcher, "launcher reload mode is missing")
     require('runtime_user = "aos-vdp"' in launcher, "launcher runtime user changed")
     require("PR_SET_NO_NEW_PRIVS" in launcher, "launcher does not set no_new_privs")
-    require("setgroups(0, NULL)" in launcher, "launcher does not clear supplementary groups")
-    require("getgroups(0, NULL)" in launcher, "launcher does not verify supplementary groups")
+    require("getgroups(1, &supplementary_group)" in launcher,
+            "launcher does not verify supplementary groups")
     require("initgroups" not in launcher, "launcher still depends on an NSS group expansion")
-    require("setresgid" in launcher, "launcher does not drop all group identities")
-    require("setresuid" in launcher, "launcher does not drop all user identities")
+    require("setgroups" not in launcher, "launcher still changes supplementary groups")
+    require("setresgid" not in launcher, "launcher still changes its runtime group")
+    require("setresuid" not in launcher, "launcher still changes its runtime user")
+    require("launcher did not receive the dedicated runtime identity" in launcher,
+            "launcher does not fail closed on the systemd identity")
     require("PR_GET_NO_NEW_PRIVS" in launcher, "launcher does not verify no_new_privs")
     require("SYS_capget" in launcher, "launcher does not verify cleared capabilities")
     require(
@@ -366,11 +369,11 @@ def validate_layer() -> None:
         "launcher capability failure is not fail-closed",
     )
     require(
-        launcher.index("PR_SET_NO_NEW_PRIVS")
-        < launcher.index("setresgid")
-        < launcher.index("setresuid")
+        launcher.index("getgroups(1, &supplementary_group)")
+        < launcher.index("PR_SET_NO_NEW_PRIVS")
+        < launcher.index("SYS_capget")
         < launcher.index("execv(executable"),
-        "launcher privilege-drop order changed",
+        "launcher identity-verification order changed",
     )
 
     tmpfiles = read(TMPFILES)
@@ -671,12 +674,15 @@ def validate_layer() -> None:
         "steady-state module loading cannot use its inherited init script socket",
     )
     for token in (
-        "allow vehicle_data_provider_t self:capability { setgid setuid };",
         "allow vehicle_data_provider_t self:process getcap;",
         "allow vehicle_data_provider_t self:fifo_file rw_fifo_file_perms;",
         "init_rw_script_stream_sockets(vehicle_data_provider_t)",
     ):
         require(token in policy, f"provider launcher policy is missing: {token}")
+    require(
+        "allow vehicle_data_provider_t self:capability" not in policy,
+        "provider domain retains a Linux capability permission",
+    )
     require(
         "systemd_tmpfilesd_managed(vehicle_data_provider_store_t)" not in policy,
         "global tmpfiles retains unnecessary provider-store management access",

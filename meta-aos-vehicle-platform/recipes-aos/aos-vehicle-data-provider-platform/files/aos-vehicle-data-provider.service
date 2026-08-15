@@ -17,9 +17,10 @@ User=aos-vdp
 Group=aos-vdp
 Environment=AOS_VEHICLE_DATA_PROVIDER_CONFIGURATION=/var/aos/workdirs/sm/runtimes/systemd-slot-component/configuration/provider.json
 Environment=AOS_VEHICLE_DATA_PROVIDER_VISS_CA=/var/aos/workdirs/sm/runtimes/systemd-slot-component/trust/viss-ca.pem
-# The ! prefix lets only the audited launcher enter its SELinux domain as root.
-# It enables no_new_privs and irreversibly drops to aos-vdp before the payload.
-ExecStart=!/usr/libexec/aos-vehicle-data-provider-launcher
+# systemd establishes the fixed aos-vdp identity and its private credential
+# directory before the launcher enters the provider SELinux domain. The
+# launcher then verifies identity, groups, empty capabilities, and no_new_privs.
+ExecStart=/usr/libexec/aos-vehicle-data-provider-launcher
 ExecReload=/bin/kill -HUP $MAINPID
 LoadCredential=kuksa-token:/var/aos/workdirs/sm/runtimes/systemd-slot-component/credentials/kuksa-token
 Restart=on-failure
@@ -38,7 +39,7 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 RestrictNamespaces=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
-CapabilityBoundingSet=CAP_SETGID CAP_SETUID
+CapabilityBoundingSet=
 AmbientCapabilities=
 
 [Install]

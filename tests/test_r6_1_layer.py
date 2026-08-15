@@ -43,23 +43,27 @@ class R61LayerTests(unittest.TestCase):
         self.assertIn("--mark-unavailable", launcher)
         self.assertIn("ExecReload=/bin/kill -HUP $MAINPID", unit)
 
-    def test_provider_launcher_drops_to_a_dedicated_non_root_identity(self) -> None:
+    def test_provider_launcher_verifies_a_dedicated_non_root_identity(self) -> None:
         launcher = validate_r6_1_layer.LAUNCHER.read_text(encoding="utf-8")
         unit = validate_r6_1_layer.UNIT.read_text(encoding="utf-8")
         selftest = validate_r6_1_layer.SELFTEST_UNIT.read_text(encoding="utf-8")
         recipe = validate_r6_1_layer.PLATFORM_RECIPE.read_text(encoding="utf-8")
         policy = validate_r6_1_layer.POLICY.read_text(encoding="utf-8")
         self.assertIn("User=aos-vdp", unit)
-        self.assertIn("ExecStart=!/usr/libexec/", unit)
+        self.assertIn("ExecStart=/usr/libexec/", unit)
+        self.assertIn("CapabilityBoundingSet=\n", unit)
         self.assertNotIn("DynamicUser=", unit)
         self.assertNotIn("NoNewPrivileges=", unit)
         self.assertIn("User=aos-vdp", selftest)
-        self.assertIn("ExecStart=!/usr/libexec/", selftest)
+        self.assertIn("ExecStart=/usr/libexec/", selftest)
+        self.assertIn("CapabilityBoundingSet=\n", selftest)
         self.assertIn("inherit systemd useradd", recipe)
         self.assertIn("PR_SET_NO_NEW_PRIVS", launcher)
         self.assertIn("allow vehicle_data_provider_t self:process getcap;", policy)
-        self.assertIn("setgroups(0, NULL)", launcher)
-        self.assertIn("getgroups(0, NULL)", launcher)
+        self.assertIn("getgroups(1, &supplementary_group)", launcher)
+        self.assertNotIn("setgroups", launcher)
+        self.assertNotIn("setresuid", launcher)
+        self.assertNotIn("setresgid", launcher)
         self.assertNotIn("initgroups", launcher)
         self.assertIn(
             "allow vehicle_data_provider_t self:fifo_file rw_fifo_file_perms;",
@@ -71,11 +75,13 @@ class R61LayerTests(unittest.TestCase):
         self.assertNotIn(
             "systemd_tmpfilesd_managed(vehicle_data_provider_store_t)", policy
         )
+        self.assertNotIn("self:capability { setgid setuid }", policy)
         self.assertLess(
-            launcher.index("PR_SET_NO_NEW_PRIVS"), launcher.index("setresuid")
+            launcher.index("getgroups(1, &supplementary_group)"),
+            launcher.index("PR_SET_NO_NEW_PRIVS"),
         )
         self.assertLess(
-            launcher.index("setresuid"), launcher.index("execv(executable")
+            launcher.index("PR_SET_NO_NEW_PRIVS"), launcher.index("execv(executable")
         )
 
     def test_demo_store_is_fixed_bounded_and_non_destructive(self) -> None:

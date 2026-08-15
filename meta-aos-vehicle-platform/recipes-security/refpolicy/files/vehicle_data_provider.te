@@ -25,10 +25,9 @@ type vehicle_data_provider_unit_t;
 init_unit_file(vehicle_data_provider_unit_t)
 
 allow vehicle_data_provider_t self:tcp_socket create_stream_socket_perms;
-allow vehicle_data_provider_t self:capability { setgid setuid };
-# The bounded launcher verifies that all Linux capability sets are empty after
-# dropping to aos-vdp. SELinux treats that capget(2) inspection separately
-# from using a capability.
+# The bounded launcher receives its non-root identity from systemd and verifies
+# that all Linux capability sets are empty. SELinux treats that capget(2)
+# inspection separately from using a capability.
 allow vehicle_data_provider_t self:process getcap;
 allow vehicle_data_provider_t self:fifo_file rw_fifo_file_perms;
 allow vehicle_data_provider_t vehicle_data_provider_store_t:dir list_dir_perms;

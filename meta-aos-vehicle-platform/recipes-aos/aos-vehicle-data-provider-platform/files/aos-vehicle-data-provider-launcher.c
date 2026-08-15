@@ -6,7 +6,6 @@
 #define _GNU_SOURCE
 
 #include <errno.h>
-#include <grp.h>
 #include <linux/capability.h>
 #include <limits.h>
 #include <pwd.h>
@@ -27,8 +26,9 @@ static int fail(const char *message) {
   return 1;
 }
 
-static int drop_launcher_privileges(void) {
+static int verify_launcher_identity(void) {
   struct passwd *account = getpwnam(runtime_user);
+  gid_t supplementary_group = 0;
   struct __user_cap_header_struct capability_header = {
       .version = _LINUX_CAPABILITY_VERSION_3,
       .pid = 0,
@@ -41,26 +41,21 @@ static int drop_launcher_privileges(void) {
   const uid_t runtime_uid = account->pw_uid;
   const gid_t runtime_gid = account->pw_gid;
 
-  /* The account is image-owned and has no supplementary groups. Avoid an NSS
-   * group-expansion lookup (and its systemd-userdb fallback) by clearing the list
-   * explicitly while CAP_SETGID is still available. */
-  if (setgroups(0, NULL) != 0) {
-    return fail("cannot clear supplementary groups");
+  /* systemd must establish the fixed runtime identity before exec so that its
+   * private credential directory belongs to the payload UID. The launcher
+   * accepts no foreign supplementary group; some systemd versions retain the
+   * primary GID as the only supplementary entry after group initialization. */
+  if (getuid() != runtime_uid || geteuid() != runtime_uid ||
+      getgid() != runtime_gid || getegid() != runtime_gid) {
+    return fail("launcher did not receive the dedicated runtime identity");
+  }
+  const int supplementary_count = getgroups(1, &supplementary_group);
+  if (supplementary_count < 0 || supplementary_count > 1 ||
+      (supplementary_count == 1 && supplementary_group != runtime_gid)) {
+    return fail("launcher received an unsafe supplementary group");
   }
   if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
     return fail("cannot enable no_new_privs");
-  }
-  if (setresgid(runtime_gid, runtime_gid, runtime_gid) != 0) {
-    return fail("cannot drop runtime group privileges");
-  }
-  if (setresuid(runtime_uid, runtime_uid, runtime_uid) != 0) {
-    return fail("cannot drop runtime user privileges");
-  }
-  if (getuid() == 0 || geteuid() == 0 || getgid() == 0 || getegid() == 0) {
-    return fail("runtime identity remained privileged");
-  }
-  if (getgroups(0, NULL) != 0) {
-    return fail("supplementary groups were not cleared");
   }
   if (prctl(PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) != 1) {
     return fail("no_new_privs did not remain active");
@@ -141,7 +136,7 @@ int main(int argc, char *argv[]) {
   if (setenv("AOS_VEHICLE_DATA_PROVIDER_ROOT", root, 1) != 0) {
     return fail("cannot set the provider root environment");
   }
-  if (drop_launcher_privileges() != 0) {
+  if (verify_launcher_identity() != 0) {
     return 1;
   }
 
