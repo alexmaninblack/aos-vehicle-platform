@@ -5,6 +5,7 @@
 set -eu
 umask 077
 
+action=${1:-}
 workdirs=/var/aos/workdirs
 expected_device=/dev/aosvg/workdirs
 store_parent=/var/aos/workdirs/sm/runtimes
@@ -16,6 +17,10 @@ identity_partial=/var/aos/workdirs/sm/runtimes/.vehicle-data-provider-store.iden
 store_size=536870912
 minimum_remaining=536870912
 store_label=aos-vdp-store
+runtime_dir=/run/aos-vehicle-data-provider-store
+runtime_loop=/run/aos-vehicle-data-provider-store/loop
+runtime_loop_partial=/run/aos-vehicle-data-provider-store/loop.partial
+loop_helper=/usr/libexec/aos-vehicle-data-provider-loop
 
 fail() {
     printf 'Vehicle data provider store preparation failed: %s\n' "$*" >&2
@@ -114,10 +119,37 @@ free_bytes() {
     printf '%s\n' "$(( available_blocks * block_size ))"
 }
 
-for command in blkid dd e2fsck findmnt grep install losetup mkfs.ext4 \
-    readlink sed stat tr wc; do
+for command in blkid dd e2fsck findmnt grep install ln losetup mkfs.ext4 \
+    mv readlink rm sed stat tr wc; do
     require_command "$command"
 done
+
+case "$action" in
+    release)
+        [ ! -e "$runtime_loop_partial" ] && [ ! -L "$runtime_loop_partial" ] ||
+            fail 'partial runtime loop identity requires manual reconciliation'
+        [ -L "$runtime_loop" ] || fail 'runtime loop identity is absent or unsafe'
+        loop_device=$(readlink "$runtime_loop")
+        case "$loop_device" in
+            /dev/loop[0-9]*) ;;
+            *) fail 'runtime loop device identity is invalid' ;;
+        esac
+        if findmnt -rn -M "$store_mount" >/dev/null 2>&1; then
+            fail 'component store remains mounted during loop release'
+        fi
+        attached_loop=$(losetup -j "$backing_file" | sed -n 's/:.*//p')
+        [ "$attached_loop" = "$loop_device" ] ||
+            fail 'runtime loop identity does not match the fixed backing file'
+        "$loop_helper" detach || fail 'cannot release the fixed backing loop device'
+        [ -z "$(losetup -j "$backing_file")" ] ||
+            fail 'the fixed backing file remains attached after release'
+        rm -f -- "$runtime_loop" || fail 'cannot remove the runtime loop identity'
+        printf 'Vehicle data provider store loop device is released.\n'
+        exit 0
+        ;;
+    prepare) ;;
+    *) fail 'usage: aos-vehicle-data-provider-store-prepare <prepare|release>' ;;
+esac
 
 [ "$(id -u)" -eq 0 ] || fail 'preparation must run as root'
 [ -d "$workdirs" ] && [ ! -L "$workdirs" ] || fail 'workdirs path is unsafe'
@@ -181,7 +213,9 @@ else
         chown 0:0 "$partial_file"
         require_regular_file "$partial_file" "$store_size"
         require_fully_allocated "$partial_file"
-        mkfs.ext4 -q -F -m 0 -E nodiscard -L "$store_label" \
+        mkfs.ext4 -q -F -m 0 \
+            -E nodiscard,lazy_itable_init=0,lazy_journal_init=0 \
+            -L "$store_label" \
             "$partial_file" ||
             fail 'cannot create the store ext4 filesystem'
         image_uuid=$(filesystem_value "$partial_file" UUID)
@@ -209,8 +243,12 @@ else
     fi
 fi
 
-[ -z "$(losetup -j "$backing_file")" ] ||
-    fail 'store image is unexpectedly attached before mount activation'
+if [ -n "$(losetup -j "$backing_file")" ]; then
+    if findmnt -rn -M "$store_mount" >/dev/null 2>&1; then
+        fail 'store image is already mounted before preparation'
+    fi
+    "$loop_helper" detach || fail 'cannot recover a stale backing loop device'
+fi
 
 set +e
 e2fsck -p "$backing_file"
@@ -223,5 +261,26 @@ esac
 
 read_identity
 verify_image "$backing_file" "$identity_uuid"
+
+[ -d "$runtime_dir" ] && [ ! -L "$runtime_dir" ] ||
+    fail 'runtime loop directory is absent or unsafe'
+[ "$(stat -c %u:%g "$runtime_dir")" = 0:0 ] ||
+    fail 'runtime loop directory is not owned by root'
+[ ! -e "$runtime_loop" ] && [ ! -L "$runtime_loop" ] ||
+    fail 'runtime loop identity already exists'
+[ ! -e "$runtime_loop_partial" ] && [ ! -L "$runtime_loop_partial" ] ||
+    fail 'partial runtime loop identity already exists'
+loop_device=$("$loop_helper" attach) ||
+    fail 'cannot attach the fixed backing loop device'
+case "$loop_device" in
+    /dev/loop[0-9]*) ;;
+    *) fail 'loop helper returned an invalid device identity' ;;
+esac
+[ "$(printf '%s\n' "$(losetup -j "$backing_file")" | sed -n 's/:.*//p')" = \
+    "$loop_device" ] || fail 'attached loop device identity changed'
+ln -s "$loop_device" "$runtime_loop_partial" ||
+    fail 'cannot stage the runtime loop identity'
+mv "$runtime_loop_partial" "$runtime_loop" ||
+    fail 'cannot commit the runtime loop identity'
 
 printf 'Vehicle data provider store backing filesystem is ready.\n'

@@ -10,6 +10,10 @@ init_daemon_domain(vehicle_data_provider_t, vehicle_data_provider_exec_t)
 type vehicle_data_provider_store_t;
 files_type(vehicle_data_provider_store_t)
 
+type vehicle_data_provider_store_admin_t;
+type vehicle_data_provider_store_admin_exec_t;
+init_daemon_domain(vehicle_data_provider_store_admin_t, vehicle_data_provider_store_admin_exec_t)
+
 type vehicle_data_provider_unit_t;
 init_unit_file(vehicle_data_provider_unit_t)
 
@@ -39,6 +43,16 @@ gen_require(`
 
 init_rw_script_stream_sockets(systemd_modules_load_t)
 allow vehicle_data_provider_t aos_var_run_t:dir search;
+
+# This domain can only be entered through the fixed-path loop helper. The
+# helper itself accepts no backing path and validates the immutable 512 MiB
+# store contract before issuing any loop ioctl.
+allow vehicle_data_provider_store_admin_t self:capability sys_admin;
+allow vehicle_data_provider_store_admin_t aos_var_run_t:dir search;
+allow vehicle_data_provider_store_admin_t aos_var_run_t:file { getattr ioctl lock open read write };
+dev_rw_loop_control(vehicle_data_provider_store_admin_t)
+storage_raw_rw_fixed_disk(vehicle_data_provider_store_admin_t)
+
 manage_dirs_pattern(aos_t, vehicle_data_provider_store_t, vehicle_data_provider_store_t)
 manage_files_pattern(aos_t, vehicle_data_provider_store_t, vehicle_data_provider_store_t)
 manage_lnk_files_pattern(aos_t, vehicle_data_provider_store_t, vehicle_data_provider_store_t)

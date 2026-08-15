@@ -11,9 +11,13 @@ ConditionPathIsMountPoint=/var/aos/workdirs
 
 [Service]
 Type=oneshot
-ExecStart=/usr/libexec/aos-vehicle-data-provider-store-prepare
+ExecStart=/usr/libexec/aos-vehicle-data-provider-store-prepare prepare
+ExecStop=/usr/libexec/aos-vehicle-data-provider-store-prepare release
 RemainAfterExit=yes
 UMask=0077
+RuntimeDirectory=aos-vehicle-data-provider-store
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=restart
 NoNewPrivileges=yes
 ProtectControlGroups=yes
 ProtectHome=yes
@@ -21,10 +25,10 @@ ProtectKernelLogs=yes
 ProtectKernelModules=yes
 ProtectKernelTunables=yes
 ProtectSystem=strict
-ReadWritePaths=/var/aos/workdirs
+ReadWritePaths=/var/aos/workdirs/sm/runtimes /run/aos-vehicle-data-provider-store
 RestrictAddressFamilies=AF_UNIX
 RestrictNamespaces=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
-CapabilityBoundingSet=
+CapabilityBoundingSet=CAP_SYS_ADMIN
 AmbientCapabilities=

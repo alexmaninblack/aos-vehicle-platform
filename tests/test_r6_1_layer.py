@@ -56,7 +56,9 @@ class R61LayerTests(unittest.TestCase):
             'dd if=/dev/zero of="$partial_file" bs=1048576 count=512', prepare
         )
         self.assertIn("conv=fsync status=none", prepare)
-        self.assertIn('mkfs.ext4 -q -F -m 0 -E nodiscard -L "$store_label"', prepare)
+        self.assertIn(
+            "-E nodiscard,lazy_itable_init=0,lazy_journal_init=0", prepare
+        )
         self.assertNotIn("fallocate", prepare)
         self.assertNotRegex(prepare, r"rm[^\n]*\$backing_file")
         self.assertNotRegex(prepare, r"mkfs[^\n]*\$backing_file")
@@ -67,8 +69,30 @@ class R61LayerTests(unittest.TestCase):
             f"Z {validate_r6_1_layer.COMPONENT_ROOT}",
             validate_r6_1_layer.TMPFILES.read_text(encoding="utf-8"),
         )
-        self.assertIn("Options=loop,nodev,nosuid,noatime,errors=remount-ro", mount)
+        self.assertIn("Options=nodev,nosuid,noatime,errors=remount-ro", mount)
+        self.assertNotIn("Options=loop,", mount)
         self.assertNotIn("noexec", mount)
+
+    def test_store_loop_administration_is_fixed_and_confined(self) -> None:
+        helper = validate_r6_1_layer.LOOP_HELPER.read_text(encoding="utf-8")
+        prepare = validate_r6_1_layer.STORE_PREPARE.read_text(encoding="utf-8")
+        unit = validate_r6_1_layer.STORE_PREPARE_UNIT.read_text(encoding="utf-8")
+        mount = validate_r6_1_layer.STORE_MOUNT.read_text(encoding="utf-8")
+        policy = validate_r6_1_layer.POLICY.read_text(encoding="utf-8")
+        self.assertIn(validate_r6_1_layer.STORE_BACKING, helper)
+        self.assertIn("O_NOFOLLOW", helper)
+        self.assertNotIn("argv[2]", helper)
+        self.assertIn('"$loop_helper" attach', prepare)
+        self.assertIn('"$loop_helper" detach', prepare)
+        self.assertIn("CapabilityBoundingSet=CAP_SYS_ADMIN", unit)
+        self.assertIn("AmbientCapabilities=\n", unit)
+        self.assertIn("What=/run/aos-vehicle-data-provider-store/loop", mount)
+        self.assertIn("vehicle_data_provider_store_admin_t", policy)
+        self.assertIn(
+            "allow vehicle_data_provider_store_admin_t self:capability sys_admin;",
+            policy,
+        )
+        self.assertNotIn("mount_t aos_var_run_t", policy)
 
     def test_provider_parent_access_is_search_only(self) -> None:
         policy = validate_r6_1_layer.POLICY.read_text(encoding="utf-8")

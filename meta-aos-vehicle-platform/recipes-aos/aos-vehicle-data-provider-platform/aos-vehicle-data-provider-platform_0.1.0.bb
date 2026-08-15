@@ -8,6 +8,7 @@ LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/Apache-2.0;md5=89aea4e17d99a7ca
 
 SRC_URI = " \
     file://aos-vehicle-data-provider-launcher.c \
+    file://aos-vehicle-data-provider-loop.c \
     file://aos-vehicle-data-provider-health \
     file://aos-vehicle-data-provider.service \
     file://aos-vehicle-data-provider-selftest@.service \
@@ -41,11 +42,15 @@ do_compile() {
     ${CC} ${CFLAGS} ${CPPFLAGS} ${LDFLAGS} \
         ${WORKDIR}/aos-vehicle-data-provider-launcher.c \
         -o ${B}/aos-vehicle-data-provider-launcher
+    ${CC} ${CFLAGS} ${CPPFLAGS} ${LDFLAGS} \
+        ${WORKDIR}/aos-vehicle-data-provider-loop.c \
+        -o ${B}/aos-vehicle-data-provider-loop
 }
 
 do_install() {
     install -d ${D}${libexecdir}
     install -m 0755 ${B}/aos-vehicle-data-provider-launcher ${D}${libexecdir}
+    install -m 0755 ${B}/aos-vehicle-data-provider-loop ${D}${libexecdir}
     install -m 0755 ${WORKDIR}/aos-vehicle-data-provider-health ${D}${libexecdir}
     install -m 0755 ${WORKDIR}/aos-vehicle-data-provider-store-prepare ${D}${libexecdir}
     install -m 0755 ${WORKDIR}/aos-vehicle-data-provider-store-check ${D}${libexecdir}
@@ -77,6 +82,7 @@ do_install() {
 
 FILES:${PN} += " \
     ${libexecdir}/aos-vehicle-data-provider-launcher \
+    ${libexecdir}/aos-vehicle-data-provider-loop \
     ${libexecdir}/aos-vehicle-data-provider-health \
     ${libexecdir}/aos-vehicle-data-provider-store-prepare \
     ${libexecdir}/aos-vehicle-data-provider-store-check \

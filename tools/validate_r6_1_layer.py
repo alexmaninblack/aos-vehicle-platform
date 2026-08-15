@@ -55,6 +55,11 @@ STORE_PREPARE = (
     / "recipes-aos/aos-vehicle-data-provider-platform/files/"
     "aos-vehicle-data-provider-store-prepare"
 )
+LOOP_HELPER = (
+    LAYER
+    / "recipes-aos/aos-vehicle-data-provider-platform/files/"
+    "aos-vehicle-data-provider-loop.c"
+)
 STORE_CHECK = (
     LAYER
     / "recipes-aos/aos-vehicle-data-provider-platform/files/"
@@ -91,6 +96,7 @@ SM_DROP_IN = (
     "30-aos-vehicle-data-provider.conf"
 )
 POLICY = LAYER / "recipes-security/refpolicy/files/vehicle_data_provider.te"
+POLICY_FC = LAYER / "recipes-security/refpolicy/files/vehicle_data_provider.fc"
 POLICY_APPEND = LAYER / "recipes-security/refpolicy/refpolicy-aos_git.bbappend"
 COMPONENT_ROOT = "/var/aos/workdirs/sm/runtimes/systemd-slot-component"
 STORE_BACKING = "/var/aos/workdirs/sm/runtimes/.vehicle-data-provider-store.ext4"
@@ -324,13 +330,18 @@ def validate_layer() -> None:
         "context=system_u:object_r:aos_var_run_t:s0",
         'dd if=/dev/zero of="$partial_file" bs=1048576 count=512',
         "conv=fsync status=none",
-        "mkfs.ext4 -q -F -m 0 -E nodiscard -L \"$store_label\"",
+        "-E nodiscard,lazy_itable_init=0,lazy_journal_init=0",
         "e2fsck -p \"$backing_file\"",
         "require_fully_allocated",
         "store identity exists without a recoverable image",
         "partial store identity requires manual reconciliation",
         "mv \"$partial_file\" \"$backing_file\"",
         "store backing file is sparse or incompletely allocated",
+        '"$loop_helper" attach',
+        '"$loop_helper" detach',
+        'ln -s "$loop_device" "$runtime_loop_partial"',
+        'attached_loop=$(losetup -j "$backing_file"',
+        '"$attached_loop" = "$loop_device"',
     ):
         require(token in store_prepare, f"store preparation contract is missing: {token}")
     require("AOS_" not in store_prepare, "store preparation accepts environment overrides")
@@ -345,6 +356,31 @@ def validate_layer() -> None:
     require(
         not re.search(r"mkfs[^\n]*\$backing_file", store_prepare),
         "store preparation can reformat the committed backing file",
+    )
+
+    loop_helper = read(LOOP_HELPER)
+    for token in (
+        "#define BACKING_FILE",
+        f'    "{STORE_BACKING}"',
+        f"#define BACKING_SIZE UINT64_C({STORE_SIZE})",
+        "#define MAX_LOOP_DEVICES 256",
+        "O_NOFOLLOW",
+        "LOOP_CTL_GET_FREE",
+        "LOOP_SET_FD",
+        "LOOP_SET_STATUS64",
+        "LOOP_CLR_FD",
+        "st_blocks",
+        'strcmp(argv[1], "attach")',
+        'strcmp(argv[1], "detach")',
+    ):
+        require(token in loop_helper, f"fixed loop helper contract is missing: {token}")
+    require(
+        "argv[2]" not in loop_helper,
+        "fixed loop helper accepts a caller-controlled backing path",
+    )
+    require(
+        "system(" not in loop_helper and "exec" not in loop_helper,
+        "fixed loop helper delegates privileged behavior to another program",
     )
 
     store_check = read(STORE_CHECK)
@@ -374,10 +410,16 @@ def validate_layer() -> None:
         "Requires=var-aos-workdirs.mount",
         "After=var-aos-workdirs.mount systemd-modules-load.service",
         "ConditionPathIsMountPoint=/var/aos/workdirs",
-        "ExecStart=/usr/libexec/aos-vehicle-data-provider-store-prepare",
+        "ExecStart=/usr/libexec/aos-vehicle-data-provider-store-prepare prepare",
+        "ExecStop=/usr/libexec/aos-vehicle-data-provider-store-prepare release",
+        "RuntimeDirectory=aos-vehicle-data-provider-store",
+        "RuntimeDirectoryMode=0750",
+        "RuntimeDirectoryPreserve=restart",
         "ProtectSystem=strict",
-        "ReadWritePaths=/var/aos/workdirs",
-        "CapabilityBoundingSet=",
+        "ReadWritePaths=/var/aos/workdirs/sm/runtimes "
+        "/run/aos-vehicle-data-provider-store",
+        "CapabilityBoundingSet=CAP_SYS_ADMIN",
+        "AmbientCapabilities=",
     ):
         require(token in prepare_unit, f"store preparation unit is missing: {token}")
     require(
@@ -395,15 +437,16 @@ def validate_layer() -> None:
         "Requires=aos-vehicle-data-provider-store-prepare.service",
         "Conflicts=umount.target",
         "Before=aos-vehicle-data-provider-bootstrap.service aos-sm.service umount.target",
-        f"What={STORE_BACKING}",
+        "What=/run/aos-vehicle-data-provider-store/loop",
         f"Where={COMPONENT_ROOT}",
         "Type=ext4",
-        "Options=loop,nodev,nosuid,noatime,errors=remount-ro,"
+        "Options=nodev,nosuid,noatime,errors=remount-ro,"
         "context=system_u:object_r:vehicle_data_provider_store_t:s0",
         "TimeoutSec=30s",
     ):
         require(token in store_mount, f"isolated store mount is missing: {token}")
     require("noexec" not in store_mount, "provider store is not executable")
+    require("Options=loop," not in store_mount, "mount unit allocates a second loop device")
 
     bootstrap_unit = read(STORE_BOOTSTRAP_UNIT)
     require(
@@ -444,6 +487,7 @@ def validate_layer() -> None:
         "aos-vehicle-data-provider-store.mount",
         "aos-vehicle-data-provider-store-prepare",
         "aos-vehicle-data-provider-store-check",
+        "aos-vehicle-data-provider-loop.c",
         "aos-vehicle-data-provider-loop.conf",
     ):
         require(f"file://{source}" in platform_recipe, f"store source is missing: {source}")
@@ -455,6 +499,12 @@ def validate_layer() -> None:
     require(
         "${libdir}/aos-vehicle-data-provider/store.conf" in platform_recipe,
         "store layout is not isolated from global tmpfiles processing",
+    )
+    require(
+        "${WORKDIR}/aos-vehicle-data-provider-loop.c" in platform_recipe
+        and "${B}/aos-vehicle-data-provider-loop" in platform_recipe
+        and "${libexecdir}/aos-vehicle-data-provider-loop" in platform_recipe,
+        "fixed loop helper is not compiled, installed, and packaged",
     )
     require(
         "${nonarch_libdir}/tmpfiles.d/aos-vehicle-data-provider.conf"
@@ -485,6 +535,29 @@ def validate_layer() -> None:
         "provider has broader access to general Aos workdirs than directory search",
     )
     require("permissive" not in policy, "provider SELinux policy is permissive")
+    for token in (
+        "type vehicle_data_provider_store_admin_t;",
+        "type vehicle_data_provider_store_admin_exec_t;",
+        "init_daemon_domain(vehicle_data_provider_store_admin_t, "
+        "vehicle_data_provider_store_admin_exec_t)",
+        "allow vehicle_data_provider_store_admin_t self:capability sys_admin;",
+        "allow vehicle_data_provider_store_admin_t aos_var_run_t:dir search;",
+        "allow vehicle_data_provider_store_admin_t aos_var_run_t:file "
+        "{ getattr ioctl lock open read write };",
+        "dev_rw_loop_control(vehicle_data_provider_store_admin_t)",
+        "storage_raw_rw_fixed_disk(vehicle_data_provider_store_admin_t)",
+    ):
+        require(token in policy, f"fixed loop helper policy is missing: {token}")
+    require(
+        "mount_t aos_var_run_t" not in policy,
+        "generic mount domain can access the Aos workdirs backing file",
+    )
+    require(
+        "/usr/libexec/aos-vehicle-data-provider-loop -- "
+        "gen_context(system_u:object_r:vehicle_data_provider_store_admin_exec_t,s0)"
+        in read(POLICY_FC),
+        "fixed loop helper does not enter its dedicated SELinux domain",
+    )
     require(
         "init_read_runtime_files(vehicle_data_provider_t)" in policy,
         "provider policy is not compatible with the pinned refpolicy runtime interface",
@@ -503,7 +576,7 @@ def validate_layer() -> None:
     )
     require(
         "aos-vehicle-data-provider-health" not in read(
-            LAYER / "recipes-security/refpolicy/files/vehicle_data_provider.fc"
+            POLICY_FC
         ),
         "health controller incorrectly transitions into the payload domain",
     )
