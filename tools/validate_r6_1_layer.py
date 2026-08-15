@@ -354,7 +354,9 @@ def validate_layer() -> None:
     require("--mark-unavailable" in launcher, "launcher reload mode is missing")
     require('runtime_user = "aos-vdp"' in launcher, "launcher runtime user changed")
     require("PR_SET_NO_NEW_PRIVS" in launcher, "launcher does not set no_new_privs")
-    require("initgroups" in launcher, "launcher does not reset supplementary groups")
+    require("setgroups(0, NULL)" in launcher, "launcher does not clear supplementary groups")
+    require("getgroups(0, NULL)" in launcher, "launcher does not verify supplementary groups")
+    require("initgroups" not in launcher, "launcher still depends on an NSS group expansion")
     require("setresgid" in launcher, "launcher does not drop all group identities")
     require("setresuid" in launcher, "launcher does not drop all user identities")
     require("PR_GET_NO_NEW_PRIVS" in launcher, "launcher does not verify no_new_privs")
@@ -667,6 +669,17 @@ def validate_layer() -> None:
     require(
         "init_rw_script_stream_sockets(systemd_modules_load_t)" in policy,
         "steady-state module loading cannot use its inherited init script socket",
+    )
+    for token in (
+        "allow vehicle_data_provider_t self:capability { setgid setuid };",
+        "allow vehicle_data_provider_t self:process getcap;",
+        "allow vehicle_data_provider_t self:fifo_file rw_fifo_file_perms;",
+        "init_rw_script_stream_sockets(vehicle_data_provider_t)",
+    ):
+        require(token in policy, f"provider launcher policy is missing: {token}")
+    require(
+        "systemd_tmpfilesd_managed(vehicle_data_provider_store_t)" not in policy,
+        "global tmpfiles retains unnecessary provider-store management access",
     )
     broad_parent_rules = [
         line.strip()

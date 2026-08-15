@@ -41,8 +41,11 @@ static int drop_launcher_privileges(void) {
   const uid_t runtime_uid = account->pw_uid;
   const gid_t runtime_gid = account->pw_gid;
 
-  if (initgroups(runtime_user, runtime_gid) != 0) {
-    return fail("cannot restrict supplementary groups");
+  /* The account is image-owned and has no supplementary groups. Avoid an NSS
+   * group-expansion lookup (and its systemd-userdb fallback) by clearing the list
+   * explicitly while CAP_SETGID is still available. */
+  if (setgroups(0, NULL) != 0) {
+    return fail("cannot clear supplementary groups");
   }
   if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
     return fail("cannot enable no_new_privs");
@@ -55,6 +58,9 @@ static int drop_launcher_privileges(void) {
   }
   if (getuid() == 0 || geteuid() == 0 || getgid() == 0 || getegid() == 0) {
     return fail("runtime identity remained privileged");
+  }
+  if (getgroups(0, NULL) != 0) {
+    return fail("supplementary groups were not cleared");
   }
   if (prctl(PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) != 1) {
     return fail("no_new_privs did not remain active");

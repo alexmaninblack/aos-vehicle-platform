@@ -26,6 +26,11 @@ init_unit_file(vehicle_data_provider_unit_t)
 
 allow vehicle_data_provider_t self:tcp_socket create_stream_socket_perms;
 allow vehicle_data_provider_t self:capability { setgid setuid };
+# The bounded launcher verifies that all Linux capability sets are empty after
+# dropping to aos-vdp. SELinux treats that capget(2) inspection separately
+# from using a capability.
+allow vehicle_data_provider_t self:process getcap;
+allow vehicle_data_provider_t self:fifo_file rw_fifo_file_perms;
 allow vehicle_data_provider_t vehicle_data_provider_store_t:dir list_dir_perms;
 allow vehicle_data_provider_t vehicle_data_provider_store_t:file { execute execute_no_trans map };
 allow vehicle_data_provider_t vehicle_data_provider_store_t:lnk_file read_lnk_file_perms;
@@ -37,10 +42,9 @@ corecmd_exec_shell(vehicle_data_provider_t)
 files_read_etc_files(vehicle_data_provider_t)
 init_dgram_send(vehicle_data_provider_t)
 init_read_runtime_files(vehicle_data_provider_t)
+init_rw_script_stream_sockets(vehicle_data_provider_t)
 logging_send_syslog_msg(vehicle_data_provider_t)
 miscfiles_read_generic_certs(vehicle_data_provider_t)
-
-systemd_tmpfilesd_managed(vehicle_data_provider_store_t)
 
 gen_require(`
     type aos_t;

@@ -48,6 +48,7 @@ class R61LayerTests(unittest.TestCase):
         unit = validate_r6_1_layer.UNIT.read_text(encoding="utf-8")
         selftest = validate_r6_1_layer.SELFTEST_UNIT.read_text(encoding="utf-8")
         recipe = validate_r6_1_layer.PLATFORM_RECIPE.read_text(encoding="utf-8")
+        policy = validate_r6_1_layer.POLICY.read_text(encoding="utf-8")
         self.assertIn("User=aos-vdp", unit)
         self.assertIn("ExecStart=!/usr/libexec/", unit)
         self.assertNotIn("DynamicUser=", unit)
@@ -56,6 +57,20 @@ class R61LayerTests(unittest.TestCase):
         self.assertIn("ExecStart=!/usr/libexec/", selftest)
         self.assertIn("inherit systemd useradd", recipe)
         self.assertIn("PR_SET_NO_NEW_PRIVS", launcher)
+        self.assertIn("allow vehicle_data_provider_t self:process getcap;", policy)
+        self.assertIn("setgroups(0, NULL)", launcher)
+        self.assertIn("getgroups(0, NULL)", launcher)
+        self.assertNotIn("initgroups", launcher)
+        self.assertIn(
+            "allow vehicle_data_provider_t self:fifo_file rw_fifo_file_perms;",
+            policy,
+        )
+        self.assertIn(
+            "init_rw_script_stream_sockets(vehicle_data_provider_t)", policy
+        )
+        self.assertNotIn(
+            "systemd_tmpfilesd_managed(vehicle_data_provider_store_t)", policy
+        )
         self.assertLess(
             launcher.index("PR_SET_NO_NEW_PRIVS"), launcher.index("setresuid")
         )
