@@ -43,6 +43,26 @@ class R61LayerTests(unittest.TestCase):
         self.assertIn("--mark-unavailable", launcher)
         self.assertIn("ExecReload=/bin/kill -HUP $MAINPID", unit)
 
+    def test_provider_launcher_drops_to_a_dedicated_non_root_identity(self) -> None:
+        launcher = validate_r6_1_layer.LAUNCHER.read_text(encoding="utf-8")
+        unit = validate_r6_1_layer.UNIT.read_text(encoding="utf-8")
+        selftest = validate_r6_1_layer.SELFTEST_UNIT.read_text(encoding="utf-8")
+        recipe = validate_r6_1_layer.PLATFORM_RECIPE.read_text(encoding="utf-8")
+        self.assertIn("User=aos-vdp", unit)
+        self.assertIn("ExecStart=!/usr/libexec/", unit)
+        self.assertNotIn("DynamicUser=", unit)
+        self.assertNotIn("NoNewPrivileges=", unit)
+        self.assertIn("User=aos-vdp", selftest)
+        self.assertIn("ExecStart=!/usr/libexec/", selftest)
+        self.assertIn("inherit systemd useradd", recipe)
+        self.assertIn("PR_SET_NO_NEW_PRIVS", launcher)
+        self.assertLess(
+            launcher.index("PR_SET_NO_NEW_PRIVS"), launcher.index("setresuid")
+        )
+        self.assertLess(
+            launcher.index("setresuid"), launcher.index("execv(executable")
+        )
+
     def test_demo_store_is_fixed_bounded_and_non_destructive(self) -> None:
         prepare = validate_r6_1_layer.STORE_PREPARE.read_text(encoding="utf-8")
         check = validate_r6_1_layer.STORE_CHECK.read_text(encoding="utf-8")

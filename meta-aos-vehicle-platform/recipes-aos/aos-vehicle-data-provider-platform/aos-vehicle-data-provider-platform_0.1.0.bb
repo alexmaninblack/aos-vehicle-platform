@@ -27,7 +27,10 @@ SRC_URI = " \
 
 S = "${WORKDIR}"
 
-inherit systemd
+inherit systemd useradd
+
+USERADD_PACKAGES = "${PN}"
+USERADD_PARAM:${PN} = "--system --home /nonexistent --no-create-home --shell /bin/false aos-vdp"
 
 RDEPENDS:${PN} += " \
     coreutils \

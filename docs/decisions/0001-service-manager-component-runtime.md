@@ -109,6 +109,13 @@ the production runtime.
   AosCore/rootfs releases.
 - The demonstration backend preserves that lifecycle without weakening the
   provider SELinux domain or changing the signed provider path contract.
+- The provider unit uses a dedicated non-login `aos-vdp` account. Only the
+  fixed launcher starts before the UID/GID change, with bounded `CAP_SETUID`
+  and `CAP_SETGID`; it enters `vehicle_data_provider_t`, enables
+  `no_new_privs`, irreversibly drops identity, verifies that runtime
+  capabilities are empty, and only then executes the selected payload. This
+  preserves both the SELinux transition and a non-root payload on the pinned
+  AosVM policy baseline.
 - Rootfs rollback from `.3` to a release without the nested mount support must
   first suspend or remove the provider assignment; transparent cross-backend
   rollback is not claimed.

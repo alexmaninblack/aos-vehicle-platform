@@ -38,6 +38,11 @@ SELFTEST_UNIT = (
     LAYER
     / "recipes-aos/aos-vehicle-data-provider-platform/files/aos-vehicle-data-provider-selftest@.service"
 )
+PLATFORM_RECIPE = (
+    LAYER
+    / "recipes-aos/aos-vehicle-data-provider-platform/"
+    "aos-vehicle-data-provider-platform_0.1.0.bb"
+)
 LAUNCHER = (
     LAYER
     / "recipes-aos/aos-vehicle-data-provider-platform/files/aos-vehicle-data-provider-launcher.c"
@@ -284,10 +289,19 @@ def validate_layer() -> None:
     unit = read(UNIT)
     require("Type=notify" in unit, "provider readiness is process-only")
     require("NotifyAccess=main" in unit, "provider readiness sender is ambiguous")
-    require("DynamicUser=yes" in unit, "provider unit lacks DynamicUser")
+    require("User=aos-vdp" in unit, "provider unit lacks the dedicated runtime user")
+    require("Group=aos-vdp" in unit, "provider unit lacks the dedicated runtime group")
+    require(
+        "ExecStart=!/usr/libexec/aos-vehicle-data-provider-launcher" in unit,
+        "provider launcher does not own the bounded privilege drop",
+    )
+    require("NoNewPrivileges=" not in unit, "systemd suppresses the SELinux transition")
     require("ConditionFileIsExecutable=" in unit, "provider executable condition is missing")
     require("ProtectSystem=strict" in unit, "provider unit does not protect rootfs")
-    require("CapabilityBoundingSet=\n" in unit, "provider capabilities are not empty")
+    require(
+        "CapabilityBoundingSet=CAP_SETGID CAP_SETUID" in unit,
+        "provider launcher capabilities exceed the identity-drop boundary",
+    )
     require(
         "ExecReload=/bin/kill -HUP $MAINPID" in unit,
         "provider unavailability signal hook is missing",
@@ -306,17 +320,56 @@ def validate_layer() -> None:
 
     selftest_unit = read(SELFTEST_UNIT)
     require("Type=oneshot" in selftest_unit, "provider self-test is not one-shot")
-    require("DynamicUser=yes" in selftest_unit, "provider self-test lacks DynamicUser")
+    require("User=aos-vdp" in selftest_unit, "provider self-test user changed")
+    require("Group=aos-vdp" in selftest_unit, "provider self-test group changed")
+    require(
+        "ExecStart=!/usr/libexec/aos-vehicle-data-provider-launcher --self-test %i"
+        in selftest_unit,
+        "provider self-test bypasses the audited privilege-drop launcher",
+    )
+    require(
+        "NoNewPrivileges=" not in selftest_unit,
+        "self-test systemd no_new_privs suppresses the SELinux transition",
+    )
     require("PrivateNetwork=yes" in selftest_unit, "provider self-test has network access")
     require(
-        "CapabilityBoundingSet=\n" in selftest_unit,
-        "provider self-test capabilities are not empty",
+        "CapabilityBoundingSet=CAP_SETGID CAP_SETUID" in selftest_unit,
+        "provider self-test capabilities exceed the identity-drop boundary",
     )
     require("[Install]" not in selftest_unit, "provider self-test must not be enabled")
+
+    platform_recipe = read(PLATFORM_RECIPE)
+    require(
+        "inherit systemd useradd" in platform_recipe,
+        "provider runtime account is not image-owned",
+    )
+    require(
+        "--system --home /nonexistent --no-create-home --shell /bin/false aos-vdp"
+        in platform_recipe,
+        "provider runtime account is not fail-closed",
+    )
 
     launcher = read(LAUNCHER)
     require("--self-test" in launcher, "launcher self-test mode is missing")
     require("--mark-unavailable" in launcher, "launcher reload mode is missing")
+    require('runtime_user = "aos-vdp"' in launcher, "launcher runtime user changed")
+    require("PR_SET_NO_NEW_PRIVS" in launcher, "launcher does not set no_new_privs")
+    require("initgroups" in launcher, "launcher does not reset supplementary groups")
+    require("setresgid" in launcher, "launcher does not drop all group identities")
+    require("setresuid" in launcher, "launcher does not drop all user identities")
+    require("PR_GET_NO_NEW_PRIVS" in launcher, "launcher does not verify no_new_privs")
+    require("SYS_capget" in launcher, "launcher does not verify cleared capabilities")
+    require(
+        "runtime capabilities were not cleared" in launcher,
+        "launcher capability failure is not fail-closed",
+    )
+    require(
+        launcher.index("PR_SET_NO_NEW_PRIVS")
+        < launcher.index("setresgid")
+        < launcher.index("setresuid")
+        < launcher.index("execv(executable"),
+        "launcher privilege-drop order changed",
+    )
 
     tmpfiles = read(TMPFILES)
     require(COMPONENT_ROOT in tmpfiles, "persistent component root is missing")

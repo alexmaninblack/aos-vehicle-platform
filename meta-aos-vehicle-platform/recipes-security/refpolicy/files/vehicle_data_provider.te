@@ -25,6 +25,7 @@ type vehicle_data_provider_unit_t;
 init_unit_file(vehicle_data_provider_unit_t)
 
 allow vehicle_data_provider_t self:tcp_socket create_stream_socket_perms;
+allow vehicle_data_provider_t self:capability { setgid setuid };
 allow vehicle_data_provider_t vehicle_data_provider_store_t:dir list_dir_perms;
 allow vehicle_data_provider_t vehicle_data_provider_store_t:file { execute execute_no_trans map };
 allow vehicle_data_provider_t vehicle_data_provider_store_t:lnk_file read_lnk_file_perms;

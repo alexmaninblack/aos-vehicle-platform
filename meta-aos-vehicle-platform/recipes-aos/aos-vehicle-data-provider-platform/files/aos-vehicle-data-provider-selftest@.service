@@ -8,10 +8,10 @@ ConditionFileIsExecutable=/var/aos/workdirs/sm/runtimes/systemd-slot-component/s
 
 [Service]
 Type=oneshot
-DynamicUser=yes
-ExecStart=/usr/libexec/aos-vehicle-data-provider-launcher --self-test %i
+User=aos-vdp
+Group=aos-vdp
+ExecStart=!/usr/libexec/aos-vehicle-data-provider-launcher --self-test %i
 TimeoutStartSec=25s
-NoNewPrivileges=yes
 PrivateDevices=yes
 PrivateNetwork=yes
 PrivateTmp=yes
@@ -25,5 +25,5 @@ RestrictAddressFamilies=AF_UNIX
 RestrictNamespaces=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
-CapabilityBoundingSet=
+CapabilityBoundingSet=CAP_SETGID CAP_SETUID
 AmbientCapabilities=
