@@ -1,0 +1,52 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+set -eu
+umask 077
+
+workdirs=/var/aos/workdirs
+expected_device=/dev/aosvg/workdirs
+service_manager_root=/var/aos/workdirs/sm
+runtime_root=/var/aos/workdirs/sm/runtimes
+
+fail() {
+    printf 'Vehicle data provider store layout failed: %s\n' "$*" >&2
+    exit 1
+}
+
+ensure_directory() {
+    path=$1
+    mode=$2
+
+    [ ! -L "$path" ] || fail "directory path is a symbolic link: $path"
+    if [ -e "$path" ]; then
+        [ -d "$path" ] || fail "directory path has an unsafe type: $path"
+    else
+        install -d -m "$mode" "$path" || fail "cannot create directory: $path"
+    fi
+    [ "$(stat -c %u:%g "$path")" = 0:0 ] ||
+        fail "directory is not owned by root: $path"
+}
+
+for command in findmnt id install readlink stat; do
+    command -v "$command" >/dev/null 2>&1 ||
+        fail "required command is unavailable: $command"
+done
+
+[ "$(id -u)" -eq 0 ] || fail 'layout preparation must run as root'
+[ -d "$workdirs" ] && [ ! -L "$workdirs" ] || fail 'workdirs path is unsafe'
+[ "$(findmnt -rn -T "$workdirs" -o TARGET)" = "$workdirs" ] ||
+    fail 'workdirs is not a distinct mount point'
+[ "$(findmnt -rn -T "$workdirs" -o FSTYPE)" = ext4 ] ||
+    fail 'workdirs filesystem is not ext4'
+actual_source=$(readlink -f "$(findmnt -rn -T "$workdirs" -o SOURCE)")
+[ -e "$expected_device" ] || fail 'expected workdirs device is absent'
+expected_source=$(readlink -f "$expected_device")
+[ "$actual_source" = "$expected_source" ] ||
+    fail 'workdirs source device is unexpected'
+
+ensure_directory "$service_manager_root" 0755
+ensure_directory "$runtime_root" 0755
+
+printf 'Vehicle data provider store parent layout is ready.\n'

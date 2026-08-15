@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+[Unit]
+Description=Prepare the parent layout for the isolated Aos vehicle data provider store
+DefaultDependencies=no
+Requires=var-aos-workdirs.mount
+After=var-aos-workdirs.mount
+Before=aos-vehicle-data-provider-store-prepare.service aos-vehicle-data-provider-bootstrap.service aos-sm.service
+ConditionPathIsMountPoint=/var/aos/workdirs
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/aos-vehicle-data-provider-store-layout
+RemainAfterExit=yes
+UMask=0077
+NoNewPrivileges=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadWritePaths=/var/aos/workdirs
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=

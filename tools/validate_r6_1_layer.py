@@ -60,6 +60,11 @@ LOOP_HELPER = (
     / "recipes-aos/aos-vehicle-data-provider-platform/files/"
     "aos-vehicle-data-provider-loop.c"
 )
+STORE_LAYOUT = (
+    LAYER
+    / "recipes-aos/aos-vehicle-data-provider-platform/files/"
+    "aos-vehicle-data-provider-store-layout"
+)
 STORE_CHECK = (
     LAYER
     / "recipes-aos/aos-vehicle-data-provider-platform/files/"
@@ -69,6 +74,11 @@ STORE_PREPARE_UNIT = (
     LAYER
     / "recipes-aos/aos-vehicle-data-provider-platform/files/"
     "aos-vehicle-data-provider-store-prepare.service"
+)
+STORE_LAYOUT_UNIT = (
+    LAYER
+    / "recipes-aos/aos-vehicle-data-provider-platform/files/"
+    "aos-vehicle-data-provider-store-layout.service"
 )
 STORE_MOUNT = (
     LAYER
@@ -407,8 +417,9 @@ def validate_layer() -> None:
     prepare_unit = read(STORE_PREPARE_UNIT)
     for token in (
         "DefaultDependencies=no",
-        "Requires=var-aos-workdirs.mount",
-        "After=var-aos-workdirs.mount systemd-modules-load.service",
+        "Requires=var-aos-workdirs.mount aos-vehicle-data-provider-store-layout.service",
+        "After=var-aos-workdirs.mount systemd-modules-load.service "
+        "aos-vehicle-data-provider-store-layout.service",
         "ConditionPathIsMountPoint=/var/aos/workdirs",
         "ExecStart=/usr/libexec/aos-vehicle-data-provider-store-prepare prepare",
         "ExecStop=/usr/libexec/aos-vehicle-data-provider-store-prepare release",
@@ -430,6 +441,39 @@ def validate_layer() -> None:
         "PrivateTmp=yes" not in prepare_unit,
         "store preparation cannot depend on post-local-fs tmpfiles setup",
     )
+
+    store_layout = read(STORE_LAYOUT)
+    for token in (
+        "set -eu",
+        "workdirs=/var/aos/workdirs",
+        "expected_device=/dev/aosvg/workdirs",
+        "service_manager_root=/var/aos/workdirs/sm",
+        "runtime_root=/var/aos/workdirs/sm/runtimes",
+        'ensure_directory "$service_manager_root" 0755',
+        'ensure_directory "$runtime_root" 0755',
+        "workdirs is not a distinct mount point",
+        "workdirs source device is unexpected",
+    ):
+        require(token in store_layout, f"store parent layout contract is missing: {token}")
+    require("AOS_" not in store_layout, "store layout accepts environment overrides")
+    require("rm " not in store_layout, "store layout can remove persistent state")
+
+    layout_unit = read(STORE_LAYOUT_UNIT)
+    for token in (
+        "DefaultDependencies=no",
+        "Requires=var-aos-workdirs.mount",
+        "After=var-aos-workdirs.mount",
+        "Before=aos-vehicle-data-provider-store-prepare.service "
+        "aos-vehicle-data-provider-bootstrap.service aos-sm.service",
+        "ConditionPathIsMountPoint=/var/aos/workdirs",
+        "ExecStart=/usr/libexec/aos-vehicle-data-provider-store-layout",
+        "ProtectSystem=strict",
+        "ReadWritePaths=/var/aos/workdirs",
+        "CapabilityBoundingSet=\n",
+        "AmbientCapabilities=\n",
+    ):
+        require(token in layout_unit, f"store parent layout unit is missing: {token}")
+    require("CAP_SYS_ADMIN" not in layout_unit, "store layout unit is privileged")
 
     store_mount = read(STORE_MOUNT)
     for token in (
@@ -484,7 +528,9 @@ def validate_layer() -> None:
         require(dependency in platform_recipe, f"store dependency is missing: {dependency}")
     for source in (
         "aos-vehicle-data-provider-store-prepare.service",
+        "aos-vehicle-data-provider-store-layout.service",
         "aos-vehicle-data-provider-store.mount",
+        "aos-vehicle-data-provider-store-layout",
         "aos-vehicle-data-provider-store-prepare",
         "aos-vehicle-data-provider-store-check",
         "aos-vehicle-data-provider-loop.c",

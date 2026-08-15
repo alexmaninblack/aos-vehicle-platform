@@ -94,6 +94,29 @@ class R61LayerTests(unittest.TestCase):
         )
         self.assertNotIn("mount_t aos_var_run_t", policy)
 
+    def test_store_parent_layout_is_separate_and_unprivileged(self) -> None:
+        layout = validate_r6_1_layer.STORE_LAYOUT.read_text(encoding="utf-8")
+        layout_unit = validate_r6_1_layer.STORE_LAYOUT_UNIT.read_text(
+            encoding="utf-8"
+        )
+        prepare_unit = validate_r6_1_layer.STORE_PREPARE_UNIT.read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("service_manager_root=/var/aos/workdirs/sm", layout)
+        self.assertIn("runtime_root=/var/aos/workdirs/sm/runtimes", layout)
+        self.assertNotIn("rm ", layout)
+        self.assertIn("ReadWritePaths=/var/aos/workdirs", layout_unit)
+        self.assertIn("CapabilityBoundingSet=\n", layout_unit)
+        self.assertNotIn("CAP_SYS_ADMIN", layout_unit)
+        self.assertIn(
+            "Requires=var-aos-workdirs.mount "
+            "aos-vehicle-data-provider-store-layout.service",
+            prepare_unit,
+        )
+        self.assertIn(
+            "ReadWritePaths=/var/aos/workdirs/sm/runtimes", prepare_unit
+        )
+
     def test_provider_parent_access_is_search_only(self) -> None:
         policy = validate_r6_1_layer.POLICY.read_text(encoding="utf-8")
         rules = [

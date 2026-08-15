@@ -13,8 +13,10 @@ SRC_URI = " \
     file://aos-vehicle-data-provider.service \
     file://aos-vehicle-data-provider-selftest@.service \
     file://aos-vehicle-data-provider-bootstrap.service \
+    file://aos-vehicle-data-provider-store-layout.service \
     file://aos-vehicle-data-provider-store-prepare.service \
     file://aos-vehicle-data-provider-store.mount \
+    file://aos-vehicle-data-provider-store-layout \
     file://aos-vehicle-data-provider-store-prepare \
     file://aos-vehicle-data-provider-store-check \
     file://aos-vehicle-data-provider-loop.conf \
@@ -52,6 +54,7 @@ do_install() {
     install -m 0755 ${B}/aos-vehicle-data-provider-launcher ${D}${libexecdir}
     install -m 0755 ${B}/aos-vehicle-data-provider-loop ${D}${libexecdir}
     install -m 0755 ${WORKDIR}/aos-vehicle-data-provider-health ${D}${libexecdir}
+    install -m 0755 ${WORKDIR}/aos-vehicle-data-provider-store-layout ${D}${libexecdir}
     install -m 0755 ${WORKDIR}/aos-vehicle-data-provider-store-prepare ${D}${libexecdir}
     install -m 0755 ${WORKDIR}/aos-vehicle-data-provider-store-check ${D}${libexecdir}
 
@@ -60,6 +63,8 @@ do_install() {
     install -m 0644 ${WORKDIR}/aos-vehicle-data-provider-selftest@.service \
         ${D}${systemd_system_unitdir}
     install -m 0644 ${WORKDIR}/aos-vehicle-data-provider-bootstrap.service ${D}${systemd_system_unitdir}
+    install -m 0644 ${WORKDIR}/aos-vehicle-data-provider-store-layout.service \
+        ${D}${systemd_system_unitdir}
     install -m 0644 ${WORKDIR}/aos-vehicle-data-provider-store-prepare.service \
         ${D}${systemd_system_unitdir}
     install -m 0644 ${WORKDIR}/aos-vehicle-data-provider-store.mount \
@@ -84,10 +89,12 @@ FILES:${PN} += " \
     ${libexecdir}/aos-vehicle-data-provider-launcher \
     ${libexecdir}/aos-vehicle-data-provider-loop \
     ${libexecdir}/aos-vehicle-data-provider-health \
+    ${libexecdir}/aos-vehicle-data-provider-store-layout \
     ${libexecdir}/aos-vehicle-data-provider-store-prepare \
     ${libexecdir}/aos-vehicle-data-provider-store-check \
     ${systemd_system_unitdir}/aos-vehicle-data-provider.service \
     ${systemd_system_unitdir}/aos-vehicle-data-provider-selftest@.service \
+    ${systemd_system_unitdir}/aos-vehicle-data-provider-store-layout.service \
     ${systemd_system_unitdir}/aos-vehicle-data-provider-store-prepare.service \
     ${systemd_system_unitdir}/var-aos-workdirs-sm-runtimes-systemd*component.mount \
     ${libdir}/aos-vehicle-data-provider/store.conf \
