@@ -170,6 +170,19 @@ class R61LayerTests(unittest.TestCase):
         self.assertIn(
             "init_rw_script_stream_sockets(systemd_modules_load_t)", policy
         )
+        self.assertIn(
+            "init_rw_script_stream_sockets(vehicle_data_provider_store_prepare_t)",
+            policy,
+        )
+        self.assertIn(
+            "kernel_read_system_state(vehicle_data_provider_store_prepare_t)",
+            policy,
+        )
+        self.assertIn(
+            "allow vehicle_data_provider_store_prepare_t self:fifo_file "
+            "rw_fifo_file_perms;",
+            policy,
+        )
 
     def test_arm64_runtime_qualifier_is_a_build_output(self) -> None:
         append = validate_r6_1_layer.SERVICE_MANAGER_APPEND.read_text(

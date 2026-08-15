@@ -619,6 +619,10 @@ def validate_layer() -> None:
         "init_daemon_domain(vehicle_data_provider_store_prepare_t, "
         "vehicle_data_provider_store_prepare_exec_t)",
         "fstools_exec(vehicle_data_provider_store_prepare_t)",
+        "init_rw_script_stream_sockets(vehicle_data_provider_store_prepare_t)",
+        "kernel_read_system_state(vehicle_data_provider_store_prepare_t)",
+        "allow vehicle_data_provider_store_prepare_t self:fifo_file "
+        "rw_fifo_file_perms;",
         "manage_files_pattern(vehicle_data_provider_store_prepare_t, "
         "aos_var_run_t, aos_var_run_t)",
         "type vehicle_data_provider_store_admin_t;",
