@@ -8,7 +8,7 @@ provider component runtime. It is applied after the unchanged AosVM 6.1.0
 `qemuarm64` Main Node baseline has built and booted successfully. Boot remains
 at `6.1.0`; the integration manifest assigns every immutable rootfs candidate.
 
-The layer now contains the accepted Service Manager component runtime, atomic
+The layer contains the accepted Service Manager component runtime, atomic
 A/B prepare/apply/revert/recovery implementation, guarded provider archive
 boundary, fixed launcher and health profile, and SELinux policy. R6.1-6.5a
 adds a demo-only storage backend: a fully allocated 512 MiB ext4 image inside
@@ -30,3 +30,9 @@ not decide the production vehicle storage architecture; a dedicated logical
 volume, controlled workdirs migration, or equivalent OEM platform storage
 boundary still requires a separate architecture decision. No signing or Cloud
 operation is implemented by this layer.
+
+The accepted local output is rootfs candidate `.11`, built from platform
+revision `a12c0aa7f8a680b35407776b12bcc025970abc73`. It closes the runtime
+dependency chain required by provider `0.2.0`. Candidate `.11` is unsigned and
+has not been uploaded, assigned, or installed; the validation Unit therefore
+remains on `.2` and the demo Unit on `6.1.0`.

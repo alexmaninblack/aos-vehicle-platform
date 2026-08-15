@@ -344,8 +344,8 @@ def notify_ready(environment: Mapping[str, str] | None = None) -> None:
     environment = os.environ if environment is None else environment
     address = environment.get("NOTIFY_SOCKET")
     if not address:
-        # The guarded R6 side-load uses Type=simple. The component unit uses
-        # Type=notify and always supplies NOTIFY_SOCKET.
+        # Offline self-tests may omit NOTIFY_SOCKET. The production component
+        # unit uses Type=notify and always supplies it.
         return
     if address.startswith("@"):
         address = "\0" + address[1:]

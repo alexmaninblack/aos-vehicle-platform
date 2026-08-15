@@ -46,9 +46,7 @@ class FotaPackagingTests(unittest.TestCase):
 
     def test_builder_locks_the_normalized_arm64_runtime(self) -> None:
         builder = (FOTA / "build-provider-component").read_text(encoding="utf-8")
-        requirements = (
-            ROOT / "packaging/aosvm/runtime/requirements-arm64.txt"
-        ).read_text(encoding="utf-8")
+        requirements = (FOTA / "requirements-arm64.txt").read_text(encoding="utf-8")
         for digest in (
             "c60404292e5ded4e0436b1c8568e9daf4981c4db94907b96f482173ed9ce2c4a",
             "36764a4ad9dc1eb891042fab51e8cdf7cc014ad82cee807c10796fb708455041",
@@ -60,6 +58,13 @@ class FotaPackagingTests(unittest.TestCase):
             self.assertIn(digest, requirements)
         self.assertIn('"grpc/_cython/_credentials/roots.pem"', builder)
         self.assertIn("tarfile.USTAR_FORMAT", builder)
+        self.assertIn(
+            'RELEASE_SOURCE_REVISION = "e972d2bd7f14e27646bb5d7c10c7186ecdecfa9f"',
+            builder,
+        )
+        self.assertIn("provider 0.2.0 release inputs differ", builder)
+        self.assertIn("provider 0.2.0 ARM64 dependency lock changed", builder)
+        self.assertIn('accepted_file("THIRD_PARTY_NOTICES.md")', builder)
 
 
 if __name__ == "__main__":

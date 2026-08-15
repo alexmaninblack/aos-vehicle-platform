@@ -18,7 +18,6 @@ path = [
     "contracts/vehicle-telemetry-profile/contract.schema.json",
     "contracts/vehicle-telemetry-profile/v0.1/profile.json",
     "contracts/vehicle-telemetry-profile/v0.1.1/profile.json",
-    "providers/carla-viss-kuksa/config/aosvm.json",
 ]
 precedence = "override"
 SPDX-FileCopyrightText = "2026 maninblack"

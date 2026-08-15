@@ -3,10 +3,9 @@
 
 # Third-Party Notices
 
-Generated ARM64 provider artifacts use hash-locked Python wheels for these
-runtime dependencies. The legacy 0.1.1 side-load archive contains the original
-wheels. The R6.1 component extracts and normalizes their runtime files at build
-time; it omits gRPC's default public `roots.pem` bundle because the platform
+The accepted ARM64 provider component uses hash-locked Python wheels for these
+runtime dependencies. The FOTA builder extracts and normalizes their runtime
+files; it omits gRPC's default public `roots.pem` bundle because the platform
 always supplies the explicitly selected KUKSA trust anchor instead.
 The upstream native gRPC extension also embeds public default roots internally;
 those bytes cannot be removed without rebuilding gRPC. They are inert in this
@@ -22,15 +21,10 @@ explicitly. No private key or vehicle identity is included.
 | typing_extensions | 4.15.0 | PSF-2.0 | <https://github.com/python/typing_extensions> |
 
 The exact upstream revisions and wheel digests are recorded in
-`DEPENDENCIES.json` and `packaging/aosvm/runtime/requirements-arm64.txt`.
+`DEPENDENCIES.json` and `packaging/fota/requirements-arm64.txt`.
 The wheels retain their upstream package metadata and license files. They are
 downloaded only while creating an ignored build artifact and are not committed
 to this repository.
 
 AosEdge, COVESA VSS, CARLA, and their protocols are also referenced for
 architecture and compatibility. Their code isn't copied into this repository.
-
-The R6.1 qualification probe compiles against exact Apache-2.0 AosCore C++ and
-AosCore API revisions. A small Apache-2.0 downstream patch adds an explicit,
-disabled-by-default external runtime hook and extends upstream tests. The
-upstream source is fetched only into the isolated builder and isn't vendored.

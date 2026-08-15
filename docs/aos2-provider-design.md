@@ -3,7 +3,7 @@
 
 # AOS-2 CARLA VISS-to-KUKSA provider design
 
-## Scope and lifecycle
+## Scope and Lifecycle
 
 The provider is an OEM platform component inside the prototype AosVM. It is
 not linked into CARLA and is not an AosCloud-managed service. A production
@@ -11,12 +11,11 @@ vehicle replaces this simulation provider with CAN, SOME/IP, DDS, or another
 vehicle-network provider while preserving the same KUKSA/VSS contract for
 services.
 
-For the prototype, the official AosVM 6.1.0 base image remains immutable. The
-versioned provider runtime is installed into the identity-bearing provisioned
-overlay under `/var/lib/aos-vehicle-platform`, with two small systemd files in
-the overlay root filesystem. This is an integration package, not a rebuilt VM
-release. An OEM production release would integrate the same inputs through its
-Yocto and FOTA image pipeline.
+Provider `0.2.0` is an independently signed Aos component managed through the
+OEM FOTA lifecycle. The bootstrap rootfs supplies the Service Manager
+`systemd-slot-component` runtime, atomic A/B store, systemd supervision,
+health boundary, fixed identity, and SELinux policy. The provider bundle owns
+only its immutable application payload and ARM64 runtime dependencies.
 
 ## Data path
 
@@ -51,7 +50,7 @@ provider startup, provider shutdown, TLS failure, and invalid subscription
 state follow the same rule. Reconnection uses bounded exponential backoff and
 never substitutes zero.
 
-## Authorization and credentials
+## Authorization and Credentials
 
 The pinned AosVM ships a public KUKSA demonstration verification key whose
 well-known example tokens have expired. AOS-2 replaces that verifier with a
@@ -59,30 +58,32 @@ project-owned RSA public key and issues a short-lived provider token containing
 only the seven `provide:<path>` scopes. The signing key remains in an ignored,
 mode-0700 host directory. Only the public key and provider token enter the VM.
 
-The token is delivered to the dynamic systemd service through
+The token is delivered to the fixed `aos-vdp` systemd service through
 `LoadCredential`; it is not included in source, a bundle, a command line, or a
-log. AOS-5 will replace this temporary issuance mechanism with the Aos-to-KUKSA
-Authorization Adapter.
+log. AOS-5 will replace this temporary issuance mechanism with the
+Aos-to-KUKSA Authorization Adapter.
 
-## Runtime and packaging
+## Runtime and Packaging
 
 The official image contains CPython 3.12 but no KUKSA, gRPC, or WebSocket
-Python modules. The package therefore creates a private virtual environment
-from five exact ARM64 wheels. All versions, upstream source commits, licenses,
-and wheel SHA-256 values are recorded. Downloads use `--require-hashes`, and
-no compiler or package-manager mutation is needed in the VM.
+Python modules. The component therefore embeds normalized runtime files from
+five exact ARM64 wheels. All versions, upstream commits, licenses, and wheel
+SHA-256 values are recorded. No compiler, package-manager mutation, virtual
+environment, or installer is needed in the Unit.
 
-The systemd unit uses a dynamic user, an empty capability set, no-new-
-privileges, private devices and temporary storage, protected kernel and system
-paths, and only the network address families required by VISS and KUKSA.
+The systemd unit uses the dedicated non-login `aos-vdp` account, an empty
+capability set, `no_new_privs`, private devices and temporary storage,
+protected kernel and system paths, and only the network families required by
+VISS and KUKSA. SELinux transitions the payload into
+`vehicle_data_provider_t` and grants only the reviewed store, credential,
+DNS, random-device, KUKSA, and outbound VISS permissions.
 
-The normal rollback removes the provider unit and KUKSA verifier drop-in, then
-restarts KUKSA with the image-default configuration. It preserves the
-versioned `/var` runtime and credential evidence. The verified post-provision
-AosVM checkpoint is reserved for boot recovery and must never run at the same
-time as the active provisioned identity.
+The Service Manager prepares a candidate in the inactive slot, verifies the
+archive and health contract, atomically switches slots, and records durable
+transaction state. A failed candidate reverts to the previous slot. Ordinary
+provider update and rollback do not reboot the Node.
 
-## Qualification gates
+## Qualification Gates
 
 AOS-2 is accepted only after the integration repository proves:
 
@@ -97,16 +98,22 @@ AOS-2 is accepted only after the integration repository proves:
 9. no VISS listener reachable from the Mac's external interfaces;
 10. no private key, token, certificate identity, or raw operational log in Git.
 
-## Qualification result
+## Qualification Result
 
-AOS-2 passed on 2026-08-14 against the official AosVM 6.1.0 Main Node. The
-normalized ARM64 provider 0.1.1 bundle reproduced byte-for-byte with SHA-256
-`8d6b40b3854572cf1706cb43283916640c0ef6116307a805b63fe1323ab0e100`.
+AOS-2 first passed on 2026-08-14 against the official AosVM 6.1.0 Main Node.
+The later FOTA-managed provider `0.2.0` passed deterministic packaging,
+official unsigned validation, 40 ARM64 lifecycle/recovery tests, real install,
+live telemetry, source-loss handling, update, downgrade rejection, failed
+candidate rollback, SELinux, resource, and secret-exclusion gates. Its
+accepted source revision is
+`e972d2bd7f14e27646bb5d7c10c7186ecdecfa9f`; its provider layer SHA-256 is
+`baf1c29c9264b8f2422dc155540c3b22716bb43d5f80c1cfeb3cc9529f0bf3cb`.
+It was signed and independently verified locally but has not been published
+or assigned through AosCloud.
+
 All seven contract paths were present in the embedded VSS 5.0 tree, and the
-runtime imported successfully from the five hash-locked ARM64 wheels.
-The final lock uses Protocol Buffers 5.29.6, which includes the fix for
-CVE-2026-0994; the initially evaluated 5.29.5 wheel is not part of the accepted
-bundle.
+runtime imported successfully from the five hash-locked ARM64 wheels. The lock
+uses Protocol Buffers 5.29.6, which includes the fix for CVE-2026-0994.
 
 The provider negotiated verified TLS and `VISSv3` with the loopback-only CARLA
 endpoint, then published 41 consecutive atomic seven-path KUKSA batches at an
@@ -115,10 +122,10 @@ values and source timestamps. CARLA loss immediately changed all seven values
 to unavailable, with no fabricated zero state, and reconnect backoff remained
 bounded.
 
-After a clean AosVM stop and start, KUKSA and the provider were enabled and
-active with zero restarts. The root filesystem was read-only, SELinux remained
-enforcing without a denial, the provisioned AosCore services were active, and
-the cloud Unit remained Online with exactly one primary Main Node. Both
-protected lifecycle checkpoints remained valid. The VISS listener was observed
-only on macOS `127.0.0.1:6443`; no secret or operational evidence is part of
-the repository.
+The consolidated runtime delta was then built into local rootfs
+`6.1.1-maninblack.11`. With global SELinux Enforcing, the provider read its
+private systemd credential, resolved the VISS hostname, recovered across a
+KUKSA restart without changing PID, failed closed on an invalid credential,
+restarted after `SIGKILL`, and stayed fail-safe on DNS and TLS failures. The
+rootfs is frozen as an unsigned local candidate; no `.11` signing, Cloud, or
+provisioned-Unit mutation is implied by this qualification.

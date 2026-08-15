@@ -25,18 +25,18 @@ from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[2]
 VERSION = "0.2.0"
+RELEASE_SOURCE_REVISION = "e972d2bd7f14e27646bb5d7c10c7186ecdecfa9f"
 COMPONENT_TYPE = "aos-vm-1.0.0-main-qemuarm64-vehicle-data-provider"
 LAYER_NAME = f"provider-{VERSION}-arm64.tar"
 LAYER_PATH = f"vehicle-data-provider/{LAYER_NAME}"
 MEDIA_TYPE = "application/vnd.aos.vehicle-data-provider.layer.v1.tar"
-REQUIREMENTS = ROOT / "packaging/aosvm/runtime/requirements-arm64.txt"
+REQUIREMENTS = ROOT / "packaging/fota/requirements-arm64.txt"
 SOURCE = ROOT / "providers/carla-viss-kuksa/src/carla_viss_kuksa_provider"
 PAYLOAD_CONFIG = ROOT / "providers/carla-viss-kuksa/config/component.json"
 ENTRYPOINT = ROOT / "packaging/fota/vehicle-data-provider"
 MAIN = ROOT / "packaging/fota/provider_main.py"
 ENVELOPE_CONFIG = ROOT / "packaging/fota/config.yaml"
 DEPENDENCIES = ROOT / "DEPENDENCIES.json"
-NOTICES = ROOT / "THIRD_PARTY_NOTICES.md"
 LICENSE = ROOT / "LICENSES/Apache-2.0.txt"
 EXPECTED_WHEELS = {
     "c60404292e5ded4e0436b1c8568e9daf4981c4db94907b96f482173ed9ce2c4a",
@@ -64,7 +64,7 @@ def canonical_json(value: object) -> bytes:
     return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode()
 
 
-def git_revision() -> str:
+def release_source_revision() -> str:
     status = subprocess.run(
         ["git", "status", "--porcelain", "--untracked-files=no"],
         cwd=ROOT,
@@ -74,21 +74,58 @@ def git_revision() -> str:
     ).stdout
     if status:
         raise BuildError("tracked source tree must be clean")
-    revision = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
+    subprocess.run(
+        ["git", "cat-file", "-e", f"{RELEASE_SOURCE_REVISION}^{{commit}}"],
         cwd=ROOT,
         check=True,
-        text=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    unchanged_inputs = [
+        "DEPENDENCIES.json",
+        "LICENSES/Apache-2.0.txt",
+        "packaging/fota/config.yaml",
+        "packaging/fota/provider_main.py",
+        "packaging/fota/vehicle-data-provider",
+        "providers/carla-viss-kuksa/config/component.json",
+        "providers/carla-viss-kuksa/src",
+    ]
+    result = subprocess.run(
+        ["git", "diff", "--quiet", RELEASE_SOURCE_REVISION, "--", *unchanged_inputs],
+        cwd=ROOT,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise BuildError(
+            "provider 0.2.0 release inputs differ from the accepted source revision"
+        )
+    old_requirements = subprocess.run(
+        [
+            "git",
+            "show",
+            f"{RELEASE_SOURCE_REVISION}:packaging/aosvm/runtime/requirements-arm64.txt",
+        ],
+        cwd=ROOT,
+        check=True,
         capture_output=True,
-    ).stdout.strip()
-    if len(revision) != 40:
-        raise BuildError("source revision is not a full commit")
-    return revision
+    ).stdout
+    if REQUIREMENTS.read_bytes() != old_requirements:
+        raise BuildError("provider 0.2.0 ARM64 dependency lock changed")
+    return RELEASE_SOURCE_REVISION
+
+
+def accepted_file(path: str) -> bytes:
+    return subprocess.run(
+        ["git", "show", f"{RELEASE_SOURCE_REVISION}:{path}"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout
 
 
 def git_created() -> str:
     value = subprocess.run(
-        ["git", "show", "-s", "--format=%cI", "HEAD"],
+        ["git", "show", "-s", "--format=%cI", RELEASE_SOURCE_REVISION],
         cwd=ROOT,
         check=True,
         text=True,
@@ -205,7 +242,11 @@ def create_payload(
     shutil.copyfile(MAIN, root / "python/provider_main.py")
     shutil.copyfile(PAYLOAD_CONFIG, root / "config/provider.json")
     shutil.copyfile(LICENSE, root / "licenses/Apache-2.0.txt")
-    shutil.copyfile(NOTICES, root / "THIRD_PARTY_NOTICES.md")
+    # Documentation may describe newer packaging paths. Preserve the notice
+    # bytes that were part of the accepted immutable 0.2.0 component.
+    (root / "THIRD_PARTY_NOTICES.md").write_bytes(
+        accepted_file("THIRD_PARTY_NOTICES.md")
+    )
     shutil.copyfile(DEPENDENCIES, root / "DEPENDENCIES.json")
     copy_tree(SOURCE, root / "python/carla_viss_kuksa_provider")
     extract_wheels(wheels, root / "python/site-packages")
@@ -343,7 +384,7 @@ def create_unsigned_envelope(config: Path, layer: Path, output: Path) -> None:
 def build(output: Path, supplied_wheelhouse: Path | None) -> None:
     if output.exists() or output.is_symlink():
         raise BuildError(f"output already exists: {output}")
-    revision = git_revision()
+    revision = release_source_revision()
     created = git_created()
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=output.parent) as temporary:

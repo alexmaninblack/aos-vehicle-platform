@@ -3,83 +3,87 @@
 
 # Aos Vehicle Platform
 
-Vehicle-data platform integration for AosEdge, KUKSA, and automotive
-providers.
+Vehicle-computer integration for AosEdge, KUKSA, and automotive data
+providers. This repository follows the OEM platform/FOTA lifecycle and does
+not contain cloud-managed business services or CARLA simulator runtime code.
 
-## Status
+## Current Baseline
 
-Repository separation R-0 through R-5 and AOS-2 are complete. The
-development-only CARLA VISS-to-KUKSA provider, its ARM64 offline runtime lock,
-guarded AosVM packaging, fail-safe stale handling, and clean-restart behavior
-passed end-to-end qualification on 2026-08-14. R6.1-1 through R6.1-4 and the
-complete R6.1-5 signing gate are accepted. The independently versioned `0.2.0`
-provider candidate passed reproducibility, official unsigned validation, the
-40-test ARM64 archive/lifecycle/recovery matrix, real install, live telemetry,
-source-loss, update, downgrade, failed-candidate rollback, security, SELinux,
-resource, and secret-exclusion gates on 2026-08-15. The accepted candidate was
-then signed and independently verified locally; it has not been published or
-assigned through AosCloud. Rootfs `6.1.1-maninblack.2` is installed only on the
-validation Unit. R6.1-6.5a now implements a bounded nested-ext4 demo store for
-the proposed `.3` rootfs while preserving the logical component path and the
-existing workdirs mount. Signing, Cloud upload, and Unit mutation remain
-separate later gates. The future Authorization Adapter and production vehicle
-providers aren't implemented or claimed operational yet.
+The current accepted implementation provides:
 
-## Ownership Boundary
+- vehicle telemetry profile `0.1.1` over `kuksa.val.v1`;
+- a development-only CARLA VISS-to-KUKSA provider;
+- immutable provider component `0.2.0`, signed and locally verified but not
+  published or assigned in AosCloud;
+- a production Service Manager `systemd-slot-component` runtime with atomic
+  A/B apply, rollback, recovery, and one active instance;
+- a fixed non-login `aos-vdp` identity, empty Linux capability set, SELinux
+  isolation, systemd credentials, fail-safe DNS/TLS behavior, and soft KUKSA
+  lifecycle dependency;
+- a bounded 512 MiB nested-ext4 provider store for the demonstration AosVM;
+- an OEM Yocto layer used by the accepted local rootfs
+  `6.1.1-maninblack.11` candidate.
 
-This repository owns vehicle-program platform components with an
-OEM-controlled platform/FOTA qualification lifecycle:
+The `.11` rootfs candidate is unsigned and has not been uploaded or installed
+on a provisioned Unit. The validation Unit remains on
+`6.1.1-maninblack.2`; the demonstration Unit remains on `6.1.0`. Production
+vehicle storage and the Aos-to-KUKSA Authorization Adapter remain explicit
+future architecture gates.
 
-- versioned vehicle-data contracts;
-- vehicle-data providers, beginning with a development-only CARLA
-  VISS-to-KUKSA provider;
-- KUKSA platform and trust configuration;
-- system-level AosVM packaging;
-- the future Aos-to-KUKSA Authorization Adapter;
-- provider conformance and platform integration tests.
+Accepted provider `0.2.0` is pinned to source revision
+`e972d2bd7f14e27646bb5d7c10c7186ecdecfa9f`. The FOTA builder refuses to
+produce different bytes under that version if a release input changes.
 
-Cloud-managed business applications and the CARLA simulator runtime are not
-owned here. The first telemetry application belongs to
-`vehicle-telemetry-service`; end-to-end macOS/AosVM orchestration belongs to
-`carla-aosedge-integration`.
+## Architecture
 
-The stable application boundary remains the draft
-[vehicle telemetry profile 0.1.1](contracts/vehicle-telemetry-profile/v0.1.1/profile.json).
-The AOS-2 implementation is described in
-[the provider design](docs/aos2-provider-design.md), including the accepted
-end-to-end CARLA-to-KUKSA qualification result.
+```text
+DEVELOPMENT HOST                   AOS VEHICLE COMPUTER
+
+CARLA -> VISS 3.1 -> provider -> KUKSA Databroker -> Aos service
+                     platform      platform           separate repository
+```
+
+A production vehicle replaces the CARLA provider with CAN, SOME/IP, DDS, or
+OEM-specific providers while preserving the versioned KUKSA/VSS contract.
+
+Read:
+
+- [architecture and ownership](docs/architecture.md);
+- [provider design and qualification](docs/aos2-provider-design.md);
+- [Service Manager runtime decision](docs/decisions/0001-service-manager-component-runtime.md);
+- [contract compatibility](docs/contract-compatibility.md);
+- [provider FOTA packaging](packaging/fota/README.md).
 
 ## Repository Layout
 
-- `contracts/vehicle-telemetry-profile/`: versioned, machine-readable data
-  contract;
-- `providers/carla-viss-kuksa/`: development-only provider boundary;
+- `contracts/vehicle-telemetry-profile/`: authoritative vehicle-data contract;
+- `providers/carla-viss-kuksa/`: development-only simulation provider;
+- `packaging/fota/`: immutable provider component build and validation;
+- `meta-aos-vehicle-platform/`: production Yocto runtime, storage, systemd,
+  launcher, health, and SELinux integration;
 - `config/kuksa/`: non-secret KUKSA platform configuration boundary;
-- `packaging/aosvm/`: system packaging boundary;
-- `meta-aos-vehicle-platform/`: Yocto bootstrap, component runtime, fixed
-  provider profile, policy, and archive boundary;
-- `authorization/aos-kuksa/`: deferred AOS-5 Authorization Adapter boundary;
-- `qualification/r6-1/`: qualification-only Service Manager runtime probe;
-- `tests/` and `tools/`: static contract and repository quality gates;
-- `docs/`: architecture and compatibility policy.
+- `authorization/aos-kuksa/`: deferred Authorization Adapter boundary;
+- `tests/` and `tools/`: repository, contract, packaging, and layer gates.
 
-Run the local gates with:
+Legacy SSH side-load packaging and the qualification-only runtime probe were
+removed from the current tree after the production runtime passed. They remain
+available through Git history only.
+
+## Validation
 
 ```text
 python3 tools/validate_contract.py
 python3 -m unittest discover -s tests -p 'test_*.py'
+python3 tools/validate_r6_1_layer.py
 python3 tools/quality_gate.py
 ```
 
-## Security and Secrets
+## Security and License
 
-Do not commit private keys, access tokens, certificates, provisioned device
-identities, cloud account material, vehicle-specific configuration, VM images,
-or raw operational logs. See [SECURITY.md](SECURITY.md).
+Never commit private keys, tokens, certificates, provisioned identities,
+Cloud account material, vehicle-specific credentials, VM images, or raw
+operational logs. See [SECURITY.md](SECURITY.md).
 
-## License
-
-Original project work is licensed under the Apache License, Version 2.0, with
-copyright held under the exact name `maninblack`. Third-party material retains
-its own license and notices. See [LICENSE](LICENSE), [NOTICE](NOTICE), and
+Original project work is Apache-2.0 under the exact copyright name
+`maninblack`. Third-party material retains its own terms; see
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

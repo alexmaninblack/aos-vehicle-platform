@@ -19,8 +19,9 @@ fallback once per element when the v2 API is unavailable in Databroker 0.5.0.
 One explicit v1 batch avoids duplicate publication and unnecessary load.
 
 Source lives under `src/carla_viss_kuksa_provider`. Dependency-free contract
-and stale-state tests run with the repository's normal unittest gate. AosVM
-configuration and the exact ARM64 wheel lock live under `packaging/aosvm`.
+and stale-state tests run with the repository's normal unittest gate. The
+independently managed FOTA component recipe and exact ARM64 wheel lock live
+under `packaging/fota`.
 
 Production platform profiles must be able to exclude this component
 completely. The provider conforms to the published vehicle telemetry profile

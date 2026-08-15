@@ -26,7 +26,7 @@ The telemetry service is not part of this repository. It may use only the
 published contract and KUKSA API; it must not import the provider, connect to
 CARLA/VISS, or depend on VM launcher and provisioning code.
 
-## Prototype Pins
+## Accepted Prototype Pins
 
 The initial contract is qualified against these inputs:
 
@@ -42,21 +42,37 @@ The contract contains only standard paths common to the selected VSS 5.0 and
 VSS 6.0 inputs. CARLA-specific overlay signals are deliberately outside the
 service interface.
 
+## Runtime and Storage Boundary
+
+The provider is an independently signed platform component managed by the Aos
+Service Manager `systemd-slot-component` runtime. The rootfs owns the runtime,
+systemd profile, fixed `aos-vdp` identity, health checks, KUKSA integration,
+SELinux policy, and persistent-store mount. The provider component owns only
+its immutable executable payload and runtime libraries.
+
+The demonstration AosVM uses a fully allocated 512 MiB ext4 image inside the
+existing encrypted workdirs volume and mounts it at the stable component root
+with `vehicle_data_provider_store_t`. This preserves the required isolation
+without relabelling AosCore workdirs. It is a demo backend, not the selected
+production vehicle storage architecture.
+
 ## Authorization Boundary
 
 The Aos-to-KUKSA Authorization Adapter is planned as AOS-5. Its future home is
-`authorization/aos-kuksa/`. It is not implemented in the R-2 scaffold. The
+`authorization/aos-kuksa/`. It is not implemented. The
 prototype contract records least-privilege `provide` and `read` scopes so the
 future adapter can map Aos service identity to KUKSA permissions without
 changing the data profile.
 
-Until AOS-5 is implemented, any temporary test credentials are integration
-fixtures outside this repository. They are not a production authorization
-design and must never be committed.
+Until AOS-5 is implemented, the prototype uses short-lived, path-scoped KUKSA
+tokens supplied through systemd credentials. Token issuance and private keys
+remain integration fixtures outside this repository. They are not a
+production authorization design and must never be committed.
 
 ## Current Status
 
-R-0 through R-5 and AOS-2 are accepted. The integration repository qualified
-live VISS input, atomic KUKSA output, unavailable/stale handling, restart
-behavior, and the host-only network boundary on the provisioned ARM64 AosVM.
-The Authorization Adapter remains deferred to AOS-5.
+Repository separation and AOS-2 are complete. Provider `0.2.0` is signed and
+locally verified but not published. The production runtime and demo store are
+integrated into the unsigned local rootfs `6.1.1-maninblack.11` candidate.
+The validation Unit remains on `6.1.1-maninblack.2`; no `.11` Cloud or Unit
+mutation has occurred. The Authorization Adapter remains deferred to AOS-5.

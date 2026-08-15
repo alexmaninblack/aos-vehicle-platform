@@ -9,10 +9,10 @@
 
 ## Context
 
-The development CARLA-to-KUKSA provider is currently installed beside the
-released AosVM platform. That is useful for development, but it does not give
-the provider an independent OEM FOTA lifecycle or a distinct entry in the
-AosCloud component inventory.
+The first CARLA-to-KUKSA prototype was installed beside the released AosVM
+platform. That development arrangement did not give the provider an
+independent OEM FOTA lifecycle or a distinct entry in the AosCloud component
+inventory.
 
 The released Aos Service Manager supports component runtimes for boot and
 rootfs plus the normal container runtime. It does not provide a generic
@@ -80,9 +80,11 @@ components. The Node Type schema contains resource ratios, not component
 definitions. A Unit Model or Node Type revision is therefore not required to
 introduce this runtime type.
 
-The future FOTA bundle `type` must exactly match the reported runtime type.
-Publishing that bundle creates the catalog metadata and assigning it creates
-desired update state. Those Cloud mutations remain deferred to R6.1-6.
+The provider FOTA bundle `type` exactly matches the reported runtime type.
+Publishing a signed bundle creates the catalog metadata and assigning it
+creates desired update state. The accepted `0.2.0` provider bundle and rootfs
+candidate `.11` remain local: signing `.11`, Cloud upload, assignment, and
+installation are separate explicit gates.
 
 ## Qualification Evidence
 
@@ -95,17 +97,18 @@ ARM64 qualification build proved:
 - Service Manager protocol v5 serializes the proposed type;
 - Communication Manager receives and preserves the type and architecture.
 
-The qualification probe contains no archive, systemd, persistence, health,
-slot, apply, rollback, or recovery implementation and must never be shipped as
-the production runtime.
+The qualification probe contained no archive, systemd, persistence, health,
+slot, apply, rollback, or recovery implementation. It was never a production
+runtime and was removed from the current tree after the production
+implementation passed the corresponding gates; Git history retains the
+evidence.
 
 ## Consequences
 
-- R6.1-2 must build a bootstrap rootfs containing the production runtime and
-  policy before a provider component can be deployed.
-- R6.1-3 must implement and qualify the atomic A/B lifecycle below the selected
-  persistent root.
-- Provider releases can then use an OEM FOTA lifecycle independently of
+- The accepted rootfs candidate contains the production runtime and policy.
+- The atomic A/B lifecycle below the selected persistent root is implemented
+  and qualified.
+- Provider releases can use an OEM FOTA lifecycle independently of
   AosCore/rootfs releases.
 - The demonstration backend preserves that lifecycle without weakening the
   provider SELinux domain or changing the signed provider path contract.
@@ -117,7 +120,8 @@ the production runtime.
   payload. This preserves both the SELinux transition and a non-root payload
   on the pinned AosVM policy baseline without any identity-changing
   capability.
-- Rootfs rollback from `.3` to a release without the nested mount support must
+- Rootfs rollback from candidate `.11` to the currently installed `.2`, which
+  lacks the nested mount support, must
   first suspend or remove the provider assignment; transparent cross-backend
   rollback is not claimed.
 - The existing provisioned Unit is neither deprovisioned nor reprovisioned.
