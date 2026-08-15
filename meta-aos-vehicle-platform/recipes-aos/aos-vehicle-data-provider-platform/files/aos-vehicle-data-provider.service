@@ -5,8 +5,7 @@
 Description=Aos vehicle data provider component
 Documentation=https://github.com/alexmaninblack/aos-vehicle-platform
 After=network-online.target kuksa-databroker.service
-Wants=network-online.target
-Requires=kuksa-databroker.service
+Wants=network-online.target kuksa-databroker.service
 ConditionPathIsSymbolicLink=/var/aos/workdirs/sm/runtimes/systemd-slot-component/active
 ConditionFileIsExecutable=/var/aos/workdirs/sm/runtimes/systemd-slot-component/active/bin/vehicle-data-provider
 

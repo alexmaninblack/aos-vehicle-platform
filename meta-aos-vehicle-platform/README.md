@@ -17,14 +17,13 @@ with the dedicated `vehicle_data_provider_store_t` context. Preparation and
 activation fail closed on an unexpected mount, identity, filesystem, size,
 allocation, label, UUID, capacity, or SELinux state.
 
-The provider payload runs as the dedicated non-login `aos-vdp` account. A
-fixed native launcher is the only command allowed to bypass the unit's
-configured user: it enters `vehicle_data_provider_t` with only `CAP_SETUID`
-and `CAP_SETGID`, enables `no_new_privs`, drops all real/effective/saved user
-and group identities, and refuses to execute the payload unless its effective,
-permitted, and inheritable capability sets are empty. This ordering is needed
-because the AosVM SELinux baseline suppresses the executable-label transition
-after systemd applies `DynamicUser` or `NoNewPrivileges` itself.
+The provider payload and its fixed native launcher run as the dedicated
+non-login `aos-vdp` account established by systemd. The unit supplies an empty
+capability bounding set. After entering `vehicle_data_provider_t`, the
+launcher verifies the fixed UID, GID, supplementary-group state, and empty
+effective, permitted, and inheritable capability sets; enables
+`no_new_privs`; and only then executes the payload. The launcher retains no
+identity-changing capability.
 
 The nested filesystem is an explicitly bounded demonstration backend. It does
 not decide the production vehicle storage architecture; a dedicated logical

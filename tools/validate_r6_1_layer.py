@@ -306,6 +306,18 @@ def validate_layer() -> None:
         "ExecReload=/bin/kill -HUP $MAINPID" in unit,
         "provider unavailability signal hook is missing",
     )
+    require(
+        "After=network-online.target kuksa-databroker.service" in unit,
+        "provider does not retain deterministic KUKSA startup ordering",
+    )
+    require(
+        "Wants=network-online.target kuksa-databroker.service" in unit,
+        "provider does not request KUKSA without coupling its lifecycle",
+    )
+    require(
+        "Requires=kuksa-databroker.service" not in unit,
+        "provider is incorrectly stopped with the KUKSA dependency",
+    )
     for token in (
         "AOS_VEHICLE_DATA_PROVIDER_CONFIGURATION="
         f"{COMPONENT_ROOT}/configuration/provider.json",
@@ -677,6 +689,10 @@ def validate_layer() -> None:
         "allow vehicle_data_provider_t self:process getcap;",
         "allow vehicle_data_provider_t self:fifo_file rw_fifo_file_perms;",
         "init_rw_script_stream_sockets(vehicle_data_provider_t)",
+        "sysnet_dns_name_resolve(vehicle_data_provider_t)",
+        "dev_read_urand(vehicle_data_provider_t)",
+        "allow vehicle_data_provider_t initrc_runtime_t:dir { getattr search };",
+        "allow vehicle_data_provider_t initrc_runtime_t:file { getattr open read };",
     ):
         require(token in policy, f"provider launcher policy is missing: {token}")
     require(
@@ -686,6 +702,19 @@ def validate_layer() -> None:
     require(
         "systemd_tmpfilesd_managed(vehicle_data_provider_store_t)" not in policy,
         "global tmpfiles retains unnecessary provider-store management access",
+    )
+    credential_rules = [
+        line.strip()
+        for line in policy.splitlines()
+        if "vehicle_data_provider_t initrc_runtime_t:" in line
+    ]
+    require(
+        credential_rules
+        == [
+            "allow vehicle_data_provider_t initrc_runtime_t:dir { getattr search };",
+            "allow vehicle_data_provider_t initrc_runtime_t:file { getattr open read };",
+        ],
+        "provider credential access is broader than the reviewed read-only rules",
     )
     broad_parent_rules = [
         line.strip()

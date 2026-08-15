@@ -32,6 +32,42 @@ class R61LayerTests(unittest.TestCase):
         self.assertNotIn("init_read_runtime(vehicle_data_provider_t)", content)
         self.assertIn("class service { start stop status reload };", content)
 
+    def test_provider_has_bounded_credentials_and_dns_access(self) -> None:
+        policy = validate_r6_1_layer.POLICY.read_text(encoding="utf-8")
+        self.assertIn("sysnet_dns_name_resolve(vehicle_data_provider_t)", policy)
+        self.assertIn("dev_read_urand(vehicle_data_provider_t)", policy)
+        self.assertIn(
+            "allow vehicle_data_provider_t initrc_runtime_t:dir { getattr search };",
+            policy,
+        )
+        self.assertIn(
+            "allow vehicle_data_provider_t initrc_runtime_t:file { getattr open read };",
+            policy,
+        )
+        self.assertEqual(
+            [
+                line.strip()
+                for line in policy.splitlines()
+                if "vehicle_data_provider_t initrc_runtime_t:" in line
+            ],
+            [
+                "allow vehicle_data_provider_t initrc_runtime_t:dir "
+                "{ getattr search };",
+                "allow vehicle_data_provider_t initrc_runtime_t:file "
+                "{ getattr open read };",
+            ],
+        )
+
+    def test_kuksa_is_ordered_but_not_a_hard_lifecycle_dependency(self) -> None:
+        unit = validate_r6_1_layer.UNIT.read_text(encoding="utf-8")
+        self.assertIn(
+            "After=network-online.target kuksa-databroker.service", unit
+        )
+        self.assertIn(
+            "Wants=network-online.target kuksa-databroker.service", unit
+        )
+        self.assertNotIn("Requires=kuksa-databroker.service", unit)
+
     def test_component_profile_is_bootstrap_owned(self) -> None:
         health = validate_r6_1_layer.HEALTH_ADAPTER.read_text(encoding="utf-8")
         launcher = validate_r6_1_layer.LAUNCHER.read_text(encoding="utf-8")

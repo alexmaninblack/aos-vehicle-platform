@@ -38,16 +38,19 @@ read_files_pattern(vehicle_data_provider_t, vehicle_data_provider_store_t, vehic
 corenet_tcp_connect_all_ports(vehicle_data_provider_t)
 corecmd_exec_bin(vehicle_data_provider_t)
 corecmd_exec_shell(vehicle_data_provider_t)
+dev_read_urand(vehicle_data_provider_t)
 files_read_etc_files(vehicle_data_provider_t)
 init_dgram_send(vehicle_data_provider_t)
 init_read_runtime_files(vehicle_data_provider_t)
 init_rw_script_stream_sockets(vehicle_data_provider_t)
 logging_send_syslog_msg(vehicle_data_provider_t)
 miscfiles_read_generic_certs(vehicle_data_provider_t)
+sysnet_dns_name_resolve(vehicle_data_provider_t)
 
 gen_require(`
     type aos_t;
     type aos_var_run_t;
+    type initrc_runtime_t;
     type loop_control_device_t;
     type mount_t;
     type sysfs_t;
@@ -57,6 +60,12 @@ gen_require(`
 
 init_rw_script_stream_sockets(systemd_modules_load_t)
 allow vehicle_data_provider_t aos_var_run_t:dir search;
+# systemd copies LoadCredential payloads into a read-only, unit-private mount.
+# The pinned systemd/refpolicy combination labels both that directory and its
+# regular files initrc_runtime_t.  Keep this grant deliberately read-only;
+# systemd's mount namespace and DAC restrictions provide the path boundary.
+allow vehicle_data_provider_t initrc_runtime_t:dir { getattr search };
+allow vehicle_data_provider_t initrc_runtime_t:file { getattr open read };
 
 # This domain can only be entered through the fixed-path loop helper. The
 # helper itself accepts no backing path and validates the immutable 512 MiB
