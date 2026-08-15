@@ -50,13 +50,6 @@ identity_uuid=$(sed -n 's/^uuid=//p' "$identity_file")
 printf '%s\n' "$identity_uuid" | grep -Eq \
     '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' ||
     fail 'store identity UUID is not canonical lowercase hexadecimal'
-[ "$(blkid -p -s TYPE -o value "$backing_file")" = ext4 ] ||
-    fail 'store backing filesystem is not ext4'
-[ "$(blkid -p -s LABEL -o value "$backing_file")" = "$store_label" ] ||
-    fail 'store backing filesystem label is incorrect'
-[ "$(blkid -p -s UUID -o value "$backing_file")" = "$identity_uuid" ] ||
-    fail 'store backing filesystem UUID changed'
-
 [ "$(findmnt -rn -M "$store" -o TARGET)" = "$store" ] ||
     fail 'component store is not a distinct mount point'
 [ "$(findmnt -rn -M "$store" -o FSTYPE)" = ext4 ] ||
@@ -66,6 +59,12 @@ case "$mount_source" in
     /dev/loop[0-9]*) ;;
     *) fail 'component store does not use a loop device' ;;
 esac
+[ "$(blkid -p -s TYPE -o value "$mount_source")" = ext4 ] ||
+    fail 'mounted store filesystem is not ext4'
+[ "$(blkid -p -s LABEL -o value "$mount_source")" = "$store_label" ] ||
+    fail 'mounted store filesystem label is incorrect'
+[ "$(blkid -p -s UUID -o value "$mount_source")" = "$identity_uuid" ] ||
+    fail 'mounted store filesystem UUID changed'
 loop_lines=$(losetup -j "$backing_file")
 [ "$(printf '%s\n' "$loop_lines" | sed '/^$/d' | wc -l | tr -d ' ')" = 1 ] ||
     fail 'store backing file does not have exactly one loop device'

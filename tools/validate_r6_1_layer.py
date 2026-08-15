@@ -420,6 +420,14 @@ def validate_layer() -> None:
         "vehicle_data_provider_store_t",
     ):
         require(token in store_check, f"store activation check is missing: {token}")
+    require(
+        not re.search(r"blkid[^\n]*\$backing_file", store_check),
+        "generic filesystem administration reads the Aos backing file",
+    )
+    require(
+        'blkid -p -s UUID -o value "$mount_source"' in store_check,
+        "post-mount identity is not checked through the mounted loop device",
+    )
     require("AOS_" not in store_check, "store check accepts environment overrides")
     require(
         f"Z {COMPONENT_ROOT}" not in tmpfiles,
@@ -633,6 +641,9 @@ def validate_layer() -> None:
         "allow vehicle_data_provider_store_admin_t aos_var_run_t:dir search;",
         "allow vehicle_data_provider_store_admin_t aos_var_run_t:file "
         "{ getattr ioctl lock open read write };",
+        "allow vehicle_data_provider_store_admin_t "
+        "aos_var_run_t:filesystem getattr;",
+        "init_rw_script_stream_sockets(vehicle_data_provider_store_admin_t)",
         "dev_rw_loop_control(vehicle_data_provider_store_admin_t)",
         "storage_raw_rw_fixed_disk(vehicle_data_provider_store_admin_t)",
         "type vehicle_data_provider_store_runtime_t;",
@@ -642,6 +653,14 @@ def validate_layer() -> None:
         "allow mount_t vehicle_data_provider_store_runtime_t:dir search;",
         "allow mount_t vehicle_data_provider_store_runtime_t:lnk_file "
         "read_lnk_file_perms;",
+        "allow mount_t vehicle_data_provider_store_t:filesystem relabelfrom;",
+        "allow vehicle_data_provider_store_prepare_t "
+        "aos_var_run_t:filesystem getattr;",
+        "allow vehicle_data_provider_store_prepare_t "
+        "loop_control_device_t:chr_file getattr;",
+        "allow vehicle_data_provider_store_prepare_t sysfs_t:dir read;",
+        "allow vehicle_data_provider_store_prepare_t sysfs_t:file read;",
+        "allow vehicle_data_provider_store_prepare_t sysfs_t:lnk_file read;",
     ):
         require(token in policy, f"fixed loop helper policy is missing: {token}")
     require(

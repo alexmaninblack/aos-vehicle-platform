@@ -44,7 +44,9 @@ systemd_tmpfilesd_managed(vehicle_data_provider_store_t)
 gen_require(`
     type aos_t;
     type aos_var_run_t;
+    type loop_control_device_t;
     type mount_t;
+    type sysfs_t;
     type systemd_modules_load_t;
     class service { start stop status reload };
 ')
@@ -58,6 +60,8 @@ allow vehicle_data_provider_t aos_var_run_t:dir search;
 allow vehicle_data_provider_store_admin_t self:capability sys_admin;
 allow vehicle_data_provider_store_admin_t aos_var_run_t:dir search;
 allow vehicle_data_provider_store_admin_t aos_var_run_t:file { getattr ioctl lock open read write };
+allow vehicle_data_provider_store_admin_t aos_var_run_t:filesystem getattr;
+init_rw_script_stream_sockets(vehicle_data_provider_store_admin_t)
 files_search_runtime(vehicle_data_provider_store_admin_t)
 manage_lnk_files_pattern(vehicle_data_provider_store_admin_t, vehicle_data_provider_store_runtime_t, vehicle_data_provider_store_runtime_t)
 dev_rw_loop_control(vehicle_data_provider_store_admin_t)
@@ -73,6 +77,11 @@ fstools_exec(vehicle_data_provider_store_prepare_t)
 init_rw_script_stream_sockets(vehicle_data_provider_store_prepare_t)
 kernel_read_system_state(vehicle_data_provider_store_prepare_t)
 allow vehicle_data_provider_store_prepare_t self:fifo_file rw_fifo_file_perms;
+allow vehicle_data_provider_store_prepare_t aos_var_run_t:filesystem getattr;
+allow vehicle_data_provider_store_prepare_t loop_control_device_t:chr_file getattr;
+allow vehicle_data_provider_store_prepare_t sysfs_t:dir read;
+allow vehicle_data_provider_store_prepare_t sysfs_t:file read;
+allow vehicle_data_provider_store_prepare_t sysfs_t:lnk_file read;
 manage_dirs_pattern(vehicle_data_provider_store_prepare_t, aos_var_run_t, aos_var_run_t)
 manage_files_pattern(vehicle_data_provider_store_prepare_t, aos_var_run_t, aos_var_run_t)
 read_lnk_files_pattern(vehicle_data_provider_store_prepare_t, aos_var_run_t, aos_var_run_t)
@@ -80,6 +89,7 @@ storage_raw_read_fixed_disk(vehicle_data_provider_store_prepare_t)
 
 allow mount_t vehicle_data_provider_store_runtime_t:dir search;
 allow mount_t vehicle_data_provider_store_runtime_t:lnk_file read_lnk_file_perms;
+allow mount_t vehicle_data_provider_store_t:filesystem relabelfrom;
 
 manage_dirs_pattern(aos_t, vehicle_data_provider_store_t, vehicle_data_provider_store_t)
 manage_files_pattern(aos_t, vehicle_data_provider_store_t, vehicle_data_provider_store_t)

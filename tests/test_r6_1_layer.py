@@ -70,6 +70,10 @@ class R61LayerTests(unittest.TestCase):
         )
         self.assertNotIn("fail 'workdirs is not writable'", prepare)
         self.assertIn("store backing file is sparse or incompletely allocated", check)
+        self.assertNotRegex(check, r"blkid[^\n]*\$backing_file")
+        self.assertIn(
+            'blkid -p -s UUID -o value "$mount_source"', check
+        )
         self.assertNotIn(
             f"Z {validate_r6_1_layer.COMPONENT_ROOT}",
             validate_r6_1_layer.TMPFILES.read_text(encoding="utf-8"),
@@ -121,6 +125,20 @@ class R61LayerTests(unittest.TestCase):
         )
         self.assertIn(
             "fstools_exec(vehicle_data_provider_store_prepare_t)", policy
+        )
+        self.assertIn(
+            "allow vehicle_data_provider_store_prepare_t "
+            "aos_var_run_t:filesystem getattr;",
+            policy,
+        )
+        self.assertIn(
+            "allow vehicle_data_provider_store_admin_t "
+            "aos_var_run_t:filesystem getattr;",
+            policy,
+        )
+        self.assertIn(
+            "allow mount_t vehicle_data_provider_store_t:filesystem relabelfrom;",
+            policy,
         )
         self.assertNotIn("fstools_domtrans(vehicle_data_provider_store_prepare_t)", policy)
         self.assertNotIn("mount_t aos_var_run_t", policy)
