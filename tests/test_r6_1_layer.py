@@ -79,6 +79,7 @@ class R61LayerTests(unittest.TestCase):
         unit = validate_r6_1_layer.STORE_PREPARE_UNIT.read_text(encoding="utf-8")
         policy = validate_r6_1_layer.POLICY.read_text(encoding="utf-8")
         self.assertIn("DefaultDependencies=no", unit)
+        self.assertNotIn("PrivateTmp=yes", unit)
         self.assertIn(
             "init_rw_script_stream_sockets(systemd_modules_load_t)", policy
         )

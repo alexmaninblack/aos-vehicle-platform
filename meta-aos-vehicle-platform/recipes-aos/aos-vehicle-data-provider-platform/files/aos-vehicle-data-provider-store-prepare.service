@@ -15,7 +15,6 @@ ExecStart=/usr/libexec/aos-vehicle-data-provider-store-prepare
 RemainAfterExit=yes
 UMask=0077
 NoNewPrivileges=yes
-PrivateTmp=yes
 ProtectControlGroups=yes
 ProtectHome=yes
 ProtectKernelLogs=yes

@@ -383,6 +383,10 @@ def validate_layer() -> None:
         "PrivateDevices=yes" not in prepare_unit,
         "store preparation cannot validate the real workdirs device through PrivateDevices",
     )
+    require(
+        "PrivateTmp=yes" not in prepare_unit,
+        "store preparation cannot depend on post-local-fs tmpfiles setup",
+    )
 
     store_mount = read(STORE_MOUNT)
     for token in (
