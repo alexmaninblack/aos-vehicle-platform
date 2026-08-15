@@ -26,11 +26,11 @@ S = "${WORKDIR}"
 inherit systemd
 
 RDEPENDS:${PN} += " \
+    coreutils \
     e2fsprogs-e2fsck \
     e2fsprogs-mke2fs \
     kernel-module-loop \
     util-linux-blkid \
-    util-linux-fallocate \
     util-linux-losetup \
 "
 

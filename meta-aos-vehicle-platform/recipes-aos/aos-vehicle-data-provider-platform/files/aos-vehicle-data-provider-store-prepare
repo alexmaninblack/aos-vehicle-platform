@@ -114,7 +114,7 @@ free_bytes() {
     printf '%s\n' "$(( available_blocks * block_size ))"
 }
 
-for command in blkid e2fsck fallocate findmnt grep install losetup mkfs.ext4 \
+for command in blkid dd e2fsck findmnt grep install losetup mkfs.ext4 \
     readlink sed stat tr wc; do
     require_command "$command"
 done
@@ -174,8 +174,9 @@ else
         [ "$(free_bytes)" -ge "$required" ] ||
             fail 'workdirs does not have the accepted creation reserve'
 
-        fallocate -l "$store_size" "$partial_file" ||
-            fail 'cannot allocate the complete store image'
+        dd if=/dev/zero of="$partial_file" bs=1048576 count=512 \
+            conv=fsync status=none ||
+            fail 'cannot allocate and initialize the complete store image'
         chmod 0600 "$partial_file"
         chown 0:0 "$partial_file"
         require_regular_file "$partial_file" "$store_size"

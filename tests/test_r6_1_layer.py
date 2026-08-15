@@ -52,6 +52,11 @@ class R61LayerTests(unittest.TestCase):
             f"backing_file={validate_r6_1_layer.STORE_BACKING}", prepare
         )
         self.assertIn('rm -f -- "$partial_file"', prepare)
+        self.assertIn(
+            'dd if=/dev/zero of="$partial_file" bs=1048576 count=512', prepare
+        )
+        self.assertIn("conv=fsync status=none", prepare)
+        self.assertNotIn("fallocate", prepare)
         self.assertNotRegex(prepare, r"rm[^\n]*\$backing_file")
         self.assertNotRegex(prepare, r"mkfs[^\n]*\$backing_file")
         self.assertNotIn("AOS_", prepare)

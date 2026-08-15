@@ -322,7 +322,8 @@ def validate_layer() -> None:
         "minimum_remaining=536870912",
         "store_label=aos-vdp-store",
         "context=system_u:object_r:aos_var_run_t:s0",
-        "fallocate -l \"$store_size\" \"$partial_file\"",
+        'dd if=/dev/zero of="$partial_file" bs=1048576 count=512',
+        "conv=fsync status=none",
         "mkfs.ext4 -q -F -m 0 -L \"$store_label\" \"$partial_file\"",
         "e2fsck -p \"$backing_file\"",
         "require_fully_allocated",
@@ -430,11 +431,11 @@ def validate_layer() -> None:
 
     platform_recipe = read(PLATFORM_RECIPE)
     for dependency in (
+        "coreutils",
         "e2fsprogs-e2fsck",
         "e2fsprogs-mke2fs",
         "kernel-module-loop",
         "util-linux-blkid",
-        "util-linux-fallocate",
         "util-linux-losetup",
     ):
         require(dependency in platform_recipe, f"store dependency is missing: {dependency}")
