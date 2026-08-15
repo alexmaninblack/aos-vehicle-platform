@@ -65,6 +65,7 @@ class FotaPackagingTests(unittest.TestCase):
         self.assertIn("provider 0.2.0 release inputs differ", builder)
         self.assertIn("provider 0.2.0 ARM64 dependency lock changed", builder)
         self.assertIn('accepted_file("THIRD_PARTY_NOTICES.md")', builder)
+        self.assertIn("accepted_tree(source_prefix)", builder)
 
 
 if __name__ == "__main__":

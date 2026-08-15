@@ -31,7 +31,6 @@ LAYER_NAME = f"provider-{VERSION}-arm64.tar"
 LAYER_PATH = f"vehicle-data-provider/{LAYER_NAME}"
 MEDIA_TYPE = "application/vnd.aos.vehicle-data-provider.layer.v1.tar"
 REQUIREMENTS = ROOT / "packaging/fota/requirements-arm64.txt"
-SOURCE = ROOT / "providers/carla-viss-kuksa/src/carla_viss_kuksa_provider"
 PAYLOAD_CONFIG = ROOT / "providers/carla-viss-kuksa/config/component.json"
 ENTRYPOINT = ROOT / "packaging/fota/vehicle-data-provider"
 MAIN = ROOT / "packaging/fota/provider_main.py"
@@ -88,7 +87,6 @@ def release_source_revision() -> str:
         "packaging/fota/provider_main.py",
         "packaging/fota/vehicle-data-provider",
         "providers/carla-viss-kuksa/config/component.json",
-        "providers/carla-viss-kuksa/src",
     ]
     result = subprocess.run(
         ["git", "diff", "--quiet", RELEASE_SOURCE_REVISION, "--", *unchanged_inputs],
@@ -121,6 +119,17 @@ def accepted_file(path: str) -> bytes:
         check=True,
         capture_output=True,
     ).stdout
+
+
+def accepted_tree(prefix: str) -> dict[str, bytes]:
+    names = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", RELEASE_SOURCE_REVISION, "--", prefix],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    return {name: accepted_file(name) for name in names}
 
 
 def git_created() -> str:
@@ -212,20 +221,6 @@ def extract_wheels(wheels: list[Path], destination: Path) -> None:
         raise BuildError("expected redundant wheel trust bundle is absent")
 
 
-def copy_tree(source: Path, destination: Path) -> None:
-    for path in sorted(source.rglob("*")):
-        if path.is_symlink():
-            raise BuildError(f"source contains a symbolic link: {path}")
-        if path.is_dir():
-            continue
-        if not path.is_file() or path.suffix in {".pyc", ".pyo"}:
-            continue
-        relative = path.relative_to(source)
-        target = destination / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(path, target)
-
-
 def write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(canonical_json(value))
@@ -248,7 +243,15 @@ def create_payload(
         accepted_file("THIRD_PARTY_NOTICES.md")
     )
     shutil.copyfile(DEPENDENCIES, root / "DEPENDENCIES.json")
-    copy_tree(SOURCE, root / "python/carla_viss_kuksa_provider")
+    source_prefix = "providers/carla-viss-kuksa/src/carla_viss_kuksa_provider"
+    accepted_source = accepted_tree(source_prefix)
+    for source_path, content in sorted(accepted_source.items()):
+        relative = PurePosixPath(source_path).relative_to(source_prefix)
+        if relative.suffix in {".pyc", ".pyo"}:
+            continue
+        target = root / "python/carla_viss_kuksa_provider" / Path(*relative.parts)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
     extract_wheels(wheels, root / "python/site-packages")
     write_json(
         root / "component.json",
@@ -269,10 +272,11 @@ def create_payload(
     ]
     source_inputs = [
         {
-            "path": path.relative_to(ROOT).as_posix(),
-            "sha256": sha256(path),
+            "path": source_path,
+            "sha256": hashlib.sha256(content).hexdigest(),
         }
-        for path in sorted(SOURCE.glob("*.py"))
+        for source_path, content in sorted(accepted_source.items())
+        if PurePosixPath(source_path).suffix == ".py"
     ]
     write_json(
         root / "provenance/provenance.json",

@@ -8,10 +8,11 @@ CARLA VISS-to-KUKSA provider. It produces the deterministic ARM64 provider
 component consumed by the Service Manager `systemd-slot-component` runtime.
 
 Provider `0.2.0` is immutable. The builder pins its accepted source revision
-to `e972d2bd7f14e27646bb5d7c10c7186ecdecfa9f` and refuses to rebuild that
-version if any release input or the ARM64 dependency lock differs. Repository
-documentation and Yocto integration may advance without silently producing
-different bytes under the accepted provider version.
+to `e972d2bd7f14e27646bb5d7c10c7186ecdecfa9f`, reads provider sources and
+notices from that revision, and refuses changed packaging inputs or an altered
+ARM64 dependency lock. Repository documentation, provider development, and
+Yocto integration may advance without silently producing different bytes
+under the accepted provider version.
 
 The unsigned candidate contains the provider, five hash-locked ARM64 Python
 dependencies, component metadata, provenance, an SPDX SBOM, licenses, and
