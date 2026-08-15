@@ -64,6 +64,11 @@ class R61LayerTests(unittest.TestCase):
         self.assertNotRegex(prepare, r"mkfs[^\n]*\$backing_file")
         self.assertNotIn("AOS_", prepare)
         self.assertNotIn("AOS_", check)
+        self.assertIn(
+            'store_parent_options=$(findmnt -rn -T "$store_parent" -o OPTIONS)',
+            prepare,
+        )
+        self.assertNotIn("fail 'workdirs is not writable'", prepare)
         self.assertIn("store backing file is sparse or incompletely allocated", check)
         self.assertNotIn(
             f"Z {validate_r6_1_layer.COMPONENT_ROOT}",
@@ -76,20 +81,41 @@ class R61LayerTests(unittest.TestCase):
     def test_store_loop_administration_is_fixed_and_confined(self) -> None:
         helper = validate_r6_1_layer.LOOP_HELPER.read_text(encoding="utf-8")
         prepare = validate_r6_1_layer.STORE_PREPARE.read_text(encoding="utf-8")
-        unit = validate_r6_1_layer.STORE_PREPARE_UNIT.read_text(encoding="utf-8")
+        prepare_unit = validate_r6_1_layer.STORE_PREPARE_UNIT.read_text(
+            encoding="utf-8"
+        )
+        attach_unit = validate_r6_1_layer.STORE_ATTACH_UNIT.read_text(
+            encoding="utf-8"
+        )
         mount = validate_r6_1_layer.STORE_MOUNT.read_text(encoding="utf-8")
         policy = validate_r6_1_layer.POLICY.read_text(encoding="utf-8")
         self.assertIn(validate_r6_1_layer.STORE_BACKING, helper)
         self.assertIn("O_NOFOLLOW", helper)
         self.assertNotIn("argv[2]", helper)
-        self.assertIn('"$loop_helper" attach', prepare)
-        self.assertIn('"$loop_helper" detach', prepare)
-        self.assertIn("CapabilityBoundingSet=CAP_SYS_ADMIN", unit)
-        self.assertIn("AmbientCapabilities=\n", unit)
+        self.assertNotIn("aos-vehicle-data-provider-loop", prepare)
+        self.assertIn("CapabilityBoundingSet=\n", prepare_unit)
+        self.assertNotIn("CAP_SYS_ADMIN", prepare_unit)
+        self.assertIn("CapabilityBoundingSet=CAP_SYS_ADMIN", attach_unit)
+        self.assertIn("AmbientCapabilities=\n", attach_unit)
+        self.assertNotIn("NoNewPrivileges=yes", attach_unit)
+        self.assertIn(
+            "ExecStart=/usr/libexec/aos-vehicle-data-provider-loop attach",
+            attach_unit,
+        )
+        self.assertIn(
+            "ExecStop=/usr/libexec/aos-vehicle-data-provider-loop detach",
+            attach_unit,
+        )
         self.assertIn("What=/run/aos-vehicle-data-provider-store/loop", mount)
         self.assertIn("vehicle_data_provider_store_admin_t", policy)
+        self.assertIn("vehicle_data_provider_store_runtime_t", policy)
         self.assertIn(
             "allow vehicle_data_provider_store_admin_t self:capability sys_admin;",
+            policy,
+        )
+        self.assertIn(
+            "allow mount_t vehicle_data_provider_store_runtime_t:lnk_file "
+            "read_lnk_file_perms;",
             policy,
         )
         self.assertNotIn("mount_t aos_var_run_t", policy)

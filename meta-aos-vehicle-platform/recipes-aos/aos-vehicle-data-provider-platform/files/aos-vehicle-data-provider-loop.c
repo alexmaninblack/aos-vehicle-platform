@@ -21,6 +21,9 @@
     "/var/aos/workdirs/sm/runtimes/.vehicle-data-provider-store.ext4"
 #define BACKING_SIZE UINT64_C(536870912)
 #define MAX_LOOP_DEVICES 256
+#define RUNTIME_DIRECTORY "/run/aos-vehicle-data-provider-store"
+#define RUNTIME_LINK "loop"
+#define RUNTIME_LINK_PARTIAL "loop.partial"
 
 static void Fail(const char* format, ...)
 {
@@ -54,15 +57,91 @@ static int OpenBacking(struct stat* metadata)
     return descriptor;
 }
 
+static void FormatLoopPath(int index, char* path, size_t size)
+{
+    int length = snprintf(path, size, "/dev/loop%d", index);
+
+    if (length < 0 || (size_t)length >= size) {
+        Fail("cannot construct the loop device path");
+    }
+}
+
 static int OpenLoop(int index, int flags)
 {
     char path[32];
-    int length = snprintf(path, sizeof(path), "/dev/loop%d", index);
 
-    if (length < 0 || (size_t)length >= sizeof(path)) {
-        Fail("cannot construct the loop device path");
-    }
+    FormatLoopPath(index, path, sizeof(path));
     return open(path, flags | O_CLOEXEC | O_NOFOLLOW);
+}
+
+static int OpenRuntimeDirectory(void)
+{
+    struct stat metadata;
+    int descriptor = open(
+        RUNTIME_DIRECTORY, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+
+    if (descriptor < 0) {
+        Fail("cannot open the fixed runtime directory: %s", strerror(errno));
+    }
+    if (fstat(descriptor, &metadata) != 0) {
+        Fail("cannot inspect the fixed runtime directory: %s", strerror(errno));
+    }
+    if (!S_ISDIR(metadata.st_mode) || metadata.st_uid != 0 ||
+        metadata.st_gid != 0 || (metadata.st_mode & 07777) != 0750) {
+        Fail("the fixed runtime directory contract changed");
+    }
+
+    return descriptor;
+}
+
+static void RequireAbsentAt(int directory, const char* name)
+{
+    struct stat metadata;
+
+    if (fstatat(directory, name, &metadata, AT_SYMLINK_NOFOLLOW) == 0) {
+        Fail("the fixed runtime identity already exists: %s", name);
+    }
+    if (errno != ENOENT) {
+        Fail("cannot inspect the fixed runtime identity %s: %s", name,
+            strerror(errno));
+    }
+}
+
+static void ReadRuntimeLoop(int directory, int index)
+{
+    char expected[32];
+    char actual[32];
+    ssize_t length;
+
+    FormatLoopPath(index, expected, sizeof(expected));
+    length = readlinkat(directory, RUNTIME_LINK, actual, sizeof(actual) - 1);
+    if (length < 0) {
+        Fail("cannot read the fixed runtime loop identity: %s", strerror(errno));
+    }
+    if ((size_t)length >= sizeof(actual) - 1) {
+        Fail("the fixed runtime loop identity is too long");
+    }
+    actual[length] = '\0';
+    if (strcmp(actual, expected) != 0) {
+        Fail("the fixed runtime loop identity changed");
+    }
+}
+
+static void PublishRuntimeLoop(int index)
+{
+    char target[32];
+    int directory = OpenRuntimeDirectory();
+
+    RequireAbsentAt(directory, RUNTIME_LINK);
+    RequireAbsentAt(directory, RUNTIME_LINK_PARTIAL);
+    FormatLoopPath(index, target, sizeof(target));
+    if (symlinkat(target, directory, RUNTIME_LINK_PARTIAL) != 0) {
+        Fail("cannot stage the fixed runtime loop identity: %s", strerror(errno));
+    }
+    if (renameat(directory, RUNTIME_LINK_PARTIAL, directory, RUNTIME_LINK) != 0) {
+        Fail("cannot commit the fixed runtime loop identity: %s", strerror(errno));
+    }
+    close(directory);
 }
 
 static bool MatchesBacking(int descriptor, const struct stat* backing)
@@ -125,6 +204,7 @@ static void Attach(void)
     }
     if (matches == 1) {
         close(backingDescriptor);
+        PublishRuntimeLoop(selected);
         PrintLoop(selected);
         return;
     }
@@ -162,6 +242,7 @@ static void Attach(void)
     if (verifiedMatches != 1 || verified != selected) {
         Fail("the attached loop device failed identity verification");
     }
+    PublishRuntimeLoop(selected);
     PrintLoop(selected);
 }
 
@@ -177,6 +258,10 @@ static void Detach(void)
         Fail("the fixed backing file is not attached exactly once");
     }
 
+    int runtimeDirectory = OpenRuntimeDirectory();
+    RequireAbsentAt(runtimeDirectory, RUNTIME_LINK_PARTIAL);
+    ReadRuntimeLoop(runtimeDirectory, selected);
+
     int loop = OpenLoop(selected, O_RDWR);
     if (loop < 0) {
         Fail("cannot open the attached loop device: %s", strerror(errno));
@@ -185,6 +270,11 @@ static void Detach(void)
         Fail("cannot detach the fixed backing file: %s", strerror(errno));
     }
     close(loop);
+
+    if (unlinkat(runtimeDirectory, RUNTIME_LINK, 0) != 0) {
+        Fail("cannot remove the fixed runtime loop identity: %s", strerror(errno));
+    }
+    close(runtimeDirectory);
 
     int verifiedMatches = 0;
     FindBackingLoop(&backing, &verifiedMatches);

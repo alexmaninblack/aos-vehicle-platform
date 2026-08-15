@@ -15,6 +15,7 @@ SRC_URI = " \
     file://aos-vehicle-data-provider-bootstrap.service \
     file://aos-vehicle-data-provider-store-layout.service \
     file://aos-vehicle-data-provider-store-prepare.service \
+    file://aos-vehicle-data-provider-store-attach.service \
     file://aos-vehicle-data-provider-store.mount \
     file://aos-vehicle-data-provider-store-layout \
     file://aos-vehicle-data-provider-store-prepare \
@@ -67,6 +68,8 @@ do_install() {
         ${D}${systemd_system_unitdir}
     install -m 0644 ${WORKDIR}/aos-vehicle-data-provider-store-prepare.service \
         ${D}${systemd_system_unitdir}
+    install -m 0644 ${WORKDIR}/aos-vehicle-data-provider-store-attach.service \
+        ${D}${systemd_system_unitdir}
     install -m 0644 ${WORKDIR}/aos-vehicle-data-provider-store.mount \
         '${D}${systemd_system_unitdir}/var-aos-workdirs-sm-runtimes-systemd\x2dslot\x2dcomponent.mount'
 
@@ -96,6 +99,7 @@ FILES:${PN} += " \
     ${systemd_system_unitdir}/aos-vehicle-data-provider-selftest@.service \
     ${systemd_system_unitdir}/aos-vehicle-data-provider-store-layout.service \
     ${systemd_system_unitdir}/aos-vehicle-data-provider-store-prepare.service \
+    ${systemd_system_unitdir}/aos-vehicle-data-provider-store-attach.service \
     ${systemd_system_unitdir}/var-aos-workdirs-sm-runtimes-systemd*component.mount \
     ${libdir}/aos-vehicle-data-provider/store.conf \
     ${sysconfdir}/modules-load.d/aos-vehicle-data-provider-loop.conf \

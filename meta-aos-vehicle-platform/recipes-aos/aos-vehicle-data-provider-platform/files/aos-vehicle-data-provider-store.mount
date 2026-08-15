@@ -4,8 +4,8 @@
 [Unit]
 Description=Isolated Aos vehicle data provider component store
 DefaultDependencies=no
-Requires=aos-vehicle-data-provider-store-prepare.service
-After=aos-vehicle-data-provider-store-prepare.service
+Requires=aos-vehicle-data-provider-store-attach.service
+After=aos-vehicle-data-provider-store-attach.service
 Conflicts=umount.target
 Before=aos-vehicle-data-provider-bootstrap.service aos-sm.service umount.target
 

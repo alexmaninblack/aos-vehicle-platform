@@ -75,6 +75,11 @@ STORE_PREPARE_UNIT = (
     / "recipes-aos/aos-vehicle-data-provider-platform/files/"
     "aos-vehicle-data-provider-store-prepare.service"
 )
+STORE_ATTACH_UNIT = (
+    LAYER
+    / "recipes-aos/aos-vehicle-data-provider-platform/files/"
+    "aos-vehicle-data-provider-store-attach.service"
+)
 STORE_LAYOUT_UNIT = (
     LAYER
     / "recipes-aos/aos-vehicle-data-provider-platform/files/"
@@ -347,14 +352,16 @@ def validate_layer() -> None:
         "partial store identity requires manual reconciliation",
         "mv \"$partial_file\" \"$backing_file\"",
         "store backing file is sparse or incompletely allocated",
-        '"$loop_helper" attach',
-        '"$loop_helper" detach',
-        'ln -s "$loop_device" "$runtime_loop_partial"',
-        'attached_loop=$(losetup -j "$backing_file"',
-        '"$attached_loop" = "$loop_device"',
+        'store_parent_options=$(findmnt -rn -T "$store_parent" -o OPTIONS)',
+        "store parent is not writable",
+        "store image is already attached before preparation",
     ):
         require(token in store_prepare, f"store preparation contract is missing: {token}")
     require("AOS_" not in store_prepare, "store preparation accepts environment overrides")
+    require(
+        "fail 'workdirs is not writable'" not in store_prepare,
+        "store preparation tests the intentionally read-only sandbox parent",
+    )
     require(
         'rm -f -- "$partial_file"' in store_prepare,
         "interrupted partial store recovery is missing",
@@ -380,6 +387,11 @@ def validate_layer() -> None:
         "LOOP_SET_STATUS64",
         "LOOP_CLR_FD",
         "st_blocks",
+        '#define RUNTIME_DIRECTORY "/run/aos-vehicle-data-provider-store"',
+        '#define RUNTIME_LINK "loop"',
+        'symlinkat(target, directory, RUNTIME_LINK_PARTIAL)',
+        'renameat(directory, RUNTIME_LINK_PARTIAL, directory, RUNTIME_LINK)',
+        'unlinkat(runtimeDirectory, RUNTIME_LINK, 0)',
         'strcmp(argv[1], "attach")',
         'strcmp(argv[1], "detach")',
     ):
@@ -422,14 +434,9 @@ def validate_layer() -> None:
         "aos-vehicle-data-provider-store-layout.service",
         "ConditionPathIsMountPoint=/var/aos/workdirs",
         "ExecStart=/usr/libexec/aos-vehicle-data-provider-store-prepare prepare",
-        "ExecStop=/usr/libexec/aos-vehicle-data-provider-store-prepare release",
-        "RuntimeDirectory=aos-vehicle-data-provider-store",
-        "RuntimeDirectoryMode=0750",
-        "RuntimeDirectoryPreserve=restart",
         "ProtectSystem=strict",
-        "ReadWritePaths=/var/aos/workdirs/sm/runtimes "
-        "/run/aos-vehicle-data-provider-store",
-        "CapabilityBoundingSet=CAP_SYS_ADMIN",
+        "ReadWritePaths=/var/aos/workdirs/sm/runtimes",
+        "CapabilityBoundingSet=\n",
         "AmbientCapabilities=",
     ):
         require(token in prepare_unit, f"store preparation unit is missing: {token}")
@@ -440,6 +447,30 @@ def validate_layer() -> None:
     require(
         "PrivateTmp=yes" not in prepare_unit,
         "store preparation cannot depend on post-local-fs tmpfiles setup",
+    )
+    require("CAP_SYS_ADMIN" not in prepare_unit, "store image preparation is privileged")
+
+    attach_unit = read(STORE_ATTACH_UNIT)
+    for token in (
+        "DefaultDependencies=no",
+        "Requires=aos-vehicle-data-provider-store-prepare.service",
+        "After=aos-vehicle-data-provider-store-prepare.service systemd-modules-load.service",
+        "ConditionPathIsMountPoint=/var/aos/workdirs",
+        "ExecStart=/usr/libexec/aos-vehicle-data-provider-loop attach",
+        "ExecStop=/usr/libexec/aos-vehicle-data-provider-loop detach",
+        "RuntimeDirectory=aos-vehicle-data-provider-store",
+        "RuntimeDirectoryMode=0750",
+        "RuntimeDirectoryPreserve=restart",
+        "ProtectSystem=strict",
+        "ReadWritePaths=/var/aos/workdirs/sm/runtimes "
+        "/run/aos-vehicle-data-provider-store",
+        "CapabilityBoundingSet=CAP_SYS_ADMIN",
+        "AmbientCapabilities=",
+    ):
+        require(token in attach_unit, f"store loop attach unit is missing: {token}")
+    require(
+        "NoNewPrivileges=yes" not in attach_unit,
+        "store loop attach blocks its dedicated SELinux domain transition",
     )
 
     store_layout = read(STORE_LAYOUT)
@@ -478,7 +509,7 @@ def validate_layer() -> None:
     store_mount = read(STORE_MOUNT)
     for token in (
         "DefaultDependencies=no",
-        "Requires=aos-vehicle-data-provider-store-prepare.service",
+        "Requires=aos-vehicle-data-provider-store-attach.service",
         "Conflicts=umount.target",
         "Before=aos-vehicle-data-provider-bootstrap.service aos-sm.service umount.target",
         "What=/run/aos-vehicle-data-provider-store/loop",
@@ -528,6 +559,7 @@ def validate_layer() -> None:
         require(dependency in platform_recipe, f"store dependency is missing: {dependency}")
     for source in (
         "aos-vehicle-data-provider-store-prepare.service",
+        "aos-vehicle-data-provider-store-attach.service",
         "aos-vehicle-data-provider-store-layout.service",
         "aos-vehicle-data-provider-store.mount",
         "aos-vehicle-data-provider-store-layout",
@@ -592,6 +624,13 @@ def validate_layer() -> None:
         "{ getattr ioctl lock open read write };",
         "dev_rw_loop_control(vehicle_data_provider_store_admin_t)",
         "storage_raw_rw_fixed_disk(vehicle_data_provider_store_admin_t)",
+        "type vehicle_data_provider_store_runtime_t;",
+        "files_runtime_file(vehicle_data_provider_store_runtime_t)",
+        "manage_lnk_files_pattern(vehicle_data_provider_store_admin_t, "
+        "vehicle_data_provider_store_runtime_t, vehicle_data_provider_store_runtime_t)",
+        "allow mount_t vehicle_data_provider_store_runtime_t:dir search;",
+        "allow mount_t vehicle_data_provider_store_runtime_t:lnk_file "
+        "read_lnk_file_perms;",
     ):
         require(token in policy, f"fixed loop helper policy is missing: {token}")
     require(
@@ -603,6 +642,12 @@ def validate_layer() -> None:
         "gen_context(system_u:object_r:vehicle_data_provider_store_admin_exec_t,s0)"
         in read(POLICY_FC),
         "fixed loop helper does not enter its dedicated SELinux domain",
+    )
+    require(
+        "/run/aos-vehicle-data-provider-store(/.*)? "
+        "gen_context(system_u:object_r:vehicle_data_provider_store_runtime_t,s0)"
+        in read(POLICY_FC),
+        "fixed runtime loop identity does not have a dedicated SELinux type",
     )
     require(
         "init_read_runtime_files(vehicle_data_provider_t)" in policy,

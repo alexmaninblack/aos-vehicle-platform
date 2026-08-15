@@ -14,6 +14,9 @@ type vehicle_data_provider_store_admin_t;
 type vehicle_data_provider_store_admin_exec_t;
 init_daemon_domain(vehicle_data_provider_store_admin_t, vehicle_data_provider_store_admin_exec_t)
 
+type vehicle_data_provider_store_runtime_t;
+files_runtime_file(vehicle_data_provider_store_runtime_t)
+
 type vehicle_data_provider_unit_t;
 init_unit_file(vehicle_data_provider_unit_t)
 
@@ -37,6 +40,7 @@ systemd_tmpfilesd_managed(vehicle_data_provider_store_t)
 gen_require(`
     type aos_t;
     type aos_var_run_t;
+    type mount_t;
     type systemd_modules_load_t;
     class service { start stop status reload };
 ')
@@ -50,8 +54,13 @@ allow vehicle_data_provider_t aos_var_run_t:dir search;
 allow vehicle_data_provider_store_admin_t self:capability sys_admin;
 allow vehicle_data_provider_store_admin_t aos_var_run_t:dir search;
 allow vehicle_data_provider_store_admin_t aos_var_run_t:file { getattr ioctl lock open read write };
+files_search_runtime(vehicle_data_provider_store_admin_t)
+manage_lnk_files_pattern(vehicle_data_provider_store_admin_t, vehicle_data_provider_store_runtime_t, vehicle_data_provider_store_runtime_t)
 dev_rw_loop_control(vehicle_data_provider_store_admin_t)
 storage_raw_rw_fixed_disk(vehicle_data_provider_store_admin_t)
+
+allow mount_t vehicle_data_provider_store_runtime_t:dir search;
+allow mount_t vehicle_data_provider_store_runtime_t:lnk_file read_lnk_file_perms;
 
 manage_dirs_pattern(aos_t, vehicle_data_provider_store_t, vehicle_data_provider_store_t)
 manage_files_pattern(aos_t, vehicle_data_provider_store_t, vehicle_data_provider_store_t)

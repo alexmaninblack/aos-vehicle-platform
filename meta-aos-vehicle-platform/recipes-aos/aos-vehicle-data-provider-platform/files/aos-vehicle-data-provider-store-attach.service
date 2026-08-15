@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+[Unit]
+Description=Attach the isolated Aos vehicle data provider store loop device
+DefaultDependencies=no
+Requires=aos-vehicle-data-provider-store-prepare.service
+After=aos-vehicle-data-provider-store-prepare.service systemd-modules-load.service
+Before=var-aos-workdirs-sm-runtimes-systemd\x2dslot\x2dcomponent.mount aos-vehicle-data-provider-bootstrap.service aos-sm.service
+ConditionPathIsMountPoint=/var/aos/workdirs
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/aos-vehicle-data-provider-loop attach
+ExecStop=/usr/libexec/aos-vehicle-data-provider-loop detach
+RemainAfterExit=yes
+UMask=0077
+RuntimeDirectory=aos-vehicle-data-provider-store
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=restart
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadWritePaths=/var/aos/workdirs/sm/runtimes /run/aos-vehicle-data-provider-store
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=CAP_SYS_ADMIN
+AmbientCapabilities=
