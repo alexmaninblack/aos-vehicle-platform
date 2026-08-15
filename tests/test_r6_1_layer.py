@@ -78,8 +78,11 @@ class R61LayerTests(unittest.TestCase):
     def test_early_store_preparation_has_no_local_fs_cycle(self) -> None:
         unit = validate_r6_1_layer.STORE_PREPARE_UNIT.read_text(encoding="utf-8")
         policy = validate_r6_1_layer.POLICY.read_text(encoding="utf-8")
+        mount = validate_r6_1_layer.STORE_MOUNT.read_text(encoding="utf-8")
         self.assertIn("DefaultDependencies=no", unit)
         self.assertNotIn("PrivateTmp=yes", unit)
+        self.assertIn("DefaultDependencies=no", mount)
+        self.assertIn("Conflicts=umount.target", mount)
         self.assertIn(
             "init_rw_script_stream_sockets(systemd_modules_load_t)", policy
         )

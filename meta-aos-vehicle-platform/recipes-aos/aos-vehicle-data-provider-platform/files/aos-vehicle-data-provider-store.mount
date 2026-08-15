@@ -3,9 +3,11 @@
 
 [Unit]
 Description=Isolated Aos vehicle data provider component store
+DefaultDependencies=no
 Requires=aos-vehicle-data-provider-store-prepare.service
 After=aos-vehicle-data-provider-store-prepare.service
-Before=aos-vehicle-data-provider-bootstrap.service aos-sm.service
+Conflicts=umount.target
+Before=aos-vehicle-data-provider-bootstrap.service aos-sm.service umount.target
 
 [Mount]
 What=/var/aos/workdirs/sm/runtimes/.vehicle-data-provider-store.ext4

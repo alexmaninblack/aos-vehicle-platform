@@ -390,7 +390,10 @@ def validate_layer() -> None:
 
     store_mount = read(STORE_MOUNT)
     for token in (
+        "DefaultDependencies=no",
         "Requires=aos-vehicle-data-provider-store-prepare.service",
+        "Conflicts=umount.target",
+        "Before=aos-vehicle-data-provider-bootstrap.service aos-sm.service umount.target",
         f"What={STORE_BACKING}",
         f"Where={COMPONENT_ROOT}",
         "Type=ext4",
