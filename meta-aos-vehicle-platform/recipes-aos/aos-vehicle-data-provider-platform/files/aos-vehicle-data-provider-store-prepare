@@ -181,7 +181,8 @@ else
         chown 0:0 "$partial_file"
         require_regular_file "$partial_file" "$store_size"
         require_fully_allocated "$partial_file"
-        mkfs.ext4 -q -F -m 0 -L "$store_label" "$partial_file" ||
+        mkfs.ext4 -q -F -m 0 -E nodiscard -L "$store_label" \
+            "$partial_file" ||
             fail 'cannot create the store ext4 filesystem'
         image_uuid=$(filesystem_value "$partial_file" UUID)
         require_uuid "$image_uuid"

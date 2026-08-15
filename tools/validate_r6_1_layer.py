@@ -324,7 +324,7 @@ def validate_layer() -> None:
         "context=system_u:object_r:aos_var_run_t:s0",
         'dd if=/dev/zero of="$partial_file" bs=1048576 count=512',
         "conv=fsync status=none",
-        "mkfs.ext4 -q -F -m 0 -L \"$store_label\" \"$partial_file\"",
+        "mkfs.ext4 -q -F -m 0 -E nodiscard -L \"$store_label\"",
         "e2fsck -p \"$backing_file\"",
         "require_fully_allocated",
         "store identity exists without a recoverable image",

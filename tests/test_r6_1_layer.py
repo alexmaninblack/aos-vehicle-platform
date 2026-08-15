@@ -56,6 +56,7 @@ class R61LayerTests(unittest.TestCase):
             'dd if=/dev/zero of="$partial_file" bs=1048576 count=512', prepare
         )
         self.assertIn("conv=fsync status=none", prepare)
+        self.assertIn('mkfs.ext4 -q -F -m 0 -E nodiscard -L "$store_label"', prepare)
         self.assertNotIn("fallocate", prepare)
         self.assertNotRegex(prepare, r"rm[^\n]*\$backing_file")
         self.assertNotRegex(prepare, r"mkfs[^\n]*\$backing_file")
