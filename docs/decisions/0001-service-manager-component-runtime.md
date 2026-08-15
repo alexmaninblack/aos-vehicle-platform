@@ -4,7 +4,7 @@
 # ADR 0001: Use a Service Manager Runtime for the Provider Component
 
 - Status: Accepted
-- Date: 2026-08-14
+- Date: 2026-08-14; demo storage amendment 2026-08-15
 - Scope: R6.1 vehicle-data-provider FOTA lifecycle
 
 ## Context
@@ -42,11 +42,29 @@ registration, systemd launcher, health boundary, SELinux policy, stable
 KUKSA-facing integration, and empty component store. The independently signed
 provider bundle owns the provider executable and its runtime dependencies.
 
-The persistent root is on the released `/dev/aosvg/workdirs` ext4 logical
-volume. The production implementation will place inactive and active payloads,
-transaction metadata, and recovery state below that root. Exact A/B layout,
-atomic switching, interruption recovery, and garbage collection are R6.1-3
-work and are not implemented by the qualification probe.
+The logical persistent root remains below the released `/dev/aosvg/workdirs`
+ext4 logical volume. The production runtime places inactive and active
+payloads, transaction metadata, and recovery state below that root and owns
+the qualified A/B switching, interruption recovery, rollback, and garbage
+collection behavior.
+
+The provisioned demonstration VM mounts the complete workdirs filesystem with
+the fixed SELinux context `aos_var_run_t`. It therefore cannot give only the
+provider subtree its accepted `vehicle_data_provider_store_t` type. For the
+R6.1-6.5a demonstration gate, use a fully allocated 512 MiB ext4 image stored
+inside workdirs and mount it at the unchanged logical root with the dedicated
+fixed provider-store context. The image has a recorded per-Unit UUID and fixed
+platform-controlled path, size, label, mount options, reserve, preparation,
+and recovery rules. Existing AosCore workdirs data is neither relabelled nor
+migrated, and the provider receives only directory-search access through the
+generic parent path.
+
+This nested filesystem is a demo backend, not the selected production vehicle
+storage architecture. A dedicated logical volume, a controlled conversion to
+per-inode labels, or an equivalent OEM platform abstraction remains a separate
+architecture and migration decision. The Service Manager contract and signed
+provider path do not depend on which accepted backend implements the logical
+root.
 
 Keep the existing Cloud identity unchanged:
 
@@ -89,6 +107,11 @@ the production runtime.
   persistent root.
 - Provider releases can then use an OEM FOTA lifecycle independently of
   AosCore/rootfs releases.
+- The demonstration backend preserves that lifecycle without weakening the
+  provider SELinux domain or changing the signed provider path contract.
+- Rootfs rollback from `.3` to a release without the nested mount support must
+  first suspend or remove the provider assignment; transparent cross-backend
+  rollback is not claimed.
 - The existing provisioned Unit is neither deprovisioned nor reprovisioned.
 - The Update Manager fallback is rejected for this design because the Service
   Manager extension point passed the local factory, lifecycle, protocol, and

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -49,9 +50,51 @@ TMPFILES = (
     LAYER
     / "recipes-aos/aos-vehicle-data-provider-platform/files/aos-vehicle-data-provider.conf"
 )
+STORE_PREPARE = (
+    LAYER
+    / "recipes-aos/aos-vehicle-data-provider-platform/files/"
+    "aos-vehicle-data-provider-store-prepare"
+)
+STORE_CHECK = (
+    LAYER
+    / "recipes-aos/aos-vehicle-data-provider-platform/files/"
+    "aos-vehicle-data-provider-store-check"
+)
+STORE_PREPARE_UNIT = (
+    LAYER
+    / "recipes-aos/aos-vehicle-data-provider-platform/files/"
+    "aos-vehicle-data-provider-store-prepare.service"
+)
+STORE_MOUNT = (
+    LAYER
+    / "recipes-aos/aos-vehicle-data-provider-platform/files/"
+    "aos-vehicle-data-provider-store.mount"
+)
+STORE_BOOTSTRAP_UNIT = (
+    LAYER
+    / "recipes-aos/aos-vehicle-data-provider-platform/files/"
+    "aos-vehicle-data-provider-bootstrap.service"
+)
+STORE_MODULES_LOAD = (
+    LAYER
+    / "recipes-aos/aos-vehicle-data-provider-platform/files/"
+    "aos-vehicle-data-provider-loop.conf"
+)
+PLATFORM_RECIPE = (
+    LAYER
+    / "recipes-aos/aos-vehicle-data-provider-platform/"
+    "aos-vehicle-data-provider-platform_0.1.0.bb"
+)
+SM_DROP_IN = (
+    LAYER
+    / "recipes-aos/aos-vehicle-data-provider-platform/files/"
+    "30-aos-vehicle-data-provider.conf"
+)
 POLICY = LAYER / "recipes-security/refpolicy/files/vehicle_data_provider.te"
 POLICY_APPEND = LAYER / "recipes-security/refpolicy/refpolicy-aos_git.bbappend"
 COMPONENT_ROOT = "/var/aos/workdirs/sm/runtimes/systemd-slot-component"
+STORE_BACKING = "/var/aos/workdirs/sm/runtimes/.vehicle-data-provider-store.ext4"
+STORE_SIZE = 536870912
 COMPONENT_TYPE = "vehicle-data-provider"
 
 
@@ -270,10 +313,164 @@ def validate_layer() -> None:
         "vehicle trust boundary is missing",
     )
 
+    store_prepare = read(STORE_PREPARE)
+    for token in (
+        "set -eu",
+        f"store_mount={COMPONENT_ROOT}",
+        f"backing_file={STORE_BACKING}",
+        f"store_size={STORE_SIZE}",
+        "minimum_remaining=536870912",
+        "store_label=aos-vdp-store",
+        "context=system_u:object_r:aos_var_run_t:s0",
+        "fallocate -l \"$store_size\" \"$partial_file\"",
+        "mkfs.ext4 -q -F -m 0 -L \"$store_label\" \"$partial_file\"",
+        "e2fsck -p \"$backing_file\"",
+        "require_fully_allocated",
+        "store identity exists without a recoverable image",
+        "partial store identity requires manual reconciliation",
+        "mv \"$partial_file\" \"$backing_file\"",
+        "store backing file is sparse or incompletely allocated",
+    ):
+        require(token in store_prepare, f"store preparation contract is missing: {token}")
+    require("AOS_" not in store_prepare, "store preparation accepts environment overrides")
+    require(
+        'rm -f -- "$partial_file"' in store_prepare,
+        "interrupted partial store recovery is missing",
+    )
+    require(
+        not re.search(r"rm[^\n]*\$backing_file", store_prepare),
+        "store preparation can remove the committed backing file",
+    )
+    require(
+        not re.search(r"mkfs[^\n]*\$backing_file", store_prepare),
+        "store preparation can reformat the committed backing file",
+    )
+
+    store_check = read(STORE_CHECK)
+    for token in (
+        f"store={COMPONENT_ROOT}",
+        f"backing_file={STORE_BACKING}",
+        f"store_size={STORE_SIZE}",
+        "component store does not use a loop device",
+        "exactly one loop device",
+        "store backing file is sparse or incompletely allocated",
+        "store identity has an unexpected number of fields",
+        "context=system_u:object_r:vehicle_data_provider_store_t:s0",
+        "systemd-tmpfiles --create /usr/lib/aos-vehicle-data-provider/store.conf",
+        "backend=loop-ext4",
+        "vehicle_data_provider_store_t",
+    ):
+        require(token in store_check, f"store activation check is missing: {token}")
+    require("AOS_" not in store_check, "store check accepts environment overrides")
+    require(
+        f"Z {COMPONENT_ROOT}" not in tmpfiles,
+        "fixed-context store must not request an unsupported inode relabel",
+    )
+
+    prepare_unit = read(STORE_PREPARE_UNIT)
+    for token in (
+        "Requires=var-aos-workdirs.mount",
+        "After=var-aos-workdirs.mount systemd-modules-load.service",
+        "ConditionPathIsMountPoint=/var/aos/workdirs",
+        "ExecStart=/usr/libexec/aos-vehicle-data-provider-store-prepare",
+        "ProtectSystem=strict",
+        "ReadWritePaths=/var/aos/workdirs",
+        "CapabilityBoundingSet=",
+    ):
+        require(token in prepare_unit, f"store preparation unit is missing: {token}")
+    require(
+        "PrivateDevices=yes" not in prepare_unit,
+        "store preparation cannot validate the real workdirs device through PrivateDevices",
+    )
+
+    store_mount = read(STORE_MOUNT)
+    for token in (
+        "Requires=aos-vehicle-data-provider-store-prepare.service",
+        f"What={STORE_BACKING}",
+        f"Where={COMPONENT_ROOT}",
+        "Type=ext4",
+        "Options=loop,nodev,nosuid,noatime,errors=remount-ro,"
+        "context=system_u:object_r:vehicle_data_provider_store_t:s0",
+        "TimeoutSec=30s",
+    ):
+        require(token in store_mount, f"isolated store mount is missing: {token}")
+    require("noexec" not in store_mount, "provider store is not executable")
+
+    bootstrap_unit = read(STORE_BOOTSTRAP_UNIT)
+    require(
+        f"RequiresMountsFor={COMPONENT_ROOT}" in bootstrap_unit,
+        "provider bootstrap does not require the isolated store mount",
+    )
+    require(
+        f"ConditionPathIsMountPoint={COMPONENT_ROOT}" in bootstrap_unit,
+        "provider bootstrap does not fail closed without the isolated store",
+    )
+    require(
+        "ExecStart=/usr/libexec/aos-vehicle-data-provider-store-check"
+        in bootstrap_unit,
+        "provider bootstrap does not validate the isolated store",
+    )
+    sm_drop_in = read(SM_DROP_IN)
+    require(
+        "Requires=aos-vehicle-data-provider-bootstrap.service" in sm_drop_in,
+        "Service Manager does not fail closed on store bootstrap",
+    )
+    require(
+        read(STORE_MODULES_LOAD).splitlines()[-1] == "loop",
+        "steady-state loop module is not selected exactly once",
+    )
+
+    platform_recipe = read(PLATFORM_RECIPE)
+    for dependency in (
+        "e2fsprogs-e2fsck",
+        "e2fsprogs-mke2fs",
+        "kernel-module-loop",
+        "util-linux-blkid",
+        "util-linux-fallocate",
+        "util-linux-losetup",
+    ):
+        require(dependency in platform_recipe, f"store dependency is missing: {dependency}")
+    for source in (
+        "aos-vehicle-data-provider-store-prepare.service",
+        "aos-vehicle-data-provider-store.mount",
+        "aos-vehicle-data-provider-store-prepare",
+        "aos-vehicle-data-provider-store-check",
+        "aos-vehicle-data-provider-loop.conf",
+    ):
+        require(f"file://{source}" in platform_recipe, f"store source is missing: {source}")
+    require(
+        "var-aos-workdirs-sm-runtimes-systemd\\x2dslot\\x2dcomponent.mount"
+        in platform_recipe,
+        "path-derived component mount unit is not installed",
+    )
+    require(
+        "${libdir}/aos-vehicle-data-provider/store.conf" in platform_recipe,
+        "store layout is not isolated from global tmpfiles processing",
+    )
+    require(
+        "${nonarch_libdir}/tmpfiles.d/aos-vehicle-data-provider.conf"
+        not in platform_recipe,
+        "store layout can run before its isolated mount is active",
+    )
+
     policy = read(POLICY)
     require("vehicle_data_provider_t" in policy, "provider SELinux domain is missing")
     require("vehicle_data_provider_store_t" in policy, "provider store type is missing")
     require("manage_dirs_pattern(aos_t" in policy, "Service Manager cannot own the store")
+    require(
+        "allow vehicle_data_provider_t aos_var_run_t:dir search;" in policy,
+        "provider cannot traverse the fixed-context parent directories",
+    )
+    broad_parent_rules = [
+        line.strip()
+        for line in policy.splitlines()
+        if "vehicle_data_provider_t aos_var_run_t:" in line
+    ]
+    require(
+        broad_parent_rules
+        == ["allow vehicle_data_provider_t aos_var_run_t:dir search;"],
+        "provider has broader access to general Aos workdirs than directory search",
+    )
     require("permissive" not in policy, "provider SELinux policy is permissive")
     require(
         "init_read_runtime_files(vehicle_data_provider_t)" in policy,

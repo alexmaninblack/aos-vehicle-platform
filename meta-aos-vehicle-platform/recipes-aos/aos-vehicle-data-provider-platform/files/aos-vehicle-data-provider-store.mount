@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+[Unit]
+Description=Isolated Aos vehicle data provider component store
+Requires=aos-vehicle-data-provider-store-prepare.service
+After=aos-vehicle-data-provider-store-prepare.service
+Before=aos-vehicle-data-provider-bootstrap.service aos-sm.service
+
+[Mount]
+What=/var/aos/workdirs/sm/runtimes/.vehicle-data-provider-store.ext4
+Where=/var/aos/workdirs/sm/runtimes/systemd-slot-component
+Type=ext4
+Options=loop,nodev,nosuid,noatime,errors=remount-ro,context=system_u:object_r:vehicle_data_provider_store_t:s0
+TimeoutSec=30s

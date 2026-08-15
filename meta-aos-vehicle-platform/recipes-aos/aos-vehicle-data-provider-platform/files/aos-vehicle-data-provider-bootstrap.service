@@ -4,12 +4,14 @@
 [Unit]
 Description=Prepare the Aos vehicle data provider component store
 RequiresMountsFor=/var/aos/workdirs
+RequiresMountsFor=/var/aos/workdirs/sm/runtimes/systemd-slot-component
 ConditionPathIsMountPoint=/var/aos/workdirs
+ConditionPathIsMountPoint=/var/aos/workdirs/sm/runtimes/systemd-slot-component
 Before=aos-sm.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/systemd-tmpfiles --create /usr/lib/tmpfiles.d/aos-vehicle-data-provider.conf
+ExecStart=/usr/libexec/aos-vehicle-data-provider-store-check
 RemainAfterExit=yes
 
 [Install]

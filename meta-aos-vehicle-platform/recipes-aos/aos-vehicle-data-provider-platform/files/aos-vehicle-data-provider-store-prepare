@@ -1,0 +1,225 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+set -eu
+umask 077
+
+workdirs=/var/aos/workdirs
+expected_device=/dev/aosvg/workdirs
+store_parent=/var/aos/workdirs/sm/runtimes
+store_mount=/var/aos/workdirs/sm/runtimes/systemd-slot-component
+backing_file=/var/aos/workdirs/sm/runtimes/.vehicle-data-provider-store.ext4
+partial_file=/var/aos/workdirs/sm/runtimes/.vehicle-data-provider-store.ext4.partial
+identity_file=/var/aos/workdirs/sm/runtimes/.vehicle-data-provider-store.identity
+identity_partial=/var/aos/workdirs/sm/runtimes/.vehicle-data-provider-store.identity.partial
+store_size=536870912
+minimum_remaining=536870912
+store_label=aos-vdp-store
+
+fail() {
+    printf 'Vehicle data provider store preparation failed: %s\n' "$*" >&2
+    exit 1
+}
+
+require_command() {
+    command -v "$1" >/dev/null 2>&1 || fail "required command is unavailable: $1"
+}
+
+ensure_directory() {
+    path=$1
+    mode=$2
+
+    [ ! -L "$path" ] || fail "directory path is a symbolic link: $path"
+    if [ -e "$path" ]; then
+        [ -d "$path" ] || fail "directory path has an unsafe type: $path"
+    else
+        install -d -m "$mode" "$path" || fail "cannot create directory: $path"
+    fi
+    [ "$(stat -c %u:%g "$path")" = 0:0 ] ||
+        fail "directory is not owned by root: $path"
+}
+
+require_regular_file() {
+    path=$1
+    expected_size=$2
+
+    [ -f "$path" ] && [ ! -L "$path" ] ||
+        fail "store path is not a regular file: $path"
+    [ "$(stat -c %u:%g "$path")" = 0:0 ] ||
+        fail "store file is not owned by root: $path"
+    [ "$(stat -c %a "$path")" = 600 ] ||
+        fail "store file mode is not 0600: $path"
+    [ "$(stat -c %s "$path")" = "$expected_size" ] ||
+        fail "store file size is incorrect: $path"
+}
+
+require_fully_allocated() {
+    path=$1
+    allocated=$(( $(stat -c %b "$path") * 512 ))
+    [ "$allocated" -ge "$store_size" ] ||
+        fail "store backing file is sparse or incompletely allocated: $path"
+}
+
+filesystem_value() {
+    path=$1
+    field=$2
+    blkid -p -s "$field" -o value "$path" 2>/dev/null || true
+}
+
+require_uuid() {
+    value=$1
+    printf '%s\n' "$value" | grep -Eq \
+        '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' ||
+        fail 'store filesystem UUID is not canonical lowercase hexadecimal'
+}
+
+read_identity() {
+    [ -f "$identity_file" ] && [ ! -L "$identity_file" ] ||
+        fail 'store identity is absent or unsafe'
+    [ "$(stat -c %u:%g "$identity_file")" = 0:0 ] ||
+        fail 'store identity is not owned by root'
+    [ "$(stat -c %a "$identity_file")" = 600 ] ||
+        fail 'store identity mode is not 0600'
+    [ "$(wc -l <"$identity_file" | tr -d ' ')" = 5 ] ||
+        fail 'store identity has an unexpected number of fields'
+    grep -qx 'schema=1' "$identity_file" || fail 'store identity schema changed'
+    grep -qx 'backend=loop-ext4' "$identity_file" || fail 'store backend changed'
+    grep -qx "size=$store_size" "$identity_file" || fail 'store identity size changed'
+    grep -qx "label=$store_label" "$identity_file" || fail 'store identity label changed'
+    identity_uuid=$(sed -n 's/^uuid=//p' "$identity_file")
+    [ -n "$identity_uuid" ] || fail 'store identity UUID is absent'
+    require_uuid "$identity_uuid"
+}
+
+verify_image() {
+    path=$1
+    expected_uuid=$2
+
+    require_regular_file "$path" "$store_size"
+    require_fully_allocated "$path"
+    [ "$(filesystem_value "$path" TYPE)" = ext4 ] ||
+        fail "store filesystem is not ext4: $path"
+    [ "$(filesystem_value "$path" LABEL)" = "$store_label" ] ||
+        fail "store filesystem label is incorrect: $path"
+    actual_uuid=$(filesystem_value "$path" UUID)
+    require_uuid "$actual_uuid"
+    [ -z "$expected_uuid" ] || [ "$actual_uuid" = "$expected_uuid" ] ||
+        fail "store filesystem UUID does not match its identity: $path"
+}
+
+free_bytes() {
+    available_blocks=$(stat -f -c %a "$workdirs")
+    block_size=$(stat -f -c %S "$workdirs")
+    printf '%s\n' "$(( available_blocks * block_size ))"
+}
+
+for command in blkid e2fsck fallocate findmnt grep install losetup mkfs.ext4 \
+    readlink sed stat tr wc; do
+    require_command "$command"
+done
+
+[ "$(id -u)" -eq 0 ] || fail 'preparation must run as root'
+[ -d "$workdirs" ] && [ ! -L "$workdirs" ] || fail 'workdirs path is unsafe'
+[ "$(findmnt -rn -T "$workdirs" -o TARGET)" = "$workdirs" ] ||
+    fail 'workdirs is not a distinct mount point'
+[ "$(findmnt -rn -T "$workdirs" -o FSTYPE)" = ext4 ] ||
+    fail 'workdirs filesystem is not ext4'
+actual_source=$(readlink -f "$(findmnt -rn -T "$workdirs" -o SOURCE)")
+[ -e "$expected_device" ] || fail 'expected workdirs device is absent'
+expected_source=$(readlink -f "$expected_device")
+[ "$actual_source" = "$expected_source" ] || fail 'workdirs source device is unexpected'
+workdirs_options=$(findmnt -rn -T "$workdirs" -o OPTIONS)
+printf '%s\n' "$workdirs_options" | tr ',' '\n' | grep -qx rw ||
+    fail 'workdirs is not writable'
+printf '%s\n' "$workdirs_options" | tr ',' '\n' | \
+    grep -qx 'context=system_u:object_r:aos_var_run_t:s0' ||
+    fail 'workdirs does not have the accepted fixed SELinux context'
+
+ensure_directory /var/aos/workdirs/sm 0755
+ensure_directory "$store_parent" 0755
+ensure_directory "$store_mount" 0755
+
+if findmnt -rn -M "$store_mount" >/dev/null 2>&1; then
+    fail 'component store is already mounted before preparation'
+fi
+
+if [ -e "$identity_partial" ] || [ -L "$identity_partial" ]; then
+    fail 'partial store identity requires manual reconciliation'
+fi
+
+if [ -e "$backing_file" ] || [ -L "$backing_file" ]; then
+    [ ! -e "$partial_file" ] && [ ! -L "$partial_file" ] ||
+        fail 'final and partial store images coexist'
+    read_identity
+    verify_image "$backing_file" "$identity_uuid"
+else
+    if [ -e "$identity_file" ] || [ -L "$identity_file" ]; then
+        read_identity
+        [ -f "$partial_file" ] && [ ! -L "$partial_file" ] ||
+            fail 'store identity exists without a recoverable image'
+        verify_image "$partial_file" "$identity_uuid"
+        mv "$partial_file" "$backing_file" || fail 'cannot complete store image transaction'
+        sync
+    else
+        if [ -e "$partial_file" ] || [ -L "$partial_file" ]; then
+            require_regular_file "$partial_file" "$store_size"
+            [ -z "$(losetup -j "$partial_file")" ] ||
+                fail 'partial store image is attached to a loop device'
+            rm -f -- "$partial_file" || fail 'cannot remove interrupted partial image'
+            sync
+        fi
+
+        required=$(( store_size + minimum_remaining ))
+        [ "$(free_bytes)" -ge "$required" ] ||
+            fail 'workdirs does not have the accepted creation reserve'
+
+        fallocate -l "$store_size" "$partial_file" ||
+            fail 'cannot allocate the complete store image'
+        chmod 0600 "$partial_file"
+        chown 0:0 "$partial_file"
+        require_regular_file "$partial_file" "$store_size"
+        require_fully_allocated "$partial_file"
+        mkfs.ext4 -q -F -m 0 -L "$store_label" "$partial_file" ||
+            fail 'cannot create the store ext4 filesystem'
+        image_uuid=$(filesystem_value "$partial_file" UUID)
+        require_uuid "$image_uuid"
+        verify_image "$partial_file" "$image_uuid"
+
+        {
+            printf 'schema=1\n'
+            printf 'backend=loop-ext4\n'
+            printf 'size=%s\n' "$store_size"
+            printf 'label=%s\n' "$store_label"
+            printf 'uuid=%s\n' "$image_uuid"
+        } >"$identity_partial"
+        chmod 0600 "$identity_partial"
+        chown 0:0 "$identity_partial"
+        sync
+        mv "$identity_partial" "$identity_file" ||
+            fail 'cannot commit the store identity'
+        sync
+        mv "$partial_file" "$backing_file" ||
+            fail 'cannot commit the store image'
+        sync
+        read_identity
+        verify_image "$backing_file" "$identity_uuid"
+    fi
+fi
+
+[ -z "$(losetup -j "$backing_file")" ] ||
+    fail 'store image is unexpectedly attached before mount activation'
+
+set +e
+e2fsck -p "$backing_file"
+fsck_status=$?
+set -e
+case "$fsck_status" in
+    0|1) ;;
+    *) fail "store filesystem check failed with status $fsck_status" ;;
+esac
+
+read_identity
+verify_image "$backing_file" "$identity_uuid"
+
+printf 'Vehicle data provider store backing filesystem is ready.\n'

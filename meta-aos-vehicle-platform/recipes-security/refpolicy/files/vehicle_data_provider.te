@@ -32,9 +32,11 @@ systemd_tmpfilesd_managed(vehicle_data_provider_store_t)
 
 gen_require(`
     type aos_t;
+    type aos_var_run_t;
     class service { start stop status reload };
 ')
 
+allow vehicle_data_provider_t aos_var_run_t:dir search;
 manage_dirs_pattern(aos_t, vehicle_data_provider_store_t, vehicle_data_provider_store_t)
 manage_files_pattern(aos_t, vehicle_data_provider_store_t, vehicle_data_provider_store_t)
 manage_lnk_files_pattern(aos_t, vehicle_data_provider_store_t, vehicle_data_provider_store_t)

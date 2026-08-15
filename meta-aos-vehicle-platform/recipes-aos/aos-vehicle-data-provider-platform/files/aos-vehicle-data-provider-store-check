@@ -1,0 +1,114 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+set -eu
+umask 077
+
+store=/var/aos/workdirs/sm/runtimes/systemd-slot-component
+backing_file=/var/aos/workdirs/sm/runtimes/.vehicle-data-provider-store.ext4
+identity_file=/var/aos/workdirs/sm/runtimes/.vehicle-data-provider-store.identity
+schema_file=/var/aos/workdirs/sm/runtimes/systemd-slot-component/.store-schema
+schema_partial=/var/aos/workdirs/sm/runtimes/systemd-slot-component/.store-schema.partial
+store_size=536870912
+store_label=aos-vdp-store
+
+fail() {
+    printf 'Vehicle data provider store check failed: %s\n' "$*" >&2
+    exit 1
+}
+
+mount_option() {
+    printf '%s\n' "$mount_options" | tr ',' '\n' | grep -qx "$1"
+}
+
+[ "$(id -u)" -eq 0 ] || fail 'store check must run as root'
+[ -f "$backing_file" ] && [ ! -L "$backing_file" ] ||
+    fail 'store backing file is absent or unsafe'
+[ "$(stat -c %u:%g "$backing_file")" = 0:0 ] ||
+    fail 'store backing file is not owned by root'
+[ "$(stat -c %a "$backing_file")" = 600 ] ||
+    fail 'store backing file mode is not 0600'
+[ "$(stat -c %s "$backing_file")" = "$store_size" ] ||
+    fail 'store backing file size is incorrect'
+allocated=$(( $(stat -c %b "$backing_file") * 512 ))
+[ "$allocated" -ge "$store_size" ] ||
+    fail 'store backing file is sparse or incompletely allocated'
+[ -f "$identity_file" ] && [ ! -L "$identity_file" ] ||
+    fail 'store identity is absent or unsafe'
+[ "$(stat -c %u:%g "$identity_file")" = 0:0 ] ||
+    fail 'store identity is not owned by root'
+[ "$(stat -c %a "$identity_file")" = 600 ] ||
+    fail 'store identity mode is not 0600'
+[ "$(wc -l <"$identity_file" | tr -d ' ')" = 5 ] ||
+    fail 'store identity has an unexpected number of fields'
+grep -qx 'schema=1' "$identity_file" || fail 'store identity schema changed'
+grep -qx 'backend=loop-ext4' "$identity_file" || fail 'store backend changed'
+grep -qx "size=$store_size" "$identity_file" || fail 'store identity size changed'
+grep -qx "label=$store_label" "$identity_file" || fail 'store identity label changed'
+identity_uuid=$(sed -n 's/^uuid=//p' "$identity_file")
+printf '%s\n' "$identity_uuid" | grep -Eq \
+    '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' ||
+    fail 'store identity UUID is not canonical lowercase hexadecimal'
+[ "$(blkid -p -s TYPE -o value "$backing_file")" = ext4 ] ||
+    fail 'store backing filesystem is not ext4'
+[ "$(blkid -p -s LABEL -o value "$backing_file")" = "$store_label" ] ||
+    fail 'store backing filesystem label is incorrect'
+[ "$(blkid -p -s UUID -o value "$backing_file")" = "$identity_uuid" ] ||
+    fail 'store backing filesystem UUID changed'
+
+[ "$(findmnt -rn -M "$store" -o TARGET)" = "$store" ] ||
+    fail 'component store is not a distinct mount point'
+[ "$(findmnt -rn -M "$store" -o FSTYPE)" = ext4 ] ||
+    fail 'component store filesystem is not ext4'
+mount_source=$(readlink -f "$(findmnt -rn -M "$store" -o SOURCE)")
+case "$mount_source" in
+    /dev/loop[0-9]*) ;;
+    *) fail 'component store does not use a loop device' ;;
+esac
+loop_lines=$(losetup -j "$backing_file")
+[ "$(printf '%s\n' "$loop_lines" | sed '/^$/d' | wc -l | tr -d ' ')" = 1 ] ||
+    fail 'store backing file does not have exactly one loop device'
+loop_source=$(printf '%s\n' "$loop_lines" | sed -n 's/:.*//p')
+[ "$(readlink -f "$loop_source")" = "$mount_source" ] ||
+    fail 'component mount loop device does not use the accepted backing file'
+
+mount_options=$(findmnt -rn -M "$store" -o OPTIONS)
+for option in rw nodev nosuid noatime errors=remount-ro \
+    context=system_u:object_r:vehicle_data_provider_store_t:s0; do
+    mount_option "$option" || fail "component store mount option is absent: $option"
+done
+
+systemd-tmpfiles --create /usr/lib/aos-vehicle-data-provider/store.conf ||
+    fail 'cannot create the component store layout'
+
+expected_schema='schema=1
+backend=loop-ext4
+size=536870912'
+if [ -e "$schema_file" ] || [ -L "$schema_file" ]; then
+    [ -f "$schema_file" ] && [ ! -L "$schema_file" ] ||
+        fail 'component store schema marker is unsafe'
+    [ "$(cat "$schema_file")" = "$expected_schema" ] ||
+        fail 'component store schema marker changed'
+else
+    [ ! -e "$schema_partial" ] && [ ! -L "$schema_partial" ] ||
+        fail 'partial component store schema marker exists'
+    printf '%s\n' "$expected_schema" >"$schema_partial"
+    chmod 0600 "$schema_partial"
+    chown 0:0 "$schema_partial"
+    mv "$schema_partial" "$schema_file" || fail 'cannot commit store schema marker'
+    sync
+fi
+
+for path in "$store" "$store/slots" "$store/state" "$store/credentials" \
+    "$store/configuration" "$store/trust" "$schema_file"; do
+    [ ! -L "$path" ] || fail "component store path is a symbolic link: $path"
+    stat -c %C "$path" | grep -q ':vehicle_data_provider_store_t:' ||
+        fail "component store path has an incorrect SELinux type: $path"
+done
+
+[ "$(stat -c %a "$store/state")" = 700 ] || fail 'state mode is not 0700'
+[ "$(stat -c %a "$store/credentials")" = 700 ] ||
+    fail 'credential mode is not 0700'
+
+printf 'Vehicle data provider isolated component store is ready.\n'

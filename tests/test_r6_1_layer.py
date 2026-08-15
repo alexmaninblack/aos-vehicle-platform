@@ -43,6 +43,38 @@ class R61LayerTests(unittest.TestCase):
         self.assertIn("--mark-unavailable", launcher)
         self.assertIn("ExecReload=/bin/kill -HUP $MAINPID", unit)
 
+    def test_demo_store_is_fixed_bounded_and_non_destructive(self) -> None:
+        prepare = validate_r6_1_layer.STORE_PREPARE.read_text(encoding="utf-8")
+        check = validate_r6_1_layer.STORE_CHECK.read_text(encoding="utf-8")
+        mount = validate_r6_1_layer.STORE_MOUNT.read_text(encoding="utf-8")
+        self.assertIn(f"store_size={validate_r6_1_layer.STORE_SIZE}", prepare)
+        self.assertIn(
+            f"backing_file={validate_r6_1_layer.STORE_BACKING}", prepare
+        )
+        self.assertIn('rm -f -- "$partial_file"', prepare)
+        self.assertNotRegex(prepare, r"rm[^\n]*\$backing_file")
+        self.assertNotRegex(prepare, r"mkfs[^\n]*\$backing_file")
+        self.assertNotIn("AOS_", prepare)
+        self.assertNotIn("AOS_", check)
+        self.assertIn("store backing file is sparse or incompletely allocated", check)
+        self.assertNotIn(
+            f"Z {validate_r6_1_layer.COMPONENT_ROOT}",
+            validate_r6_1_layer.TMPFILES.read_text(encoding="utf-8"),
+        )
+        self.assertIn("Options=loop,nodev,nosuid,noatime,errors=remount-ro", mount)
+        self.assertNotIn("noexec", mount)
+
+    def test_provider_parent_access_is_search_only(self) -> None:
+        policy = validate_r6_1_layer.POLICY.read_text(encoding="utf-8")
+        rules = [
+            line.strip()
+            for line in policy.splitlines()
+            if "vehicle_data_provider_t aos_var_run_t:" in line
+        ]
+        self.assertEqual(
+            ["allow vehicle_data_provider_t aos_var_run_t:dir search;"], rules
+        )
+
     def test_arm64_runtime_qualifier_is_a_build_output(self) -> None:
         append = validate_r6_1_layer.SERVICE_MANAGER_APPEND.read_text(
             encoding="utf-8"
