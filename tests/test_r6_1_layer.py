@@ -108,6 +108,7 @@ class R61LayerTests(unittest.TestCase):
         )
         self.assertIn("What=/run/aos-vehicle-data-provider-store/loop", mount)
         self.assertIn("vehicle_data_provider_store_admin_t", policy)
+        self.assertIn("vehicle_data_provider_store_prepare_t", policy)
         self.assertIn("vehicle_data_provider_store_runtime_t", policy)
         self.assertIn(
             "allow vehicle_data_provider_store_admin_t self:capability sys_admin;",
@@ -118,6 +119,10 @@ class R61LayerTests(unittest.TestCase):
             "read_lnk_file_perms;",
             policy,
         )
+        self.assertIn(
+            "fstools_exec(vehicle_data_provider_store_prepare_t)", policy
+        )
+        self.assertNotIn("fstools_domtrans(vehicle_data_provider_store_prepare_t)", policy)
         self.assertNotIn("mount_t aos_var_run_t", policy)
 
     def test_store_parent_layout_is_separate_and_unprivileged(self) -> None:

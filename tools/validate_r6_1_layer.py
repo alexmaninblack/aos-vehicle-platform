@@ -614,6 +614,13 @@ def validate_layer() -> None:
     )
     require("permissive" not in policy, "provider SELinux policy is permissive")
     for token in (
+        "type vehicle_data_provider_store_prepare_t;",
+        "type vehicle_data_provider_store_prepare_exec_t;",
+        "init_daemon_domain(vehicle_data_provider_store_prepare_t, "
+        "vehicle_data_provider_store_prepare_exec_t)",
+        "fstools_exec(vehicle_data_provider_store_prepare_t)",
+        "manage_files_pattern(vehicle_data_provider_store_prepare_t, "
+        "aos_var_run_t, aos_var_run_t)",
         "type vehicle_data_provider_store_admin_t;",
         "type vehicle_data_provider_store_admin_exec_t;",
         "init_daemon_domain(vehicle_data_provider_store_admin_t, "
@@ -636,6 +643,13 @@ def validate_layer() -> None:
     require(
         "mount_t aos_var_run_t" not in policy,
         "generic mount domain can access the Aos workdirs backing file",
+    )
+    require(
+        "/usr/libexec/aos-vehicle-data-provider-store-prepare -- "
+        "gen_context(system_u:object_r:"
+        "vehicle_data_provider_store_prepare_exec_t,s0)"
+        in read(POLICY_FC),
+        "fixed store preparation script does not enter its dedicated SELinux domain",
     )
     require(
         "/usr/libexec/aos-vehicle-data-provider-loop -- "

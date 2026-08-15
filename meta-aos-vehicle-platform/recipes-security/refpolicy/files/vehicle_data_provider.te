@@ -10,6 +10,10 @@ init_daemon_domain(vehicle_data_provider_t, vehicle_data_provider_exec_t)
 type vehicle_data_provider_store_t;
 files_type(vehicle_data_provider_store_t)
 
+type vehicle_data_provider_store_prepare_t;
+type vehicle_data_provider_store_prepare_exec_t;
+init_daemon_domain(vehicle_data_provider_store_prepare_t, vehicle_data_provider_store_prepare_exec_t)
+
 type vehicle_data_provider_store_admin_t;
 type vehicle_data_provider_store_admin_exec_t;
 init_daemon_domain(vehicle_data_provider_store_admin_t, vehicle_data_provider_store_admin_exec_t)
@@ -58,6 +62,18 @@ files_search_runtime(vehicle_data_provider_store_admin_t)
 manage_lnk_files_pattern(vehicle_data_provider_store_admin_t, vehicle_data_provider_store_runtime_t, vehicle_data_provider_store_runtime_t)
 dev_rw_loop_control(vehicle_data_provider_store_admin_t)
 storage_raw_rw_fixed_disk(vehicle_data_provider_store_admin_t)
+
+# The immutable preparation script accepts no path or size overrides. It has
+# no capabilities, executes filesystem tools without entering the generic
+# fsadm_t domain, and is write-confined further by its systemd mount namespace.
+corecmd_exec_bin(vehicle_data_provider_store_prepare_t)
+corecmd_exec_shell(vehicle_data_provider_store_prepare_t)
+files_read_etc_files(vehicle_data_provider_store_prepare_t)
+fstools_exec(vehicle_data_provider_store_prepare_t)
+manage_dirs_pattern(vehicle_data_provider_store_prepare_t, aos_var_run_t, aos_var_run_t)
+manage_files_pattern(vehicle_data_provider_store_prepare_t, aos_var_run_t, aos_var_run_t)
+read_lnk_files_pattern(vehicle_data_provider_store_prepare_t, aos_var_run_t, aos_var_run_t)
+storage_raw_read_fixed_disk(vehicle_data_provider_store_prepare_t)
 
 allow mount_t vehicle_data_provider_store_runtime_t:dir search;
 allow mount_t vehicle_data_provider_store_runtime_t:lnk_file read_lnk_file_perms;
