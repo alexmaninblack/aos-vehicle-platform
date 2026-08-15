@@ -8,6 +8,7 @@ umask 077
 store=/var/aos/workdirs/sm/runtimes/systemd-slot-component
 backing_file=/var/aos/workdirs/sm/runtimes/.vehicle-data-provider-store.ext4
 identity_file=/var/aos/workdirs/sm/runtimes/.vehicle-data-provider-store.identity
+runtime_loop=/run/aos-vehicle-data-provider-store/loop
 schema_file=/var/aos/workdirs/sm/runtimes/systemd-slot-component/.store-schema
 schema_partial=/var/aos/workdirs/sm/runtimes/systemd-slot-component/.store-schema.partial
 store_size=536870912
@@ -65,12 +66,9 @@ esac
     fail 'mounted store filesystem label is incorrect'
 [ "$(blkid -p -s UUID -o value "$mount_source")" = "$identity_uuid" ] ||
     fail 'mounted store filesystem UUID changed'
-loop_lines=$(losetup -j "$backing_file")
-[ "$(printf '%s\n' "$loop_lines" | sed '/^$/d' | wc -l | tr -d ' ')" = 1 ] ||
-    fail 'store backing file does not have exactly one loop device'
-loop_source=$(printf '%s\n' "$loop_lines" | sed -n 's/:.*//p')
-[ "$(readlink -f "$loop_source")" = "$mount_source" ] ||
-    fail 'component mount loop device does not use the accepted backing file'
+[ -L "$runtime_loop" ] || fail 'runtime loop identity is absent or unsafe'
+[ "$(readlink -f "$runtime_loop")" = "$mount_source" ] ||
+    fail 'component mount does not use the fixed runtime loop identity'
 
 mount_options=$(findmnt -rn -M "$store" -o OPTIONS)
 for option in rw nodev nosuid noatime errors=remount-ro \

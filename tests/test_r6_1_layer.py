@@ -74,6 +74,10 @@ class R61LayerTests(unittest.TestCase):
         self.assertIn(
             'blkid -p -s UUID -o value "$mount_source"', check
         )
+        self.assertIn(
+            "runtime_loop=/run/aos-vehicle-data-provider-store/loop", check
+        )
+        self.assertNotIn("losetup", check)
         self.assertNotIn(
             f"Z {validate_r6_1_layer.COMPONENT_ROOT}",
             validate_r6_1_layer.TMPFILES.read_text(encoding="utf-8"),

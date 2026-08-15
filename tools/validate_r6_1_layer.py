@@ -411,7 +411,8 @@ def validate_layer() -> None:
         f"backing_file={STORE_BACKING}",
         f"store_size={STORE_SIZE}",
         "component store does not use a loop device",
-        "exactly one loop device",
+        "runtime_loop=/run/aos-vehicle-data-provider-store/loop",
+        "component mount does not use the fixed runtime loop identity",
         "store backing file is sparse or incompletely allocated",
         "store identity has an unexpected number of fields",
         "context=system_u:object_r:vehicle_data_provider_store_t:s0",
@@ -427,6 +428,10 @@ def validate_layer() -> None:
     require(
         'blkid -p -s UUID -o value "$mount_source"' in store_check,
         "post-mount identity is not checked through the mounted loop device",
+    )
+    require(
+        "losetup" not in store_check,
+        "post-mount validation scans the generic-labelled backing file",
     )
     require("AOS_" not in store_check, "store check accepts environment overrides")
     require(
