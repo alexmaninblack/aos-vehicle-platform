@@ -1046,7 +1046,8 @@ Error SystemdSlotComponentRuntime::Rollback(
     const ComponentTransaction &transaction, const Error &candidateError) {
   Error rollbackError;
   if (auto err = mProfile->MarkUnavailable(); !err.IsNone()) {
-    rollbackError = AOS_ERROR_WRAP(err);
+    LOG_WRN() << "Could not mark failed provider unavailable before rollback"
+              << Log::Field(err);
   }
   if (auto err = mProfile->StopProvider();
       !err.IsNone() && rollbackError.IsNone()) {

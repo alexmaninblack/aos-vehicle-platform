@@ -503,6 +503,36 @@ TEST_F(SystemdSlotComponentRuntimeTest,
             std::filesystem::path("slots/a"));
 }
 
+TEST_F(SystemdSlotComponentRuntimeTest,
+       UnavailableMarkFailureDoesNotDiscardRestoredRelease) {
+  auto runtime = StartEmptyRuntime(CreateConfig());
+  RuntimeInfo info;
+  ASSERT_TRUE(runtime->GetRuntimeInfo(info).IsNone());
+  const auto previous = CreateInstance(info, "0.2.0", "sha256:release020");
+  ExpectPayload(previous, CreatePayload("020", "0.2.0"));
+  InstanceStatus status;
+  ASSERT_TRUE(runtime->StartInstance(previous, status).IsNone());
+
+  const auto candidate = CreateInstance(info, "0.3.0", "sha256:startfail");
+  ExpectPayload(candidate, CreatePayload("startfail", "0.3.0"));
+  EXPECT_CALL(mProfile, MarkUnavailable())
+      .WillOnce(Return(ErrorEnum::eNone))
+      .WillOnce(Return(ErrorEnum::eFailed));
+  EXPECT_CALL(mProfile, StartProvider())
+      .WillOnce(Return(ErrorEnum::eFailed))
+      .WillOnce(Return(ErrorEnum::eNone));
+
+  const auto err = runtime->StartInstance(candidate, status);
+  EXPECT_TRUE(err.Is(ErrorEnum::eFailed)) << tests::utils::ErrorToStr(err);
+  EXPECT_EQ(status.mState, InstanceStateEnum::eFailed);
+  EXPECT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
+            std::filesystem::path("slots/a"));
+  EXPECT_TRUE(std::filesystem::exists(mWorkingDir / "state/installed.json"));
+  EXPECT_TRUE(
+      std::filesystem::exists(mWorkingDir / "state/last-failure.json"));
+  EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "state/transaction.json"));
+}
+
 TEST_F(SystemdSlotComponentRuntimeTest, UpdatesFromSlotAToSlotB) {
   auto runtime = StartEmptyRuntime(CreateConfig());
   RuntimeInfo info;
