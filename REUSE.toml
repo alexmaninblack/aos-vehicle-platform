@@ -18,6 +18,10 @@ path = [
     "contracts/vehicle-telemetry-profile/contract.schema.json",
     "contracts/vehicle-telemetry-profile/v0.1/profile.json",
     "contracts/vehicle-telemetry-profile/v0.1.1/profile.json",
+    "meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/files/sm.cfg",
+    "packaging/fota/config.yaml",
+    "providers/carla-viss-kuksa/config/component.json",
+    "providers/carla-viss-kuksa/config/vehicle-integration.example.json",
 ]
 precedence = "override"
 SPDX-FileCopyrightText = "2026 maninblack"
