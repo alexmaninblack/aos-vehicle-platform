@@ -27,8 +27,8 @@ The current accepted implementation provides:
 The `.11` rootfs candidate is unsigned and has not been uploaded or installed
 on a provisioned Unit. The validation Unit remains on
 `6.1.1-maninblack.2`; the demonstration Unit remains on `6.1.0`. Production
-vehicle storage and the Aos-to-KUKSA Authorization Adapter remain explicit
-future architecture gates.
+vehicle storage and the Aos–KUKSA Credential Broker/OEM access-policy flow
+remain explicit target architecture gates.
 
 Accepted provider `0.2.0` is pinned to source revision
 `e972d2bd7f14e27646bb5d7c10c7186ecdecfa9f`. The FOTA builder refuses to
@@ -62,7 +62,8 @@ Read:
 - `meta-aos-vehicle-platform/`: production Yocto runtime, storage, systemd,
   launcher, health, and SELinux integration;
 - `config/kuksa/`: non-secret KUKSA platform configuration boundary;
-- `authorization/aos-kuksa/`: deferred Authorization Adapter boundary;
+- `authorization/aos-kuksa/`: target Credential Broker and OEM access-policy
+  boundary inside the Vehicle Data Platform Component;
 - `tests/` and `tools/`: repository, contract, packaging, and layer gates.
 
 Legacy SSH side-load packaging and the qualification-only runtime probe were

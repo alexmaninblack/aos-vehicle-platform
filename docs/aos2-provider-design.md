@@ -60,8 +60,10 @@ mode-0700 host directory. Only the public key and provider token enter the VM.
 
 The token is delivered to the fixed `aos-vdp` systemd service through
 `LoadCredential`; it is not included in source, a bundle, a command line, or a
-log. AOS-5 will replace this temporary issuance mechanism with the
-Aos-to-KUKSA Authorization Adapter.
+log. This is retained as historical provider qualification. The accepted
+target keeps a distinct platform provider credential and adds the
+Vehicle Data Platform Component's Aos–KUKSA Credential Broker/OEM policy for
+functional SOTA credentials without modifying upstream KUKSA.
 
 ## Runtime and Packaging
 

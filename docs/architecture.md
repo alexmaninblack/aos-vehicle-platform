@@ -58,16 +58,22 @@ production vehicle storage architecture.
 
 ## Authorization Boundary
 
-The Aos-to-KUKSA Authorization Adapter is planned as AOS-5. Its future home is
-`authorization/aos-kuksa/`. It is not implemented. The
-prototype contract records least-privilege `provide` and `read` scopes so the
-future adapter can map Aos service identity to KUKSA permissions without
-changing the data profile.
+The target architecture keeps upstream Eclipse KUKSA Databroker unchanged.
+The Vehicle Data Platform Component owns an Aos–KUKSA Credential Broker and a
+versioned OEM access policy under `authorization/aos-kuksa/`; neither is
+implemented in the current baseline.
 
-Until AOS-5 is implemented, the prototype uses short-lived, path-scoped KUKSA
-tokens supplied through systemd credentials. Token issuance and private keys
-remain integration fixtures outside this repository. They are not a
-production authorization design and must never be committed.
+A SOTA service declares its requested KUKSA paths and modes in Aos metadata.
+Service Manager registers them and injects a per-instance `AOS_SECRET`. The
+broker calls Aos IAM `GetPermissions` for the `kuksa` functional server,
+compares the complete requested set with the OEM policy for that service
+identity, fails closed on any excess, and otherwise issues a short-lived,
+path-scoped JWT. KUKSA trusts only the broker's public verifier. The provider
+uses a separate platform credential for its accepted `provide`/`create` paths.
+
+Existing manually issued, path-scoped tokens remain temporary qualification
+fixtures only. Token issuance, signing material, `AOS_SECRET`, and private keys
+must never be committed or placed in payloads, command lines, or logs.
 
 ## Current Status
 
@@ -75,4 +81,5 @@ Repository separation and AOS-2 are complete. Provider `0.2.0` is signed and
 locally verified but not published. The production runtime and demo store are
 integrated into the unsigned local rootfs `6.1.1-maninblack.11` candidate.
 The validation Unit remains on `6.1.1-maninblack.2`; no `.11` Cloud or Unit
-mutation has occurred. The Authorization Adapter remains deferred to AOS-5.
+mutation has occurred. The Credential Broker and OEM access policy remain
+target work inside the Vehicle Data Platform Component.

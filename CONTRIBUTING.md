@@ -36,6 +36,7 @@ right to submit the work under the project license.
 
 ## Scope
 
-Platform providers, vehicle-data contracts, KUKSA platform integration,
-system-level packaging, and the future Authorization Adapter are in scope.
+Platform providers, vehicle-data contracts, KUKSA platform integration, the
+Aos–KUKSA Credential Broker, OEM access policy, and system-level packaging are
+in scope as parts of the Vehicle Data Platform Component.
 Cloud-managed application behavior belongs in its service repository.
