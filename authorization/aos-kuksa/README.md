@@ -27,6 +27,12 @@ database. OEM review and deployment authorization remain lifecycle decisions;
 native pre-transfer Cloud admission remains deferred until a supporting
 AosCloud release is qualified.
 
+This permission translation is a cybersecurity least-privilege mechanism
+inside the QM domain, not a functional-safety case. The VDP outbound allowlist
+is defense in depth. The Vehicle Gateway independently enforces the final
+QM-channel boundary and denies arbitrary VSS, vehicle-motion and
+safety-critical operations.
+
 `r` maps to KUKSA `read`, `w` to `actuate`, and `rw` to both. Functional
 services never receive `provide` or `create`; the Vehicle Data Provider uses a
 separate short-lived platform credential whose FOTA-component identity binding

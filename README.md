@@ -57,6 +57,11 @@ CARLA -> VISS 3.1 -> provider -> KUKSA Databroker -> Aos service
 A production vehicle replaces the CARLA provider with CAN, SOME/IP, DDS, or
 OEM-specific providers while preserving the versioned KUKSA/VSS contract.
 
+The target demo services are QM-domain maintenance applications. This
+repository validates their outbound typed advisories as defense in depth; the
+Vehicle Gateway owns the final deny-by-default boundary and no service gains
+vehicle-motion or safety-critical authority.
+
 Read:
 
 - [architecture and ownership](docs/architecture.md);

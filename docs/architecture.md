@@ -26,6 +26,14 @@ The telemetry service is not part of this repository. It may use only the
 published contract and KUKSA API; it must not import the provider, connect to
 CARLA/VISS, or depend on VM launcher and provisioning code.
 
+For the accepted demo architecture, Brake Health and Tire Health are
+QM-domain maintenance/inspection applications. Aos IAM/KUKSA permissions and
+the outbound VDP allowlist provide least privilege and defense in depth; they
+do not allocate a safety goal or vehicle-motion authority. The external
+Vehicle Gateway remains the final authoritative boundary for the QM-origin
+channel and independently denies arbitrary VSS, motion and safety-critical
+operations.
+
 ## Accepted Prototype Pins
 
 The initial contract is qualified against these inputs:
@@ -80,6 +88,12 @@ protected through the Aos IAM/certificate-module and PKCS#11 integration.
 Token issuance, signing material, `AOS_SECRET`, and private keys must never be
 committed, baked into a Factory Image, or placed in payloads, command lines, or
 logs.
+
+OEM approval remains a lifecycle decision outside this repository. Before the
+final explicit OEM authorization, the release workflow presents the exact
+artifact and metadata digests, requested permissions, target, validation
+evidence and owning-team acceptance. Passing tests never auto-approve, and
+AosCloud remains the authoritative lifecycle record.
 
 ## Current Status
 
