@@ -28,8 +28,10 @@ The `.11` rootfs candidate is unsigned and has not been uploaded or installed
 on a provisioned Unit. The validation Unit remains on
 `6.1.1-maninblack.2`; the demonstration Unit remains on
 `6.1.1-maninblack.1`. Production
-vehicle storage and the Aos–KUKSA Credential Broker/OEM access-policy flow
-remain explicit target architecture gates.
+vehicle storage, the thin Aos–KUKSA Credential Broker, protected signing-key
+integration, and the provider platform-identity flow remain explicit target
+architecture gates. The current live AosVM configuration does not enable the
+stock IAM permission handler required by the target service-credential flow.
 
 The `.11` build produced two lifecycle-distinct outputs from the same rootfs
 content: a complete unprovisioned raw VM image and an unsigned rootfs FOTA
@@ -71,8 +73,8 @@ Read:
 - `meta-aos-vehicle-platform/`: production Yocto runtime, storage, systemd,
   launcher, health, and SELinux integration;
 - `config/kuksa/`: non-secret KUKSA platform configuration boundary;
-- `authorization/aos-kuksa/`: target Credential Broker and OEM access-policy
-  boundary inside the Vehicle Data Platform Component;
+- `authorization/aos-kuksa/`: target thin Credential Broker, KUKSA trust and
+  platform-credential boundary inside the Vehicle Data Platform Component;
 - `tests/` and `tools/`: repository, contract, packaging, and layer gates.
 
 Legacy SSH side-load packaging and the qualification-only runtime probe were

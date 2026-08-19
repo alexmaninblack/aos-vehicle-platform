@@ -59,21 +59,27 @@ production vehicle storage architecture.
 ## Authorization Boundary
 
 The target architecture keeps upstream Eclipse KUKSA Databroker unchanged.
-The Vehicle Data Platform Component owns an Aos–KUKSA Credential Broker and a
-versioned OEM access policy under `authorization/aos-kuksa/`; neither is
-implemented in the current baseline.
+The Vehicle Data Platform Component owns a thin Aos–KUKSA Credential Broker,
+KUKSA trust configuration and provider platform-credential integration under
+`authorization/aos-kuksa/`; these are not implemented in the current baseline.
 
 A SOTA service declares its requested KUKSA paths and modes in Aos metadata.
 Service Manager registers them and injects a per-instance `AOS_SECRET`. The
-broker calls Aos IAM `GetPermissions` for the `kuksa` functional server,
-compares the complete requested set with the OEM policy for that service
-identity, fails closed on any excess, and otherwise issues a short-lived,
-path-scoped JWT. KUKSA trusts only the broker's public verifier. The provider
-uses a separate platform credential for its accepted `provide`/`create` paths.
+broker calls Aos IAM `GetPermissions` for the `kuksa` functional server and
+maps only the currently registered paths/modes that are valid in the installed
+VDP contract into a short-lived, path-scoped JWT. Invalid/stale secrets,
+unknown modes, malformed paths and contract excess fail closed. The broker
+stores neither service identity nor a duplicate per-service policy database.
+KUKSA trusts only the broker's public verifier. The provider uses a separate
+short-lived platform credential for its accepted `provide`/`create` paths;
+the exact FOTA-component identity binding remains a design gate.
 
 Existing manually issued, path-scoped tokens remain temporary qualification
-fixtures only. Token issuance, signing material, `AOS_SECRET`, and private keys
-must never be committed or placed in payloads, command lines, or logs.
+fixtures only. The target broker signing key is established per Unit and
+protected through the Aos IAM/certificate-module and PKCS#11 integration.
+Token issuance, signing material, `AOS_SECRET`, and private keys must never be
+committed, baked into a Factory Image, or placed in payloads, command lines, or
+logs.
 
 ## Current Status
 
@@ -81,5 +87,7 @@ Repository separation and AOS-2 are complete. Provider `0.2.0` is signed and
 locally verified but not published. The production runtime and demo store are
 integrated into the unsigned local rootfs `6.1.1-maninblack.11` candidate.
 The validation Unit remains on `6.1.1-maninblack.2`; no `.11` Cloud or Unit
-mutation has occurred. The Credential Broker and OEM access policy remain
-target work inside the Vehicle Data Platform Component.
+mutation has occurred. The thin Credential Broker, protected signing
+integration and provider platform-identity binding remain target work inside
+the Vehicle Data Platform Component. The stock Aos IAM permission handler also
+requires enablement and qualification in the accepted Factory Image.
