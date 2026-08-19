@@ -35,4 +35,11 @@ The accepted local output is rootfs candidate `.11`, built from platform
 revision `a12c0aa7f8a680b35407776b12bcc025970abc73`. It closes the runtime
 dependency chain required by provider `0.2.0`. Candidate `.11` is unsigned and
 has not been uploaded, assigned, or installed; the validation Unit therefore
-remains on `.2` and the demo Unit on `6.1.0`.
+remains on `.2` and the demo Unit on `.1`.
+
+The same Yocto build also produced the complete unprovisioned raw VM disk used
+for disposable qualification. In the target manufacturing flow, an accepted
+version of that complete image supplies this runtime before provisioning. The
+rootfs FOTA candidate remains a separate retrofit/platform-maintenance
+artifact and is not required to introduce the initial runtime into a newly
+manufactured Unit.

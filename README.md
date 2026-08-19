@@ -26,9 +26,18 @@ The current accepted implementation provides:
 
 The `.11` rootfs candidate is unsigned and has not been uploaded or installed
 on a provisioned Unit. The validation Unit remains on
-`6.1.1-maninblack.2`; the demonstration Unit remains on `6.1.0`. Production
+`6.1.1-maninblack.2`; the demonstration Unit remains on
+`6.1.1-maninblack.1`. Production
 vehicle storage and the Aos–KUKSA Credential Broker/OEM access-policy flow
 remain explicit target architecture gates.
+
+The `.11` build produced two lifecycle-distinct outputs from the same rootfs
+content: a complete unprovisioned raw VM image and an unsigned rootfs FOTA
+envelope. The raw image is engineering evidence for an OEM factory-image
+baseline in which the provider-specific empty-slot runtime exists before Unit
+provisioning. The rootfs envelope is an optional retrofit or later platform
+update for an older provisioned Unit; it is not the independently delivered
+Vehicle Data Platform Component.
 
 Accepted provider `0.2.0` is pinned to source revision
 `e972d2bd7f14e27646bb5d7c10c7186ecdecfa9f`. The FOTA builder refuses to
