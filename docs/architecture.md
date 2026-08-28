@@ -85,8 +85,16 @@ database. KUKSA trusts only the prepared per-Unit public verifier.
 The Provider is separate trusted OEM Platform integration with fixed
 `aos-vdp` identity. It receives no authority from the Service helper. Its exact
 protected KUKSA connection configuration and selected-Unit VISS mTLS profile
-remain implementation and qualification gates; dynamic Provider IAM/JWT is not
-a first-demo requirement.
+are now represented by source-level fail-closed configuration and unit tests;
+real connection qualification remains open. Dynamic Provider IAM/JWT is not a
+first-demo requirement.
+
+The VDP v1-v3 source profiles are immutable build selections. Earlier source
+prebuilds omit later release modules, and v1/v2 omit the typed-advisory module.
+The outbound v3 implementation accepts only the two contract-owned service,
+path and canonical schema combinations, while the Gateway remains the final
+application authority. No VDP application store, log database, tenant quota or
+runtime authorization service is introduced.
 
 Existing manually issued, path-scoped tokens remain temporary qualification
 fixtures only. The target broker signing key is established per Unit and

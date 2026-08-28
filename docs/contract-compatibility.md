@@ -15,6 +15,20 @@ The contract uses semantic versioning independently from repository releases.
 Consumers declare a compatible contract range. An integration baseline pins
 one exact contract file and its SHA-256 digest.
 
+The implemented VDP source family follows the accepted additive component
+graph rather than treating these as runtime-selectable modes:
+
+- `1.0.0` exposes exactly seven base-dynamics paths;
+- `2.0.0` is a strict v1 superset with four wheel linear-speed and four wheel
+  angular-speed paths, with angular speed in degrees per second; and
+- `3.0.0` is a strict v2 superset with eight wheel-slip paths and the two typed
+  Brake/Tire advisory request/status flows.
+
+Each release has a distinct capability-manifest digest. An unknown version,
+changed manifest, contract-digest mismatch, missing path or missing capability
+fails closed. The existing Provider `0.2.0` remains historical evidence and is
+not relabelled as VDP v1.
+
 Draft 0.1.1 is a metadata-only patch: both pinned VSS trees use the unit token
 `degrees` for `Vehicle.Chassis.Axle.Row1.SteeringAngle`, while draft 0.1.0 used
 the non-standard singular spelling. The underlying value remains degrees and

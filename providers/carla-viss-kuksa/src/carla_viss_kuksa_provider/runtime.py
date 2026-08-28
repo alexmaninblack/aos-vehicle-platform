@@ -6,11 +6,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.metadata
 import json
 import logging
 import os
 import platform
+import re
 import signal
 import socket
 import ssl
@@ -19,15 +21,23 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import Mapping
 
 from .bridge import (
     BridgeState,
     SIGNALS,
+    SignalSpec,
     SignalValue,
     parse_subscribe_response,
     subscription_request,
 )
+from .manifest import load_manifest
+
+try:
+    from . import vdp_release_profile as ACTIVE_RELEASE_PROFILE
+except ImportError:
+    ACTIVE_RELEASE_PROFILE = None
 
 
 LOG = logging.getLogger("carla-viss-kuksa-provider")
@@ -57,6 +67,9 @@ class PayloadConfiguration:
     freshness_timeout_ms: int
     reconnect_initial_ms: int
     reconnect_max_ms: int
+    semantic_version: str | None = None
+    signals: tuple[SignalSpec, ...] = SIGNALS
+    advisory_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -64,6 +77,9 @@ class VissConfiguration:
     uri: str
     ca: Path
     tls_server_name: str
+    client_certificate: Path | None = None
+    client_key: Path | None = None
+    source_identity: tuple[str, str, str, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -83,8 +99,13 @@ class Configuration:
 
 
 class KuksaSink:
-    def __init__(self, configuration: KuksaConfiguration) -> None:
+    def __init__(
+        self,
+        configuration: KuksaConfiguration,
+        signals: tuple[SignalSpec, ...] = SIGNALS,
+    ) -> None:
         self._configuration = configuration
+        self._signals = signals
         self._client = None
 
     def publish(self, values: Mapping[str, SignalValue | None]) -> None:
@@ -92,7 +113,7 @@ class KuksaSink:
 
         client = self._connect()
         updates = []
-        for signal_spec in SIGNALS:
+        for signal_spec in self._signals:
             item = values[signal_spec.path]
             datapoint = (
                 Datapoint(item.value, item.timestamp)
@@ -143,17 +164,27 @@ def run(
 ) -> int:
     from websockets.sync.client import connect
 
-    sink = KuksaSink(configuration.kuksa)
+    sink = KuksaSink(configuration.kuksa, configuration.payload.signals)
     bridge = BridgeState(
         sink,
         configuration.payload.freshness_timeout_ms / 1000.0,
         time.monotonic,
+        configuration.payload.signals,
+        require_complete_frames=configuration.payload.semantic_version is not None,
     )
     tls_context = ssl.create_default_context(cafile=str(configuration.viss.ca))
     tls_context.minimum_version = ssl.TLSVersion.TLSv1_2
+    if configuration.viss.client_certificate is not None:
+        assert configuration.viss.client_key is not None
+        tls_context.load_cert_chain(
+            configuration.viss.client_certificate,
+            configuration.viss.client_key,
+        )
     request_id = "carla-kuksa-provider-1"
     request = subscription_request(
-        request_id, configuration.payload.subscription_period_ms
+        request_id,
+        configuration.payload.subscription_period_ms,
+        configuration.payload.signals,
     )
     reconnect_delay = configuration.payload.reconnect_initial_ms / 1000.0
     maximum_delay = configuration.payload.reconnect_max_ms / 1000.0
@@ -245,8 +276,17 @@ def run(
     return 0
 
 
-def load_payload_configuration(path: Path) -> PayloadConfiguration:
+def load_payload_configuration(
+    path: Path,
+    release_profile: ModuleType | None = None,
+) -> PayloadConfiguration:
     raw = _read_object(path, "component configuration")
+    if raw.get("schemaVersion") == 3:
+        return _load_release_payload_configuration(
+            path,
+            raw,
+            ACTIVE_RELEASE_PROFILE if release_profile is None else release_profile,
+        )
     _require_keys(
         raw,
         {
@@ -294,6 +334,64 @@ def load_payload_configuration(path: Path) -> PayloadConfiguration:
     return configuration
 
 
+def _load_release_payload_configuration(
+    path: Path,
+    raw: dict[str, object],
+    release_profile: ModuleType | None,
+) -> PayloadConfiguration:
+    if release_profile is None:
+        raise ValueError("component release profile is unavailable")
+    _require_keys(
+        raw,
+        {
+            "schemaVersion",
+            "provider",
+            "semanticVersion",
+            "capabilityManifest",
+            "capabilityManifestSha256",
+            "runtimeInterface",
+            "timing",
+        },
+        {"$comment"},
+        "component release configuration",
+    )
+    if raw["provider"] != COMPONENT_NAME or raw["runtimeInterface"] != RUNTIME_INTERFACE:
+        raise ValueError("component release identity is incompatible")
+    if raw["semanticVersion"] != release_profile.VERSION:
+        raise ValueError("component release version is incompatible")
+    if raw["capabilityManifest"] != "capability-manifest.json":
+        raise ValueError("component capability manifest path is incompatible")
+    if raw["capabilityManifestSha256"] != release_profile.MANIFEST_SHA256:
+        raise ValueError("component capability manifest digest is incompatible")
+    load_manifest(path.parent / "capability-manifest.json", release_profile)
+    timing = raw["timing"]
+    if not isinstance(timing, dict):
+        raise ValueError("component timing configuration must be an object")
+    _require_keys(
+        timing,
+        {
+            "subscriptionPeriodMs",
+            "freshnessTimeoutMs",
+            "reconnectInitialMs",
+            "reconnectMaxMs",
+        },
+        set(),
+        "component timing configuration",
+    )
+    configuration = PayloadConfiguration(
+        subscription_period_ms=_integer(timing, "subscriptionPeriodMs", 50, 60_000),
+        freshness_timeout_ms=_integer(timing, "freshnessTimeoutMs", 100, 60_000),
+        reconnect_initial_ms=_integer(timing, "reconnectInitialMs", 100, 60_000),
+        reconnect_max_ms=_integer(timing, "reconnectMaxMs", 100, 300_000),
+        semantic_version=release_profile.VERSION,
+        signals=release_profile.SIGNALS,
+        advisory_enabled=bool(release_profile.ADVISORY_ENDPOINT_IDS),
+    )
+    if configuration.reconnect_initial_ms > configuration.reconnect_max_ms:
+        raise ValueError("initial reconnect delay must not exceed maximum delay")
+    return configuration
+
+
 def load_configuration(
     path: Path, environment: Mapping[str, str] | None = None
 ) -> Configuration:
@@ -304,7 +402,10 @@ def load_configuration(
     payload = load_payload_configuration(path)
     return Configuration(
         payload=payload,
-        viss=_load_viss_configuration(environment),
+        viss=_load_viss_configuration(
+            environment,
+            require_mutual_tls=payload.semantic_version is not None,
+        ),
         kuksa=_load_kuksa_configuration(environment),
     )
 
@@ -313,10 +414,10 @@ def mark_unavailable(
     path: Path, environment: Mapping[str, str] | None = None
 ) -> None:
     environment = os.environ if environment is None else environment
-    load_payload_configuration(path)
-    sink = KuksaSink(_load_kuksa_configuration(environment))
+    payload = load_payload_configuration(path)
+    sink = KuksaSink(_load_kuksa_configuration(environment), payload.signals)
     try:
-        sink.publish({signal_spec.path: None for signal_spec in SIGNALS})
+        sink.publish({signal_spec.path: None for signal_spec in payload.signals})
     finally:
         sink.close()
 
@@ -354,19 +455,23 @@ def notify_ready(environment: Mapping[str, str] | None = None) -> None:
         notifier.sendall(b"READY=1\nSTATUS=KUKSA authenticated; values unavailable\n")
 
 
-def _load_viss_configuration(environment: Mapping[str, str]) -> VissConfiguration:
+def _load_viss_configuration(
+    environment: Mapping[str, str],
+    require_mutual_tls: bool = False,
+) -> VissConfiguration:
     configuration_path = _absolute_environment_path(
         environment, EXTERNAL_CONFIGURATION_ENV
     )
     raw = _read_object(configuration_path, "vehicle integration configuration")
-    _require_keys(
-        raw,
-        {"schemaVersion", "viss"},
-        {"$comment"},
-        "vehicle integration configuration",
-    )
-    if raw["schemaVersion"] != 1:
-        raise ValueError("vehicle integration configuration schemaVersion must be 1")
+    expected_schema = 2 if require_mutual_tls else 1
+    required_keys = {"schemaVersion", "viss"}
+    if require_mutual_tls:
+        required_keys.add("selectedSource")
+    _require_keys(raw, required_keys, {"$comment"}, "vehicle integration configuration")
+    if raw["schemaVersion"] != expected_schema:
+        raise ValueError(
+            f"vehicle integration configuration schemaVersion must be {expected_schema}"
+        )
     viss = raw["viss"]
     if not isinstance(viss, dict):
         raise ValueError("vehicle integration VISS configuration must be an object")
@@ -381,10 +486,52 @@ def _load_viss_configuration(environment: Mapping[str, str]) -> VissConfiguratio
         raise ValueError("VISS URI must use wss://")
     ca = _absolute_environment_path(environment, VISS_CA_ENV)
     _require_regular_file(ca, "VISS trust anchor")
+    client_certificate = None
+    client_key = None
+    source_identity = None
+    if require_mutual_tls:
+        selected_source = raw["selectedSource"]
+        if not isinstance(selected_source, dict):
+            raise ValueError("selected source configuration must be an object")
+        _require_keys(
+            selected_source,
+            {
+                "unitId",
+                "nodeId",
+                "clientCertificateSha256",
+                "assignmentGeneration",
+                "role",
+            },
+            set(),
+            "selected source configuration",
+        )
+        role = _string(selected_source, "role")
+        fingerprint = _string(selected_source, "clientCertificateSha256")
+        generation = _integer(selected_source, "assignmentGeneration", 1, 2**63 - 1)
+        if role != "SELECTED_PLATFORM_UNIT" or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None:
+            raise ValueError("selected source identity is incompatible")
+        credential_directory = _absolute_environment_path(
+            environment, CREDENTIAL_DIRECTORY_ENV
+        )
+        client_certificate = credential_directory / "viss-client-cert.pem"
+        client_key = credential_directory / "viss-client-key.pem"
+        _require_regular_file(client_certificate, "VISS client certificate")
+        _require_regular_file(client_key, "VISS client key")
+        if _certificate_sha256(client_certificate) != fingerprint:
+            raise ValueError("selected source certificate fingerprint is incompatible")
+        source_identity = (
+            _string(selected_source, "unitId"),
+            _string(selected_source, "nodeId"),
+            fingerprint,
+            generation,
+        )
     return VissConfiguration(
         uri=uri,
         ca=ca,
         tls_server_name=_string(viss, "tlsServerName"),
+        client_certificate=client_certificate,
+        client_key=client_key,
+        source_identity=source_identity,
     )
 
 
@@ -457,6 +604,14 @@ def _read_object(path: Path, label: str) -> dict[str, object]:
 def _require_regular_file(path: Path, label: str) -> None:
     if not path.is_file() or path.is_symlink():
         raise ValueError(f"{label} is unavailable")
+
+
+def _certificate_sha256(path: Path) -> str:
+    try:
+        der = ssl.PEM_cert_to_DER_cert(path.read_text(encoding="ascii"))
+    except (UnicodeError, ValueError) as error:
+        raise ValueError("VISS client certificate is malformed") from error
+    return hashlib.sha256(der).hexdigest()
 
 
 def _absolute_environment_path(

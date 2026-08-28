@@ -17,6 +17,8 @@ import sys
 import tarfile
 from pathlib import Path, PurePosixPath
 
+import vdp_family
+
 
 VERSION = "0.2.0"
 COMPONENT_TYPE = "aos-vm-1.0.0-main-qemuarm64-vehicle-data-provider"
@@ -244,10 +246,23 @@ def validate(root: Path) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("candidate", type=Path)
+    parser.add_argument("--source-prebuild-version", choices=vdp_family.VERSIONS)
     options = parser.parse_args()
     try:
+        if options.source_prebuild_version:
+            vdp_family.validate_directory(
+                options.candidate.resolve(), options.source_prebuild_version
+            )
+            print("VDP_SOURCE_PREBUILD=PASS")
+            return 0
         validate(options.candidate.resolve())
-    except (ValidationError, OSError, json.JSONDecodeError, tarfile.TarError) as error:
+    except (
+        ValidationError,
+        OSError,
+        json.JSONDecodeError,
+        tarfile.TarError,
+        vdp_family.PrebuildError,
+    ) as error:
         print(f"Unsigned provider validation failed: {error}", file=sys.stderr)
         return 1
     print("R6_1_UNSIGNED_PROVIDER_CANDIDATE=PASS")

@@ -28,3 +28,26 @@ python3 packaging/fota/validate-provider-component build/provider-0.2.0
 
 Signing, publication, assignment, and deployment are integration gates and
 are intentionally absent from this repository workflow.
+
+## VDP v1-v3 source prebuilds
+
+The same entry points also prepare and validate deterministic, explicitly
+non-deployable source inputs for VDP `1.0.0`, `2.0.0` and `3.0.0`:
+
+```text
+python3 packaging/fota/build-provider-component --source-prebuild-version 1.0.0 build/vdp-1-source
+python3 packaging/fota/validate-provider-component --source-prebuild-version 1.0.0 build/vdp-1-source
+```
+
+Repeat with `2.0.0` or `3.0.0`. This mode performs no dependency download,
+compilation, wheel extraction, ARM64 layer build, Aos envelope build, signing
+or publication. It produces a deterministic USTAR of pinned source inputs plus
+identity metadata so the separately authorized artifact build can consume one
+reviewed profile without a source edit.
+
+Each prebuild contains only its selected release profile. The v3 advisory
+module is absent from v1 and v2. All releases contain their exact capability
+manifest, contract digests, dependency-lock digest, provenance input, license
+and notices. Secret-negative validation rejects credential material. The
+historical default command remains the distinct Provider `0.2.0` path and
+continues to read its accepted source bytes from the frozen revision.

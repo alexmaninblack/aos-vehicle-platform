@@ -26,3 +26,32 @@ under `packaging/fota`.
 Production platform profiles must be able to exclude this component
 completely. The provider conforms to the published vehicle telemetry profile
 and does not expose CARLA-specific overlay signals to services.
+
+## Immutable VDP source profiles
+
+The `releases` directory defines three build-selected profiles. VDP `1.0.0`
+contains exactly the seven base-dynamics paths. VDP `2.0.0` adds the four
+standard wheel linear-speed paths and four standard wheel angular-speed paths
+in degrees per second. VDP `3.0.0` adds the eight accepted wheel-slip paths and
+the schema-bound Brake Health and Tire Health advisory policy.
+
+The deterministic prebuild copies only one release module into a candidate's
+source inputs. The v1 and v2 inputs do not contain the advisory module, and no
+runtime option selects another release. Each payload configuration is bound to
+the digest of its immutable capability manifest.
+
+Family frames must be complete, contract-valid and source-time monotonic before
+data readiness recovers. Missing, malformed, stale or disconnected data is
+published as KUKSA `NotAvailable`; process health remains separate. Selected-
+Unit VISS client material and the fixed KUKSA Provider token are read only from
+protected external/systemd credential paths. Unit identity and credentials do
+not enter a release profile.
+
+VDP v3 accepts only the two frozen canonical JSON Request schemas from their
+exact service owners. It enforces path, value, freshness, lease, replay, rate
+and correlation bounds before the narrow VISS Set. Only a correlated factual
+Gateway Status is published back to KUKSA; VISS or KUKSA transport success is
+never reported as application success. The Gateway remains final authority.
+
+This repository evidence is source-level only. Real ARM64 packaging, trusted
+Provider/VISS integration and FOTA qualification remain separate gates.

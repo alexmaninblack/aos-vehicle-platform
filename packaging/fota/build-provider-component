@@ -22,6 +22,8 @@ import tempfile
 import zipfile
 from pathlib import Path, PurePosixPath
 
+import vdp_family
+
 
 ROOT = Path(__file__).resolve().parents[2]
 VERSION = "0.2.0"
@@ -444,10 +446,43 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
     parser.add_argument("--wheelhouse", type=Path)
+    parser.add_argument("--source-prebuild-version", choices=vdp_family.VERSIONS)
     options = parser.parse_args()
     try:
+        if options.source_prebuild_version:
+            if options.wheelhouse:
+                raise BuildError("source prebuild does not accept a wheelhouse")
+            status = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=ROOT,
+                check=True,
+                text=True,
+                capture_output=True,
+            ).stdout
+            if status:
+                raise BuildError("tracked and untracked source tree must be clean")
+            revision = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=ROOT,
+                check=True,
+                text=True,
+                capture_output=True,
+            ).stdout.strip()
+            vdp_family.prepare(
+                options.output.resolve(),
+                options.source_prebuild_version,
+                revision,
+            )
+            print(f"VDP source prebuild: {options.output.resolve()}")
+            return 0
         build(options.output.resolve(), options.wheelhouse.resolve() if options.wheelhouse else None)
-    except (BuildError, OSError, subprocess.CalledProcessError, zipfile.BadZipFile) as error:
+    except (
+        BuildError,
+        OSError,
+        subprocess.CalledProcessError,
+        vdp_family.PrebuildError,
+        zipfile.BadZipFile,
+    ) as error:
         print(f"Provider candidate build failed: {error}", file=sys.stderr)
         return 1
     return 0
