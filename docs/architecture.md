@@ -67,20 +67,26 @@ production vehicle storage architecture.
 ## Authorization Boundary
 
 The target architecture keeps upstream Eclipse KUKSA Databroker unchanged.
-The Vehicle Data Platform Component owns a thin Aos–KUKSA Credential Broker,
-KUKSA trust configuration and provider platform-credential integration under
-`authorization/aos-kuksa/`; these are not implemented in the current baseline.
+The separately packaged removable current-release KUKSA Authorization
+Compatibility helper belongs to the Factory/System layer under
+`authorization/aos-kuksa-compat/`; it is outside the Vehicle Data Platform
+FOTA payload and is not implemented in the current baseline.
 
 A SOTA service declares its requested KUKSA paths and modes in Aos metadata.
 Service Manager registers them and injects a per-instance `AOS_SECRET`. The
-broker calls Aos IAM `GetPermissions` for the `kuksa` functional server and
-maps only the currently registered paths/modes that are valid in the installed
-VDP contract into a short-lived, path-scoped JWT. Invalid/stale secrets,
-unknown modes, malformed paths and contract excess fail closed. The broker
-stores neither service identity nor a duplicate per-service policy database.
-KUKSA trusts only the broker's public verifier. The provider uses a separate
-short-lived platform credential for its accepted `provide`/`create` paths;
-the exact FOTA-component identity binding remains a design gate.
+helper calls Aos IAM `GetPermissions` for the fixed `kuksa` resource on every
+issue/renewal and maps only the currently registered exact paths and supported
+modes into a short-lived, path-scoped JWT. IAM `r` maps to KUKSA `read`; IAM
+`rw` maps to KUKSA `actuate`; IAM `w`, unknown modes, wildcards, malformed
+paths, partial trimming, `provide` and `create` reject the complete issuance.
+The helper stores neither Service identity nor a duplicate permission/policy
+database. KUKSA trusts only the prepared per-Unit public verifier.
+
+The Provider is separate trusted OEM Platform integration with fixed
+`aos-vdp` identity. It receives no authority from the Service helper. Its exact
+protected KUKSA connection configuration and selected-Unit VISS mTLS profile
+remain implementation and qualification gates; dynamic Provider IAM/JWT is not
+a first-demo requirement.
 
 Existing manually issued, path-scoped tokens remain temporary qualification
 fixtures only. The target broker signing key is established per Unit and
@@ -101,7 +107,8 @@ Repository separation and AOS-2 are complete. Provider `0.2.0` is signed and
 locally verified but not published. The production runtime and demo store are
 integrated into the unsigned local rootfs `6.1.1-maninblack.11` candidate.
 The validation Unit remains on `6.1.1-maninblack.2`; no `.11` Cloud or Unit
-mutation has occurred. The thin Credential Broker, protected signing
-integration and provider platform-identity binding remain target work inside
-the Vehicle Data Platform Component. The stock Aos IAM permission handler also
-requires enablement and qualification in the accepted Factory Image.
+mutation has occurred. The separately packaged compatibility helper, protected
+per-Unit signing integration and trusted Provider connection profile remain
+target work. The stock Aos IAM permission handler requires explicit
+`enablePermissionsHandler: true` configuration and qualification in the
+accepted Factory Image independently of provisioning state.

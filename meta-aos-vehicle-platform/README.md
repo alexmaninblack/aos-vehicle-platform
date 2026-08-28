@@ -43,3 +43,13 @@ version of that complete image supplies this runtime before provisioning. The
 rootfs FOTA candidate remains a separate retrofit/platform-maintenance
 artifact and is not required to introduce the initial runtime into a newly
 manufactured Unit.
+
+The accepted successor Factory Image must additionally configure the shared
+Aos IAM permission handler with `enablePermissionsHandler: true` independently
+of provisioning, package the removable `aos-kuksa-auth-compat` component and
+its non-secret named-resource/signer-verifier preparation seams, and start all
+credential-dependent components fail closed after provisioning. None of that
+target integration exists in the current `.11` evidence. The helper remains
+outside the VDP component payload, and the image must contain no provisioned
+identity, private key, shared verifier, `AOS_SECRET`, Service JWT or static
+Provider/Service credential.

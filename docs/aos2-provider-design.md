@@ -60,17 +60,20 @@ mode-0700 host directory. Only the public key and provider token enter the VM.
 
 The token is delivered to the fixed `aos-vdp` systemd service through
 `LoadCredential`; it is not included in source, a bundle, a command line, or a
-log. This is retained as historical provider qualification only. The accepted
-target replaces the static provider token with a separate short-lived platform
-credential whose FOTA-component identity binding must be designed and
-qualified. Functional SOTA services use the Vehicle Data Platform Component's
-thin Aos–KUKSA Credential Broker: it validates `AOS_SECRET` through Aos IAM and
-maps only currently registered, contract-compatible permissions without
-modifying upstream KUKSA or creating a parallel identity/policy store.
+log. This is retained as historical Provider qualification only. For the first
+demo, the Provider is trusted OEM Platform integration with a fixed identity
+and no authority derived from any Service credential. Its exact protected
+KUKSA connection configuration and selected-Unit VISS mTLS binding remain
+implementation/qualification parameters; no dynamic Provider IAM/JWT flow is
+a first-demo requirement.
 
-The broker signing key is per Unit and protected through the Aos
+Functional SOTA services instead use the separately packaged removable
+current-release KUKSA Authorization Compatibility helper in the Factory/System
+layer. It calls native Aos IAM for every issue/renewal and issues only the
+accepted short-lived Service JWT profile. It is not part of VDP or the
+Provider. Its per-Unit signing key is protected through the Aos
 IAM/certificate-module and PKCS#11 integration. Neither that key nor a static
-provider/service token belongs in the Factory Image or a FOTA/SOTA payload.
+Provider/Service token belongs in the Factory Image or a FOTA/SOTA payload.
 
 ## Runtime and Packaging
 

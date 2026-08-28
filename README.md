@@ -27,11 +27,13 @@ The current accepted implementation provides:
 The `.11` rootfs candidate is unsigned and has not been uploaded or installed
 on a provisioned Unit. The validation Unit remains on
 `6.1.1-maninblack.2`; the demonstration Unit remains on
-`6.1.1-maninblack.1`. Production
-vehicle storage, the thin Aos–KUKSA Credential Broker, protected signing-key
-integration, and the provider platform-identity flow remain explicit target
-architecture gates. The current live AosVM configuration does not enable the
-stock IAM permission handler required by the target service-credential flow.
+`6.1.1-maninblack.1`. Production vehicle storage, the separately packaged
+current-release KUKSA Authorization Compatibility helper, protected per-Unit
+signing integration, and the trusted Provider connection profile remain
+explicit target architecture gates. The helper is Factory/System integration
+outside the VDP FOTA payload and both SOTA services. The current live AosVM
+configuration does not enable the stock IAM permission handler required by
+that target Service credential flow.
 
 The `.11` build produced two lifecycle-distinct outputs from the same rootfs
 content: a complete unprovisioned raw VM image and an unsigned rootfs FOTA
@@ -78,8 +80,10 @@ Read:
 - `meta-aos-vehicle-platform/`: production Yocto runtime, storage, systemd,
   launcher, health, and SELinux integration;
 - `config/kuksa/`: non-secret KUKSA platform configuration boundary;
-- `authorization/aos-kuksa/`: target thin Credential Broker, KUKSA trust and
-  platform-credential boundary inside the Vehicle Data Platform Component;
+- `authorization/aos-kuksa-compat/`: target separately packaged removable
+  current-release Service authorization helper; not yet implemented;
+- `authorization/aos-kuksa/`: superseded historical design notes retained only
+  to prevent accidental reuse of the former VDP-owned broker model;
 - `tests/` and `tools/`: repository, contract, packaging, and layer gates.
 
 Legacy SSH side-load packaging and the qualification-only runtime probe were
