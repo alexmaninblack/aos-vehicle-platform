@@ -10,6 +10,7 @@ Before=aos-kuksa-token-init.service
 Type=oneshot
 ExecStart=/opt/aos/deprovision.sh
 ExecStartPost=/usr/bin/install -d -m 0700 -o root -g root /var/aos/iam
+RemainAfterExit=yes
 TimeoutStartSec=45s
 RestrictAddressFamilies=AF_UNIX
 IPAddressDeny=any

@@ -14,7 +14,7 @@ import sys
 
 MODULE = {
     "id": "kuksa-jwt",
-    "plugin": "pkcs11",
+    "plugin": "pkcs11module",
     "algorithm": "rsa",
     "maxItems": 1,
     "selfSigned": True,

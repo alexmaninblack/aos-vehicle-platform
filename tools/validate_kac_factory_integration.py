@@ -90,6 +90,7 @@ def validate() -> None:
     substrate = (FILES / "aos-kuksa-substrate.target").read_text(encoding="utf-8")
     require(reset, "ConditionPathExists=!/var/aos/.provisionstate", "reset unit")
     require(reset, "ExecStart=/opt/aos/deprovision.sh", "reset unit")
+    require(reset, "RemainAfterExit=yes", "successful reset latch")
     require(
         reset,
         "ExecStartPost=/usr/bin/install -d -m 0700 -o root -g root /var/aos/iam",
@@ -99,6 +100,22 @@ def validate() -> None:
         raise ValidationError("reset unit must recreate the IAM parent exactly once")
     require(init, "TimeoutStartSec=10s", "token init unit")
     require(init, "RemainAfterExit=yes", "token init unit")
+    require(init, "Environment=OPENSSL_CONF=/dev/null", "token init OpenSSL scope")
+    scoped_unit_texts = {
+        path: path.read_text(encoding="utf-8")
+        for directory in (FILES, AUTH_FILES)
+        for path in directory.rglob("*.service")
+    }
+    openssl_conf_units = [
+        path
+        for path, unit_text in scoped_unit_texts.items()
+        if "OPENSSL_CONF=" in unit_text
+    ]
+    if openssl_conf_units != [FILES / "aos-kuksa-token-init.service"]:
+        raise ValidationError(
+            "OPENSSL_CONF override must remain scoped only to token init: "
+            + ", ".join(str(path.relative_to(ROOT)) for path in openssl_conf_units)
+        )
     require(init, "ReadWritePaths=/var/aos/iam /var/lib/softhsm", "token init unit")
     forbid(init, "ReadWritePaths=-/var/aos/iam", "token init unit")
     forbid(init, "ReadWritePaths=/var/aos ", "token init unit")
@@ -261,6 +278,24 @@ def validate() -> None:
         raise ValidationError("deprovision must centralize the cleanup invocation")
     require(deprov, "run_kuksa_cleanup || return 1", "synchronous fail-closed cleanup")
     require(deprov, "run_kuksa_cleanup || exit 1", "asynchronous fail-closed cleanup")
+    consumer_stop = (
+        "systemctl stop -- $(systemctl show -p Wants aos.target | cut -d= -f2) "
+        "|| exit 1"
+    )
+    token_stop = "systemctl stop aos-kuksa-token-init.service || exit 1"
+    reset_stop = "systemctl stop aos-kuksa-provision-reset.service || exit 1"
+    require(deprov, consumer_stop, "asynchronous consumer stop")
+    require(deprov, token_stop, "asynchronous token-init re-arm")
+    require(deprov, reset_stop, "asynchronous reset-latch re-arm")
+    if not (
+        deprov.index(consumer_stop)
+        < deprov.index(token_stop)
+        < deprov.index(reset_stop)
+        < deprov.index("run_kuksa_cleanup || exit 1")
+        < deprov.index("rm /var/aos/.provisionstate")
+        < deprov.index("systemctl start aos.target")
+    ):
+        raise ValidationError("async deprovision lifecycle order changed")
     if deprov.index("run_kuksa_cleanup || exit 1") > deprov.index(
         "rm /var/aos/.provisionstate"
     ):
@@ -286,6 +321,27 @@ def validate() -> None:
         raise ValidationError("IAM transform changed existing modules")
     if transformed["certModules"][-1] != module.MODULE:
         raise ValidationError("IAM transform did not add exact module")
+    expected_kuksa_module = {
+        "id": "kuksa-jwt",
+        "plugin": "pkcs11module",
+        "algorithm": "rsa",
+        "maxItems": 1,
+        "selfSigned": True,
+        "params": {
+            "library": "/usr/lib/softhsm/libsofthsm2.so",
+            "tokenLabel": "aos-kuksa",
+            "userPinPath": "/var/aos/iam/.kuksa-jwt-pin",
+            "modulePathInUrl": True,
+        },
+    }
+    if module.MODULE != expected_kuksa_module:
+        raise ValidationError("IAM KUKSA module changed from the pinned v9.1 contract")
+    if type(module.MODULE["maxItems"]) is not int or type(module.MODULE["selfSigned"]) is not bool:
+        raise ValidationError("IAM KUKSA module scalar types changed")
+    if type(module.MODULE["params"]["modulePathInUrl"]) is not bool:
+        raise ValidationError("IAM KUKSA modulePathInUrl must remain boolean")
+    if module.MODULE.get("plugin") == "pkcs11":
+        raise ValidationError("OpenSSL provider name is not an Aos IAM module plugin")
 
     policy = "\n".join(
         path.read_text(encoding="utf-8")

@@ -10,6 +10,7 @@ Before=aos-iam-prov.service aos-iam.service
 [Service]
 Type=oneshot
 ExecStart=/usr/libexec/aos-kuksa-token-init
+Environment=OPENSSL_CONF=/dev/null
 TimeoutStartSec=10s
 RemainAfterExit=yes
 UMask=0077
