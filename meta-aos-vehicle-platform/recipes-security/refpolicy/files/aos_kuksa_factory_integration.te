@@ -28,7 +28,15 @@ gen_require(`
     type aos_kuksa_verifier_runtime_t;
     type aos_kuksa_auth_runtime_t;
     type init_t;
+    type initrc_t;
 ')
+
+# These finite systemd one-shots retain NoNewPrivileges.  Permit only the
+# corresponding init-to-domain transitions; without process2:nnp_transition,
+# enforcing systems reject exec before any Factory helper code can run.
+allow initrc_t aos_kuksa_token_init_t:process2 nnp_transition;
+allow initrc_t aos_kuksa_runtime_cleanup_t:process2 nnp_transition;
+allow initrc_t aos_kuksa_tls_prepare_t:process2 nnp_transition;
 
 manage_files_pattern(aos_kuksa_token_init_t, aos_kuksa_pin_t, aos_kuksa_pin_t)
 manage_dirs_pattern(aos_kuksa_token_init_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)

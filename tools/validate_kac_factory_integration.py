@@ -266,6 +266,16 @@ def validate() -> None:
         "read_files_pattern(init_t, aos_kuksa_tls_store_t, aos_kuksa_tls_store_t)",
         "SELinux",
     )
+    for domain in (
+        "aos_kuksa_token_init_t",
+        "aos_kuksa_runtime_cleanup_t",
+        "aos_kuksa_tls_prepare_t",
+    ):
+        require(
+            policy,
+            f"allow initrc_t {domain}:process2 nnp_transition;",
+            "SELinux NoNewPrivileges transition",
+        )
     require(
         policy,
         "type_transition aos_kuksa_provider_prepare_t aos_kuksa_provider_store_t:file aos_kuksa_provider_credential_t;",
