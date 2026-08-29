@@ -34,7 +34,7 @@ class FixedRoot final : public CleanupRoot {
  public:
   bool RemoveFile(std::string_view path) override {
     const auto [parent, name] = Split(path);
-    const int directory = ::open(parent.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+    const int directory = OpenLookupDirectory(parent);
     if (directory < 0) return errno == ENOENT;
     struct stat status {};
     bool ok = true;
@@ -50,7 +50,7 @@ class FixedRoot final : public CleanupRoot {
   }
   bool RemoveEmptyDirectory(std::string_view path) override {
     const auto [parent, name] = Split(path);
-    const int directory = ::open(parent.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+    const int directory = OpenLookupDirectory(parent);
     if (directory < 0) return errno == ENOENT;
     const bool ok = ::unlinkat(directory, name.c_str(), AT_REMOVEDIR) == 0 || errno == ENOENT;
     ::close(directory);
@@ -62,6 +62,17 @@ class FixedRoot final : public CleanupRoot {
   bool SyncTlsDirectory() override { return SyncDirectory("/var/lib/aos-kuksa-tls"); }
 
  private:
+  static int OpenLookupDirectory(const std::string& path) {
+#ifdef O_PATH
+    // unlinkat/fstatat need only a stable lookup handle.  O_PATH avoids
+    // granting the cleanup domain directory-content read access to broad
+    // parents such as /var/lib.
+    return ::open(path.c_str(), O_PATH | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+#else
+    return ::open(path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+#endif
+  }
+
   static bool SyncDirectory(const char* path) {
     const int directory = ::open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
     if (directory < 0) return errno == ENOENT;

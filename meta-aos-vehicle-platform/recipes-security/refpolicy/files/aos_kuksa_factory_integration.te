@@ -59,6 +59,7 @@ manage_files_pattern(aos_kuksa_token_init_t, aos_kuksa_pkcs11_store_t, aos_kuksa
 allow aos_kuksa_token_init_t aos_kuksa_pkcs11_store_t:file lock;
 dev_read_urand(aos_kuksa_token_init_t)
 files_read_etc_files(aos_kuksa_token_init_t)
+miscfiles_read_localization(aos_kuksa_token_init_t)
 
 manage_dirs_pattern(aos_kuksa_tls_prepare_t, aos_kuksa_tls_store_t, aos_kuksa_tls_store_t)
 manage_files_pattern(aos_kuksa_tls_prepare_t, aos_kuksa_tls_store_t, aos_kuksa_tls_store_t)

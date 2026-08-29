@@ -287,6 +287,11 @@ def validate() -> None:
         'type_transition aos_kuksa_token_init_t aos_var_run_t:file aos_kuksa_pin_t ".kuksa-jwt-pin.tmp";',
         "SELinux exact PIN temporary-file transition",
     )
+    require(
+        policy,
+        "miscfiles_read_localization(aos_kuksa_token_init_t)",
+        "SELinux SoftHSM localization read",
+    )
     forbid(
         policy,
         "manage_files_pattern(aos_kuksa_token_init_t, aos_kuksa_pin_t, aos_kuksa_pin_t)",
@@ -338,6 +343,7 @@ def validate() -> None:
     require(cleanup_source, "/var/lib/aos-kuksa-provider/kuksa-token", "cleanup")
     require(cleanup_source, "/var/lib/aos-kuksa-tls/server.key", "cleanup")
     require(cleanup_source, "/var/lib/aos-kuksa-tls/server.pem", "cleanup")
+    require(cleanup_source, "O_PATH | O_DIRECTORY", "cleanup parent lookup")
     forbid(cleanup_source, "systemd-slot-component/credentials", "cleanup")
     for forbidden_rule in (
         "corenet_tcp_connect_all_ports",
