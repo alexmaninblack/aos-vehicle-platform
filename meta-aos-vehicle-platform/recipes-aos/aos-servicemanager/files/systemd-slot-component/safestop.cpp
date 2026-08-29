@@ -48,8 +48,10 @@ SafeStopEvaluation SafeStopEvaluator::Evaluate(
     }
     // Historical frames prove consecutive stability. Freshness is admitted at
     // acquisition; buffered history is never reinterpreted as current state.
-    if (frame.mSourceObservedAt > frame.mAcquiredAt ||
-        frame.mAcquiredAt - frame.mSourceObservedAt > cMaximumSourceAge) {
+    if (frame.mSourceObservedAt > frame.mAcquiredAt) {
+      return {false, SafeStopReason::eContradictoryEvidence};
+    }
+    if (frame.mAcquiredAt - frame.mSourceObservedAt > cMaximumSourceAge) {
       return {false, SafeStopReason::eStaleEvidence};
     }
     if (previousAcquisition.has_value() &&

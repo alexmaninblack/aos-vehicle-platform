@@ -439,7 +439,11 @@ Error SystemdSlotComponentRuntime::Start() {
   auto waiting = std::make_unique<ComponentTransaction>();
   if (auto err = LoadTransaction(*waiting); err.IsNone() &&
       waiting->mPhase == ComponentTransactionPhase::eWaitingForSafeStop) {
-    LaunchWorker(std::move(waiting));
+    if (auto launchError = LaunchWorker(std::move(waiting));
+        !launchError.IsNone()) {
+      mStarted = false;
+      return AOS_ERROR_WRAP(launchError);
+    }
   }
 
   LOG_INF() << "Vehicle data provider component runtime started"
@@ -530,7 +534,11 @@ Error SystemdSlotComponentRuntime::StartInstance(const InstanceInfo &instance,
     return AOS_ERROR_WRAP(err);
   }
 
-  LaunchWorker(std::move(transaction));
+  if (auto err = LaunchWorker(std::move(transaction)); !err.IsNone()) {
+    FillStatus(instance, InstanceStateEnum::eFailed, err, status);
+    Notify(status);
+    return AOS_ERROR_WRAP(err);
+  }
   return ErrorEnum::eNone;
 }
 
@@ -579,7 +587,11 @@ Error SystemdSlotComponentRuntime::StopInstance(const InstanceIdent &instance,
   FillStatus(*mInstalled, InstanceStateEnum::eActivating, ErrorEnum::eNone,
              status);
   Notify(status);
-  LaunchWorker(std::move(transaction));
+  if (auto err = LaunchWorker(std::move(transaction)); !err.IsNone()) {
+    FillStatus(*mInstalled, InstanceStateEnum::eFailed, err, status);
+    Notify(status);
+    return AOS_ERROR_WRAP(err);
+  }
   return ErrorEnum::eNone;
 }
 
@@ -1196,17 +1208,37 @@ bool SystemdSlotComponentRuntime::RefreshSafeStop(
       .mReady;
 }
 
-void SystemdSlotComponentRuntime::LaunchWorker(
+Error SystemdSlotComponentRuntime::LaunchWorker(
     std::unique_ptr<ComponentTransaction> transaction) {
-  std::lock_guard workerLock{mWorkerMutex};
-  if (mWorker.joinable()) {
-    return;
+  std::thread completed;
+  {
+    std::unique_lock workerLock{mWorkerMutex};
+    if (mWorker.joinable()) {
+      if (!mWorkerDone &&
+          !mWorkerCondition.wait_for(
+              workerLock,
+              std::chrono::seconds{mConfig.mSafeStopCancelTimeoutSeconds},
+              [this]() { return mWorkerDone; })) {
+        return AOS_ERROR_WRAP(Error(
+            ErrorEnum::eFailed,
+            "previous component transaction worker did not terminate"));
+      }
+      completed = std::move(mWorker);
+    }
   }
-  mCancelWorker = false;
-  mWorkerDone = false;
-  mWorker = std::thread([this, transaction = std::move(transaction)]() mutable {
-    RunTransaction(std::move(transaction));
-  });
+  if (completed.joinable()) {
+    completed.join();
+  }
+  {
+    std::lock_guard workerLock{mWorkerMutex};
+    mCancelWorker = false;
+    mWorkerDone = false;
+    mWorker =
+        std::thread([this, transaction = std::move(transaction)]() mutable {
+          RunTransaction(std::move(transaction));
+        });
+  }
+  return ErrorEnum::eNone;
 }
 
 void SystemdSlotComponentRuntime::RunTransaction(

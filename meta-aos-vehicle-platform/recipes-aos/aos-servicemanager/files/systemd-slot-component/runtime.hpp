@@ -123,7 +123,7 @@ private:
   Error WaitForSafeStop(std::vector<VehicleStateFrame> &window,
                         std::chrono::steady_clock::time_point deadline);
   bool RefreshSafeStop(std::vector<VehicleStateFrame> &window);
-  void LaunchWorker(std::unique_ptr<ComponentTransaction> transaction);
+  Error LaunchWorker(std::unique_ptr<ComponentTransaction> transaction);
   void RunTransaction(std::unique_ptr<ComponentTransaction> transaction);
   Error CancelAndJoinWorker();
   void JoinFinishedWorker();
