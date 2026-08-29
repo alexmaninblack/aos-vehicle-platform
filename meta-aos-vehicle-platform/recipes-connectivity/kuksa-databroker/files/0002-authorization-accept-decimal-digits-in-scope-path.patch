@@ -1,0 +1,116 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AosEdge Platform Team <noreply@example.invalid>
+Date: Sat, 29 Aug 2026 17:00:00 +0200
+Subject: [PATCH] authorization: accept decimal digits in scope paths
+
+SPDX-FileCopyrightText: 2026 maninblack
+SPDX-License-Identifier: Apache-2.0
+
+KUKSA 0.5.0 limits every scope path component to letters plus the digits
+zero and one. Accept the complete decimal range while retaining the existing
+uppercase component start, action set, path separators and wildcard behavior.
+
+Add focused parser tests for accepted decimal components and malformed
+nearby forms.
+
+Frozen-Source-Git-Blob: 263b277d155cc2b642883724b3cd1f24abb9525d
+Frozen-Source-SHA256: d9abb22c118d63f728b12a1d06bc10c8e72848aaef07181dc5fbabf369a69e2b
+Upstream-Status: Pending
+Signed-off-by: AosEdge Platform Team <noreply@example.invalid>
+---
+ databroker/src/authorization/jwt/scope.rs | 67 +++++++++++++++++++++++-
+ 1 file changed, 65 insertions(+), 2 deletions(-)
+
+diff --git a/databroker/src/authorization/jwt/scope.rs b/databroker/src/authorization/jwt/scope.rs
+index 263b277..9bfa78a 100644
+--- a/databroker/src/authorization/jwt/scope.rs
++++ b/databroker/src/authorization/jwt/scope.rs
+@@ -40,14 +40,14 @@ pub fn parse_whitespace_separated(scope: &str) -> Result<Vec<Scope>, Error> {
+             (?P<path>
+                 (
+                     (
+-                        [A-Z][a-zA-Z0-1]*
++                        [A-Z][a-zA-Z0-9]*
+                         |
+                         \*
+                     )
+                     (?:
+                         \.
+                         (
+-                            [A-Z][a-zA-Z0-1]*
++                            [A-Z][a-zA-Z0-9]*
+                             |
+                             \*
+                         )
+@@ -277,6 +277,69 @@ mod test {
+                 assert_eq!(scope.path.as_deref().unwrap(), "Vehicle.*");
+             }
+             Err(_) => todo!(),
++        }
++    }
++
++    fn action_name(action: &Action) -> &'static str {
++        match action {
++            Action::Read => "read",
++            Action::Actuate => "actuate",
++            Action::Provide => "provide",
++            Action::Create => "create",
+         }
+     }
++
++    #[test]
++    fn test_scope_decimal_digits() {
++        let cases: &[(&str, &[(&str, &str)])] = &[
++            (
++                "provide:Vehicle.Chassis.Axle.Row2.Wheel.Left.Speed",
++                &[("provide", "Vehicle.Chassis.Axle.Row2.Wheel.Left.Speed")],
++            ),
++            (
++                "read:Vehicle.Test.Row9.Value",
++                &[("read", "Vehicle.Test.Row9.Value")],
++            ),
++            (
++                "actuate:Vehicle.Test.Row2030.Value",
++                &[("actuate", "Vehicle.Test.Row2030.Value")],
++            ),
++            (
++                "read:Vehicle.Test.Row0.Value read:Vehicle.Test.Row1.Value",
++                &[
++                    ("read", "Vehicle.Test.Row0.Value"),
++                    ("read", "Vehicle.Test.Row1.Value"),
++                ],
++            ),
++        ];
++
++        for (input, expected) in cases {
++            let scopes = parse_whitespace_separated(input).expect("scope should parse");
++            assert_eq!(scopes.len(), expected.len(), "{input}");
++            for (scope, (expected_action, expected_path)) in scopes.iter().zip(expected.iter()) {
++                assert_eq!(action_name(&scope.action), *expected_action, "{input}");
++                assert_eq!(scope.path.as_deref(), Some(*expected_path), "{input}");
++            }
++        }
++    }
++
++    #[test]
++    fn test_scope_decimal_digits_reject_malformed_inputs() {
++        let cases = [
++            "provide:Vehicle.Chassis.Axle.2Row.Wheel.Left.Speed",
++            "provide:Vehicle.Chassis..Row2.Speed",
++            "provide:Vehicle.Chassis.Row2-Wheel.Speed",
++            "provide:Vehicle.Chassis.Row2*.Speed",
++            "provide:Vehicle.Chassis.*Row2.Speed",
++            "write:Vehicle.Chassis.Axle.Row2.Wheel.Left.Speed",
++            "provide:",
++        ];
++
++        for input in cases {
++            assert!(
++                matches!(parse_whitespace_separated(input), Err(Error::ParseError)),
++                "{input} must be rejected"
++            );
++        }
++    }
+ }
+-- 
+2.51.0
