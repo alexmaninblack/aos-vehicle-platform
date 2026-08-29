@@ -12,6 +12,7 @@
 #include <regex>
 #include <system_error>
 
+#include <common/utils/exception.hpp>
 #include <common/utils/json.hpp>
 
 namespace aos::sm::launcher {

@@ -10,6 +10,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
+#include <memory>
 #include <optional>
 #include <string>
 #include <thread>
@@ -113,17 +114,17 @@ private:
                             uint64_t &payloadBytes) const;
   Error ValidatePayloadMetadata(const std::filesystem::path &root,
                                 const InstanceInfo &instance) const;
-  Error ActivateGuarded(ComponentTransaction transaction,
+  Error ActivateGuarded(ComponentTransaction &transaction,
                         std::vector<VehicleStateFrame> &window);
-  Error RemoveGuarded(ComponentTransaction transaction,
+  Error RemoveGuarded(ComponentTransaction &transaction,
                       std::vector<VehicleStateFrame> &window);
   Error Rollback(const ComponentTransaction &transaction,
                  const Error &candidateError);
   Error WaitForSafeStop(std::vector<VehicleStateFrame> &window,
                         std::chrono::steady_clock::time_point deadline);
   bool RefreshSafeStop(std::vector<VehicleStateFrame> &window);
-  void LaunchWorker(const ComponentTransaction &transaction);
-  void RunTransaction(ComponentTransaction transaction);
+  void LaunchWorker(std::unique_ptr<ComponentTransaction> transaction);
+  void RunTransaction(std::unique_ptr<ComponentTransaction> transaction);
   Error CancelAndJoinWorker();
   void JoinFinishedWorker();
 
