@@ -4,6 +4,7 @@
 FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 
 SRC_URI += " \
+    file://0001-corenetwork-label-aos-kuksa-iam-port.patch \
     file://vehicle_data_provider.te \
     file://vehicle_data_provider.fc \
     file://vehicle_data_provider.if \

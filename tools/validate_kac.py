@@ -20,6 +20,10 @@ POLICY = ROOT / (
     "meta-aos-vehicle-platform/recipes-security/refpolicy/files/"
     "aos_kuksa_auth_compat.te"
 )
+PORT_POLICY_PATCH = ROOT / (
+    "meta-aos-vehicle-platform/recipes-security/refpolicy/files/"
+    "0001-corenetwork-label-aos-kuksa-iam-port.patch"
+)
 POLICY_APPEND = ROOT / (
     "meta-aos-vehicle-platform/recipes-security/refpolicy/refpolicy-aos_git.bbappend"
 )
@@ -61,6 +65,7 @@ def validate_kac() -> None:
         FILES / "aos-kuksa-provider-prepare.service",
         FILES / "aos-kuksa-auth-compat.conf",
         POLICY,
+        PORT_POLICY_PATCH,
     ]
     missing = [str(path.relative_to(ROOT)) for path in required if not path.is_file()]
     if missing:
@@ -147,8 +152,10 @@ def validate_kac() -> None:
     require(policy, "aos_kuksa_verifier_prepare_t", "SELinux")
     require(policy, "aos_kuksa_provider_prepare_t", "SELinux")
     require(policy, "aos_kuksa_provider_store_t", "SELinux")
+    require(policy, "type aos_kuksa_iam_port_t;", "SELinux")
     forbid(policy, "vehicle_data_provider_store_t", "SELinux")
-    require(policy, "portcon tcp 8090", "SELinux")
+    forbid(policy, "portcon tcp", "SELinux")
+    forbid(policy, "corenet_port(aos_kuksa_iam_port_t)", "SELinux")
     require(policy, "corenet_tcp_sendrecv_lo_iface(aos_kuksa_auth_compat_t)", "SELinux")
     require(policy, "corenet_tcp_connect_lo_node(aos_kuksa_auth_compat_t)", "SELinux")
     for forbidden in (
@@ -159,7 +166,19 @@ def validate_kac() -> None:
         "manage_lnk_files_pattern",
     ):
         forbid(policy, forbidden, "SELinux")
+    port_policy_patch = PORT_POLICY_PATCH.read_text(encoding="utf-8")
+    require(
+        port_policy_patch,
+        "network_port(aos_kuksa_iam, tcp,8090,s0)",
+        "SELinux corenetwork patch",
+    )
+    forbid(port_policy_patch, "unreserved_port", "SELinux corenetwork patch")
     policy_append = POLICY_APPEND.read_text(encoding="utf-8")
+    require(
+        policy_append,
+        "0001-corenetwork-label-aos-kuksa-iam-port.patch",
+        "refpolicy append",
+    )
     for suffix in (".te", ".fc", ".if"):
         require(policy_append, "aos_kuksa_auth_compat" + suffix, "refpolicy append")
 

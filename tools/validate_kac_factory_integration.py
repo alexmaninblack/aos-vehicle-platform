@@ -17,6 +17,10 @@ FACTORY = ROOT / "authorization/aos-kuksa-factory-integration"
 RECIPE_DIR = ROOT / "meta-aos-vehicle-platform/recipes-aos/aos-kuksa-factory-integration"
 RECIPE = RECIPE_DIR / "aos-kuksa-factory-integration_0.1.0.bb"
 FILES = RECIPE_DIR / "files"
+PORT_POLICY_PATCH = ROOT / (
+    "meta-aos-vehicle-platform/recipes-security/refpolicy/files/"
+    "0001-corenetwork-label-aos-kuksa-iam-port.patch"
+)
 
 
 class ValidationError(RuntimeError):
@@ -49,6 +53,7 @@ def validate() -> None:
         FILES / "aos-iam.service.d/20-kuksa-token-init.conf",
         FILES / "kuksa-databroker.service.d/20-kuksa-verifier.conf",
         FILES / "aos-vehicle-data-provider.service.d/20-kuksa-provider.conf",
+        PORT_POLICY_PATCH,
     ]
     missing = [str(path.relative_to(ROOT)) for path in required if not path.is_file()]
     if missing:
@@ -189,8 +194,15 @@ def validate() -> None:
     ):
         require(policy, domain, "SELinux")
     require(policy, "type aos_kuksa_iam_port_t;", "SELinux")
-    require(policy, "corenet_port(aos_kuksa_iam_port_t)", "SELinux")
-    forbid(policy, "type aos_kuksa_iam_port_t, port_type;", "SELinux")
+    forbid(policy, "corenet_port(aos_kuksa_iam_port_t)", "SELinux")
+    forbid(policy, "portcon tcp", "SELinux")
+    port_policy_patch = PORT_POLICY_PATCH.read_text(encoding="utf-8")
+    require(
+        port_policy_patch,
+        "network_port(aos_kuksa_iam, tcp,8090,s0)",
+        "SELinux corenetwork patch",
+    )
+    forbid(port_policy_patch, "unreserved_port", "SELinux corenetwork patch")
     require(policy, "aos_kuksa_provider_store_t", "SELinux")
     require(
         policy,

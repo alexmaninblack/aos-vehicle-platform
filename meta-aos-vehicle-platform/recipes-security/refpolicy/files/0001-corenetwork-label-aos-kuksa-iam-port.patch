@@ -1,0 +1,31 @@
+From 97e32c236b9fe165183da1523854729c6dc294a2 Mon Sep 17 00:00:00 2001
+From: maninblack <opensource@maninblack.com>
+Date: Sat, 29 Aug 2026 12:00:00 +0200
+Subject: [PATCH] corenetwork: label AosEdge KUKSA IAM compatibility port
+
+The compatibility helper is restricted to the exact loopback IAM endpoint on
+TCP port 8090.  Define the numeric port in the base corenetwork policy so that
+the service module can require the generated aos_kuksa_iam_port_t type without
+using a portcon statement in a loadable module.
+
+SPDX-FileCopyrightText: 2026 maninblack
+SPDX-License-Identifier: Apache-2.0
+
+Signed-off-by: maninblack <opensource@maninblack.com>
+---
+ policy/modules/kernel/corenetwork.te.in | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/policy/modules/kernel/corenetwork.te.in b/policy/modules/kernel/corenetwork.te.in
+index 13d3834e..4d139366 100644
+--- a/policy/modules/kernel/corenetwork.te.in
++++ b/policy/modules/kernel/corenetwork.te.in
+@@ -98,6 +98,7 @@ network_port(amavisd_send, tcp,10025,s0)
+ network_port(amqp, udp,5671-5672,s0, tcp,5671-5672,s0)
+ network_port(aol, udp,5190-5193,s0, tcp,5190-5193,s0)
++network_port(aos_kuksa_iam, tcp,8090,s0)
+ network_port(apcupsd, tcp,3551,s0, udp,3551,s0)
+ network_port(apertus_ldp, tcp,539,s0, udp,539,s0)
+ network_port(aptcacher, tcp,3142,s0)
+-- 
+2.39.5
