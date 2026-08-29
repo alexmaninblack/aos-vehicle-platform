@@ -37,6 +37,7 @@ ProtectKernelLogs=yes
 ProtectKernelModules=yes
 ProtectKernelTunables=yes
 ProtectSystem=strict
+ReadWritePaths=/var/lib/softhsm/tokens
 RestrictAddressFamilies=AF_UNIX
 IPAddressDeny=any
 LockPersonality=yes

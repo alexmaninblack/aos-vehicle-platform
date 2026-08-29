@@ -70,7 +70,7 @@ target_link_libraries(aos-kuksa-auth-compat PRIVATE kac_core pthread)
 
 add_executable(aos-kuksa-verifier-prepare src/verifier_prepare.cpp)
 target_compile_options(aos-kuksa-verifier-prepare PRIVATE -Wall -Wextra -Wpedantic -Werror)
-target_link_libraries(aos-kuksa-verifier-prepare PRIVATE kac_core)
+target_link_libraries(aos-kuksa-verifier-prepare PRIVATE kac_core ${CMAKE_DL_LIBS})
 
 # The fixed Provider path deliberately has no kac_proto, gRPC or IAM client
 # linkage.  core.cpp/json.cpp are compiled here only for the already-audited

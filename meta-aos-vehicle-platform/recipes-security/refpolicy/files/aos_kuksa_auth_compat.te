@@ -38,12 +38,14 @@ manage_files_pattern(aos_kuksa_verifier_prepare_t, aos_kuksa_verifier_runtime_t,
 list_dirs_pattern(aos_kuksa_auth_compat_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
 read_files_pattern(aos_kuksa_auth_compat_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
 allow aos_kuksa_auth_compat_t aos_kuksa_pkcs11_store_t:file lock;
+allow aos_kuksa_auth_compat_t aos_kuksa_pkcs11_store_t:file write;
 list_dirs_pattern(aos_kuksa_verifier_prepare_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
 read_files_pattern(aos_kuksa_verifier_prepare_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
-allow aos_kuksa_verifier_prepare_t aos_kuksa_pkcs11_store_t:file lock;
+allow aos_kuksa_verifier_prepare_t aos_kuksa_pkcs11_store_t:file { lock write setattr };
+allow aos_kuksa_verifier_prepare_t aos_kuksa_pkcs11_store_t:dir setattr;
 list_dirs_pattern(aos_kuksa_provider_prepare_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
 read_files_pattern(aos_kuksa_provider_prepare_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
-allow aos_kuksa_provider_prepare_t aos_kuksa_pkcs11_store_t:file lock;
+allow aos_kuksa_provider_prepare_t aos_kuksa_pkcs11_store_t:file { lock write };
 manage_files_pattern(aos_kuksa_provider_prepare_t, aos_kuksa_provider_store_t, aos_kuksa_provider_credential_t)
 type_transition aos_kuksa_provider_prepare_t aos_kuksa_provider_store_t:file aos_kuksa_provider_credential_t ".kuksa-token.tmp";
 

@@ -4,8 +4,15 @@
 
 COMMAND="$1"
 
+run_kuksa_cleanup() {
+    if ! systemctl start aos-kuksa-runtime-cleanup.service; then
+        echo "KUKSA runtime cleanup rejected deprovision" | systemd-cat
+        return 1
+    fi
+}
+
 clear_disks() {
-    systemctl start aos-kuksa-runtime-cleanup.service
+    run_kuksa_cleanup || return 1
 
     echo "Remove IAM DB and PKCS11 storage"
     rm /var/aos/iam -rf
@@ -29,7 +36,7 @@ deprovision_async() {
         # all services really stopped.
         systemctl stop -- $(systemctl show -p Wants aos.target | cut -d= -f2)
 
-        systemctl start aos-kuksa-runtime-cleanup.service
+        run_kuksa_cleanup || exit 1
 
         remove_firewall_rules
 

@@ -18,13 +18,16 @@
 namespace {
 
 class Pins final : public aos::factory::PinStore {
- public:
+public:
   std::optional<aos::factory::PinState> Inspect() override { return state; }
   std::optional<std::string> Generate() override {
     ++generated;
     return generated == 1 ? "user-fixed-fake" : "so-fixed-fake";
   }
-  bool Publish(std::string_view pin) override { published.assign(pin); return publish_ok; }
+  bool Publish(std::string_view pin) override {
+    published.assign(pin);
+    return publish_ok;
+  }
   aos::factory::PinState state{};
   unsigned generated{0};
   bool publish_ok{true};
@@ -32,9 +35,11 @@ class Pins final : public aos::factory::PinStore {
 };
 
 class Tokens final : public aos::factory::TokenStore {
- public:
-  std::optional<aos::factory::TokenState> Inspect(
-      std::optional<std::string_view>) override { return state; }
+public:
+  std::optional<aos::factory::TokenState>
+  Inspect(std::optional<std::string_view>) override {
+    return state;
+  }
   bool Initialize(std::string_view user, std::string_view so) override {
     initialized = std::string(user) + ":" + std::string(so);
     return initialize_ok;
@@ -45,33 +50,48 @@ class Tokens final : public aos::factory::TokenStore {
 };
 
 class Cleanup final : public aos::factory::CleanupRoot {
- public:
-  bool RemoveFile(std::string_view path) override { files.emplace_back(path); return ok; }
-  bool ClearDedicatedPkcs11Tokens() override { ++pkcs11_clears; return ok; }
-  bool SyncProviderDirectory() override { ++syncs; return ok; }
-  bool SyncTlsDirectory() override { ++syncs; return ok; }
-  bool ok{true}; unsigned syncs{0}; unsigned pkcs11_clears{0};
+public:
+  bool RemoveFile(std::string_view path) override {
+    files.emplace_back(path);
+    return ok;
+  }
+  bool ClearDedicatedPkcs11Tokens() override {
+    ++pkcs11_clears;
+    return ok;
+  }
+  bool SyncProviderDirectory() override {
+    ++syncs;
+    return ok;
+  }
+  bool SyncTlsDirectory() override {
+    ++syncs;
+    return ok;
+  }
+  bool ok{true};
+  unsigned syncs{0};
+  unsigned pkcs11_clears{0};
   std::vector<std::string> files;
 };
 
 class TemporaryDirectory final {
- public:
+public:
   TemporaryDirectory() {
     std::string pattern = "/tmp/aos-kuksa-cleanup-test-XXXXXX";
-    char* result = ::mkdtemp(pattern.data());
+    char *result = ::mkdtemp(pattern.data());
     assert(result != nullptr);
     path_ = result;
   }
-  TemporaryDirectory(const TemporaryDirectory&) = delete;
-  TemporaryDirectory& operator=(const TemporaryDirectory&) = delete;
+  TemporaryDirectory(const TemporaryDirectory &) = delete;
+  TemporaryDirectory &operator=(const TemporaryDirectory &) = delete;
   ~TemporaryDirectory() { std::filesystem::remove_all(path_); }
-  const std::filesystem::path& path() const { return path_; }
+  const std::filesystem::path &path() const { return path_; }
 
- private:
+private:
   std::filesystem::path path_;
 };
 
-void WriteFile(const std::filesystem::path& path, std::string_view value = "fixture") {
+void WriteFile(const std::filesystem::path &path,
+               std::string_view value = "fixture") {
   std::ofstream output(path, std::ios::binary);
   assert(output.good());
   output << value;
@@ -79,24 +99,53 @@ void WriteFile(const std::filesystem::path& path, std::string_view value = "fixt
   assert(output.good());
 }
 
-bool ClearTokens(const std::filesystem::path& path) {
+bool ClearTokens(const std::filesystem::path &path) {
   const std::string value = path.string();
   return aos::factory::ClearPkcs11Tokens(value);
 }
 
 void TestInit() {
-  Pins pins; Tokens tokens;
-  assert(aos::factory::InitializeToken(pins, tokens) == aos::factory::InitResult::kCreated);
+  Pins pins;
+  Tokens tokens;
+  assert(aos::factory::InitializeToken(pins, tokens) ==
+         aos::factory::InitResult::kCreated);
   assert(pins.published == "user-fixed-fake");
   pins.state = {true, true, true, 0600U, "user-fixed-fake"};
   tokens.state = {1U, true};
-  assert(aos::factory::InitializeToken(pins, tokens) == aos::factory::InitResult::kValidated);
+  assert(aos::factory::InitializeToken(pins, tokens) ==
+         aos::factory::InitResult::kValidated);
   tokens.state = {2U, true};
-  assert(aos::factory::InitializeToken(pins, tokens) == aos::factory::InitResult::kRejected);
+  assert(aos::factory::InitializeToken(pins, tokens) ==
+         aos::factory::InitResult::kRejected);
   tokens.state = {1U, false};
-  assert(aos::factory::InitializeToken(pins, tokens) == aos::factory::InitResult::kRejected);
+  assert(aos::factory::InitializeToken(pins, tokens) ==
+         aos::factory::InitResult::kRejected);
   pins.state.mode = 0644U;
-  assert(aos::factory::InitializeToken(pins, tokens) == aos::factory::InitResult::kRejected);
+  assert(aos::factory::InitializeToken(pins, tokens) ==
+         aos::factory::InitResult::kRejected);
+
+  Pins failed_pins;
+  Tokens failed_tokens;
+  failed_tokens.initialize_ok = false;
+  assert(aos::factory::InitializeToken(failed_pins, failed_tokens) ==
+         aos::factory::InitResult::kUnavailable);
+  assert(failed_pins.published.empty());
+}
+
+void TestPkcs11SlotSelection() {
+  using aos::factory::kPkcs11TokenInitialized;
+  using aos::factory::Pkcs11TokenSlot;
+  using aos::factory::SelectSingleUninitializedSlot;
+
+  auto selected = SelectSingleUninitializedSlot({{17U, 0U, 0U}});
+  assert(selected && *selected == 17U);
+  assert(!SelectSingleUninitializedSlot({}));
+  assert(!SelectSingleUninitializedSlot({{17U, 0U, kPkcs11TokenInitialized}}));
+  assert(!SelectSingleUninitializedSlot({{17U, 5U, 0U}}));
+  assert(!SelectSingleUninitializedSlot({{17U, 0U, 0U}, {18U, 0U, 0U}}));
+  selected = SelectSingleUninitializedSlot(
+      {{17U, 0U, kPkcs11TokenInitialized}, {18U, 0U, 0U}});
+  assert(selected && *selected == 18U);
 }
 
 void TestCleanup() {
@@ -107,7 +156,7 @@ void TestCleanup() {
   assert(cleanup.syncs == 2U);
   assert(cleanup.files[0] == "/var/lib/aos-kuksa-provider/kuksa-token");
   assert(cleanup.files[1] == "/var/lib/aos-kuksa-provider/.kuksa-token.tmp");
-  for (const auto& path : cleanup.files) {
+  for (const auto &path : cleanup.files) {
     assert(path.find(".kuksa-jwt-pin") == std::string::npos);
     assert(path.find("softhsm") == std::string::npos);
     assert(path.find("systemd-slot-component") == std::string::npos);
@@ -121,7 +170,7 @@ void TestPkcs11CleanupNormalAndEmpty() {
   assert(ClearTokens(tokens));
   assert(std::filesystem::is_directory(tokens));
 
-  for (const auto& token : {"token-a", "token-b"}) {
+  for (const auto &token : {"token-a", "token-b"}) {
     const auto directory = tokens / token;
     std::filesystem::create_directory(directory);
     WriteFile(directory / "generation");
@@ -170,8 +219,8 @@ void TestPkcs11CleanupRejectsHostileTrees() {
     TemporaryDirectory fixture;
     const auto tokens = fixture.path() / "tokens";
     std::filesystem::create_directory(tokens);
-    for (std::size_t index = 0; index <= aos::factory::kMaximumPkcs11TokenDirectories;
-         ++index) {
+    for (std::size_t index = 0;
+         index <= aos::factory::kMaximumPkcs11TokenDirectories; ++index) {
       const auto token = tokens / ("token-" + std::to_string(index));
       std::filesystem::create_directory(token);
       WriteFile(token / "preserved");
@@ -185,8 +234,8 @@ void TestPkcs11CleanupRejectsHostileTrees() {
     std::filesystem::create_directory(tokens);
     const auto token = tokens / "token";
     std::filesystem::create_directory(token);
-    for (std::size_t index = 0; index <= aos::factory::kMaximumPkcs11FilesPerToken;
-         ++index) {
+    for (std::size_t index = 0;
+         index <= aos::factory::kMaximumPkcs11FilesPerToken; ++index) {
       WriteFile(token / ("object-" + std::to_string(index)));
     }
     assert(!ClearTokens(tokens));
@@ -200,7 +249,7 @@ void TestPkcs11CleanupRejectsHostileTrees() {
 
 void TestTlsIdentity() {
   std::string pattern = "/tmp/aos-kuksa-tls-test-XXXXXX";
-  char* path = ::mkdtemp(pattern.data());
+  char *path = ::mkdtemp(pattern.data());
   assert(path != nullptr);
   assert(::chmod(path, 0700) == 0);
   const mode_t prior_umask = ::umask(0077);
@@ -209,8 +258,8 @@ void TestTlsIdentity() {
   ::umask(prior_umask);
 
   const auto directory = std::filesystem::path(path);
-  struct stat key_status {};
-  struct stat cert_status {};
+  struct stat key_status{};
+  struct stat cert_status{};
   assert(::stat((directory / "server.key").c_str(), &key_status) == 0);
   assert(::stat((directory / "server.pem").c_str(), &cert_status) == 0);
   assert((key_status.st_mode & 0777U) == 0600U);
@@ -224,10 +273,11 @@ void TestTlsIdentity() {
   std::filesystem::remove_all(directory);
 }
 
-}  // namespace
+} // namespace
 
 int main() {
   TestInit();
+  TestPkcs11SlotSelection();
   TestCleanup();
   TestPkcs11CleanupNormalAndEmpty();
   TestPkcs11CleanupRejectsHostileTrees();

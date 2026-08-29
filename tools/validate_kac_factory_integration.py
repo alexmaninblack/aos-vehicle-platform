@@ -25,6 +25,7 @@ KUKSA_RECIPE_APPEND = ROOT / (
     "meta-aos-vehicle-platform/recipes-connectivity/kuksa-databroker/"
     "kuksa-databroker_%.bbappend"
 )
+AUTH_FILES = ROOT / "meta-aos-vehicle-platform/recipes-aos/aos-kuksa-auth-compat/files"
 
 
 class ValidationError(RuntimeError):
@@ -143,13 +144,49 @@ def validate() -> None:
     forbid(kuksa, "/etc/kuksa-val/jwt.key.pub", "KUKSA drop-in")
 
     provider = (
-        ROOT
-        / "meta-aos-vehicle-platform/recipes-aos/aos-kuksa-auth-compat/files/"
-        "aos-kuksa-provider-prepare.service"
+        AUTH_FILES / "aos-kuksa-provider-prepare.service"
     ).read_text(encoding="utf-8")
     require(provider, "StateDirectory=aos-kuksa-provider", "Provider unit")
     require(provider, "StateDirectoryMode=0700", "Provider unit")
     forbid(provider, "systemd-slot-component/credentials", "Provider unit")
+
+    verifier_unit = (AUTH_FILES / "aos-kuksa-verifier-prepare.service").read_text(
+        encoding="utf-8"
+    )
+    auth_unit = (AUTH_FILES / "aos-kuksa-auth-compat.service").read_text(
+        encoding="utf-8"
+    )
+    tmpfiles = (AUTH_FILES / "aos-kuksa-auth-compat.conf").read_text(encoding="utf-8")
+    require(
+        tmpfiles,
+        "d /run/aos-kuksa-auth-compat 0750 aos-kac aos-kuksa-clients -\n"
+        "a+ /run/aos-kuksa-auth-compat - - - - u:root:-wx",
+        "KAC exact cleanup ACL",
+    )
+    forbid(tmpfiles, "0770 aos-kac aos-kuksa-clients", "KAC consumer group write")
+    for unit_text, label, exact_paths in (
+        (
+            verifier_unit,
+            "Verifier unit",
+            "ReadWritePaths=/run/aos-kuksa-verifier /var/lib/softhsm/tokens",
+        ),
+        (provider, "Provider unit", "ReadWritePaths=/var/lib/softhsm/tokens"),
+        (
+            auth_unit,
+            "KAC daemon unit",
+            "ReadWritePaths=/run/aos-kuksa-auth-compat /var/lib/softhsm/tokens",
+        ),
+    ):
+        require(unit_text, exact_paths, label)
+        forbid(unit_text, "ReadWritePaths=/var/lib/softhsm\n", label)
+        require(unit_text, "NoNewPrivileges=yes", label)
+        require(unit_text, "CapabilityBoundingSet=\n", label)
+        require(unit_text, "AmbientCapabilities=\n", label)
+        for capability in ("CAP_DAC_OVERRIDE", "CAP_DAC_READ_SEARCH", "cap_dac_override"):
+            forbid(unit_text, capability, label)
+    require(verifier_unit, "SupplementaryGroups=aos-kac", "Verifier exact group")
+    forbid(auth_unit, "SupplementaryGroups=aos-kuksa-clients aos-kac", "KAC group boundary")
+    forbid(cleanup, "SupplementaryGroups=aos-kuksa-clients", "cleanup consumer group")
 
     vdp = (FILES / "aos-vehicle-data-provider.service.d/20-kuksa-provider.conf").read_text(
         encoding="utf-8"
@@ -220,12 +257,16 @@ def validate() -> None:
     )
     forbid(deprov_append, "SRC_URI:remove", "deprovision bbappend")
     forbid(deprov_append, "do_install", "deprovision bbappend")
-    if deprov.count("systemctl start aos-kuksa-runtime-cleanup.service") != 2:
-        raise ValidationError("deprovision must clean async and full paths exactly once")
-    if deprov.index("aos-kuksa-runtime-cleanup.service", deprov.index("deprovision_async")) > deprov.index(
+    if deprov.count("systemctl start aos-kuksa-runtime-cleanup.service") != 1:
+        raise ValidationError("deprovision must centralize the cleanup invocation")
+    require(deprov, "run_kuksa_cleanup || return 1", "synchronous fail-closed cleanup")
+    require(deprov, "run_kuksa_cleanup || exit 1", "asynchronous fail-closed cleanup")
+    if deprov.index("run_kuksa_cleanup || exit 1") > deprov.index(
         "rm /var/aos/.provisionstate"
     ):
         raise ValidationError("async cleanup must precede provision-state removal")
+    if deprov.index("run_kuksa_cleanup || return 1") > deprov.index("/opt/aos/clearhsm.sh"):
+        raise ValidationError("full cleanup must fail before broad legacy cleanup")
 
     transformer_path = ROOT / (
         "meta-aos-vehicle-platform/recipes-aos/aos-iamanager/files/"
@@ -319,6 +360,38 @@ def validate() -> None:
         "manage_files_pattern(aos_kuksa_token_init_t, aos_kuksa_pin_t, aos_kuksa_pin_t)",
         "SELinux invalid PIN-as-parent boundary",
     )
+    require(
+        policy,
+        "allow aos_kuksa_auth_compat_t aos_kuksa_pkcs11_store_t:file write;",
+        "SELinux KAC write-existing boundary",
+    )
+    require(
+        policy,
+        "allow aos_kuksa_provider_prepare_t aos_kuksa_pkcs11_store_t:file { lock write };",
+        "SELinux Provider write-existing boundary",
+    )
+    require(
+        policy,
+        "allow aos_kuksa_verifier_prepare_t aos_kuksa_pkcs11_store_t:file { lock write setattr };",
+        "SELinux verifier finalizer file boundary",
+    )
+    require(
+        policy,
+        "allow aos_kuksa_verifier_prepare_t aos_kuksa_pkcs11_store_t:dir setattr;",
+        "SELinux verifier finalizer directory boundary",
+    )
+    for domain in ("aos_kuksa_auth_compat_t", "aos_kuksa_provider_prepare_t"):
+        for permission in ("create", "add_name", "remove_name", "unlink", "rename", "setattr"):
+            forbid(
+                policy,
+                f"allow {domain} aos_kuksa_pkcs11_store_t:file {permission}",
+                "SELinux signer negative boundary",
+            )
+        forbid(
+            policy,
+            f"allow {domain} aos_kuksa_pkcs11_store_t:dir write",
+            "SELinux signer directory write boundary",
+        )
     for domain in (
         "aos_kuksa_token_init_t",
         "aos_kuksa_runtime_cleanup_t",
@@ -399,6 +472,26 @@ def validate() -> None:
     forbid(cleanup_source, "kDirectories", "cleanup preserved runtime roots")
     cleanup_header = (FACTORY / "include/factory/integration.hpp").read_text(encoding="utf-8")
     forbid(cleanup_header, "CleanupDirectories", "cleanup preserved runtime roots")
+    token_source = (FACTORY / "src/token_init.cpp").read_text(encoding="utf-8")
+    require(token_source, "SelectSingleUninitializedSlot(states)", "token slot selection")
+    require(token_source, "kPkcs11TokenInitialized", "token initialized flag")
+    forbid(token_source, "info_(slot, &info) != kOk) candidates.push_back", "legacy slot bug")
+    verifier_source = ROOT / "authorization/aos-kuksa-compat/src/verifier_prepare.cpp"
+    verifier_text = verifier_source.read_text(encoding="utf-8")
+    for needle in (
+        "FinalizeSoftHsmAccess",
+        "IsCanonicalUuid",
+        "SerialForUuid",
+        "AT_SYMLINK_NOFOLLOW",
+        "status.st_nlink != 1",
+        "matching_tokens != 1U",
+        "exact_private_key",
+        "02750U",
+        "0660",
+        "0640",
+    ):
+        require(verifier_text, needle, "bounded SoftHSM finalizer")
+    forbid(verifier_text, "recursive_directory_iterator", "production recursive mutation")
     for forbidden_rule in (
         "corenet_tcp_connect_all_ports",
         "corenet_tcp_sendrecv_all_if",

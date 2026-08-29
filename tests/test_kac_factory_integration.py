@@ -81,6 +81,26 @@ class KacFactoryIntegrationTests(unittest.TestCase):
         )
         self.assertNotIn("ReadWritePaths=-/var/aos/iam", token_init)
 
+    def test_deprovision_cleanup_is_fail_closed_in_both_paths(self) -> None:
+        root = validate_kac_factory_integration.ROOT
+        script = (
+            root
+            / "meta-aos-vehicle-platform/recipes-aos/aos-deprov/files/deprovision.sh"
+        ).read_text(encoding="utf-8")
+        self.assertEqual(
+            script.count("systemctl start aos-kuksa-runtime-cleanup.service"), 1
+        )
+        self.assertIn("run_kuksa_cleanup || return 1", script)
+        self.assertIn("run_kuksa_cleanup || exit 1", script)
+        self.assertLess(
+            script.index("run_kuksa_cleanup || return 1"),
+            script.index("/opt/aos/clearhsm.sh"),
+        )
+        self.assertLess(
+            script.index("run_kuksa_cleanup || exit 1"),
+            script.index("rm /var/aos/.provisionstate"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
