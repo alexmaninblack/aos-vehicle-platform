@@ -20,7 +20,7 @@ diff --git a/policy/modules/kernel/corenetwork.te.in b/policy/modules/kernel/cor
 index 13d3834e..4d139366 100644
 --- a/policy/modules/kernel/corenetwork.te.in
 +++ b/policy/modules/kernel/corenetwork.te.in
-@@ -98,6 +98,7 @@ network_port(amavisd_send, tcp,10025,s0)
+@@ -99,5 +99,6 @@ network_port(amavisd_send, tcp,10025,s0)
  network_port(amqp, udp,5671-5672,s0, tcp,5671-5672,s0)
  network_port(aol, udp,5190-5193,s0, tcp,5190-5193,s0)
 +network_port(aos_kuksa_iam, tcp,8090,s0)
