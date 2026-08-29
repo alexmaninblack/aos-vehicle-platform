@@ -276,6 +276,27 @@ def validate() -> None:
             f"allow initrc_t {domain}:process2 nnp_transition;",
             "SELinux NoNewPrivileges transition",
         )
+        require(
+            policy,
+            f"init_rw_script_stream_sockets({domain})",
+            "SELinux systemd stream boundary",
+        )
+        require(
+            policy,
+            f"files_search_var_lib({domain})",
+            "SELinux /var/lib traversal boundary",
+        )
+    for store in (
+        "aos_kuksa_provider_store_t",
+        "aos_kuksa_verifier_runtime_t",
+        "aos_kuksa_auth_runtime_t",
+        "aos_kuksa_tls_store_t",
+    ):
+        require(
+            policy,
+            f"list_dirs_pattern(aos_kuksa_runtime_cleanup_t, {store}, {store})",
+            "SELinux cleanup directory inspection",
+        )
     require(
         policy,
         "type_transition aos_kuksa_provider_prepare_t aos_kuksa_provider_store_t:file aos_kuksa_provider_credential_t;",

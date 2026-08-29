@@ -38,6 +38,16 @@ allow initrc_t aos_kuksa_token_init_t:process2 nnp_transition;
 allow initrc_t aos_kuksa_runtime_cleanup_t:process2 nnp_transition;
 allow initrc_t aos_kuksa_tls_prepare_t:process2 nnp_transition;
 
+# The one-shots inherit systemd's script stream sockets.  They also need only
+# traversal of /var/lib; access below it remains confined to the typed KUKSA
+# and SoftHSM stores declared in this module.
+init_rw_script_stream_sockets(aos_kuksa_token_init_t)
+init_rw_script_stream_sockets(aos_kuksa_runtime_cleanup_t)
+init_rw_script_stream_sockets(aos_kuksa_tls_prepare_t)
+files_search_var_lib(aos_kuksa_token_init_t)
+files_search_var_lib(aos_kuksa_runtime_cleanup_t)
+files_search_var_lib(aos_kuksa_tls_prepare_t)
+
 manage_files_pattern(aos_kuksa_token_init_t, aos_kuksa_pin_t, aos_kuksa_pin_t)
 manage_dirs_pattern(aos_kuksa_token_init_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
 manage_files_pattern(aos_kuksa_token_init_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
@@ -55,10 +65,14 @@ files_read_etc_files(aos_kuksa_tls_prepare_t)
 read_files_pattern(init_t, aos_kuksa_tls_store_t, aos_kuksa_tls_store_t)
 
 delete_files_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_provider_store_t, aos_kuksa_provider_credential_t)
+list_dirs_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_provider_store_t, aos_kuksa_provider_store_t)
 delete_files_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_verifier_runtime_t, aos_kuksa_verifier_runtime_t)
 delete_files_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_auth_runtime_t, aos_kuksa_auth_runtime_t)
 delete_sock_files_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_auth_runtime_t, aos_kuksa_auth_runtime_t)
+list_dirs_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_verifier_runtime_t, aos_kuksa_verifier_runtime_t)
+list_dirs_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_auth_runtime_t, aos_kuksa_auth_runtime_t)
 delete_dirs_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_verifier_runtime_t, aos_kuksa_verifier_runtime_t)
 delete_dirs_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_auth_runtime_t, aos_kuksa_auth_runtime_t)
 delete_files_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_tls_store_t, aos_kuksa_tls_store_t)
+list_dirs_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_tls_store_t, aos_kuksa_tls_store_t)
 delete_dirs_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_tls_store_t, aos_kuksa_tls_store_t)
