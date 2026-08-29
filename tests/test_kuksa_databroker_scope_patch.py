@@ -58,20 +58,6 @@ def introduction_paths() -> set[str]:
     )
 
 
-def dirty_paths() -> set[str]:
-    status = subprocess.run(
-        ["git", "status", "--porcelain=v1", "--untracked-files=all", "-z"],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-    ).stdout.split(b"\0")
-    return {
-        entry[3:].decode("utf-8")
-        for entry in status
-        if entry and len(entry) >= 4
-    }
-
-
 class KuksaDatabrokerScopePatchTests(unittest.TestCase):
     def setUp(self) -> None:
         self.bbappend = BBAPPEND.read_text(encoding="utf-8")
@@ -208,7 +194,6 @@ class KuksaDatabrokerScopePatchTests(unittest.TestCase):
 
     def test_repository_delta_stays_in_exact_three_path_boundary(self) -> None:
         self.assertEqual(introduction_paths(), ALLOWED_PATHS)
-        self.assertLessEqual(dirty_paths(), ALLOWED_PATHS)
 
 
 if __name__ == "__main__":

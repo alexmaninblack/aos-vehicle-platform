@@ -26,7 +26,8 @@ files_type(aos_kuksa_provider_store_t)
 type aos_kuksa_provider_credential_t;
 files_type(aos_kuksa_provider_credential_t)
 
-type aos_kuksa_iam_port_t, port_type;
+type aos_kuksa_iam_port_t;
+corenet_port(aos_kuksa_iam_port_t)
 portcon tcp 8090 gen_context(system_u:object_r:aos_kuksa_iam_port_t,s0)
 
 allow aos_kuksa_auth_compat_t self:unix_stream_socket create_stream_socket_perms;

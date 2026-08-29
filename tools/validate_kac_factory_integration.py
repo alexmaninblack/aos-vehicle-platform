@@ -138,6 +138,16 @@ def validate() -> None:
     deprov = (ROOT / "meta-aos-vehicle-platform/recipes-aos/aos-deprov/files/deprovision.sh").read_text(
         encoding="utf-8"
     )
+    deprov_append = (
+        ROOT / "meta-aos-vehicle-platform/recipes-aos/aos-deprov/aos-deprov.bbappend"
+    ).read_text(encoding="utf-8")
+    require(
+        deprov_append,
+        'FILESEXTRAPATHS:prepend := "${THISDIR}/files:"',
+        "deprovision bbappend",
+    )
+    forbid(deprov_append, "SRC_URI:remove", "deprovision bbappend")
+    forbid(deprov_append, "do_install", "deprovision bbappend")
     if deprov.count("systemctl start aos-kuksa-runtime-cleanup.service") != 2:
         raise ValidationError("deprovision must clean async and full paths exactly once")
     if deprov.index("aos-kuksa-runtime-cleanup.service", deprov.index("deprovision_async")) > deprov.index(
@@ -178,6 +188,9 @@ def validate() -> None:
         "aos_kuksa_runtime_cleanup_t",
     ):
         require(policy, domain, "SELinux")
+    require(policy, "type aos_kuksa_iam_port_t;", "SELinux")
+    require(policy, "corenet_port(aos_kuksa_iam_port_t)", "SELinux")
+    forbid(policy, "type aos_kuksa_iam_port_t, port_type;", "SELinux")
     require(policy, "aos_kuksa_provider_store_t", "SELinux")
     require(
         policy,
