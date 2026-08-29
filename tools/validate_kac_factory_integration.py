@@ -21,6 +21,10 @@ PORT_POLICY_PATCH = ROOT / (
     "meta-aos-vehicle-platform/recipes-security/refpolicy/files/"
     "0001-corenetwork-label-aos-kuksa-iam-port.patch"
 )
+KUKSA_RECIPE_APPEND = ROOT / (
+    "meta-aos-vehicle-platform/recipes-connectivity/kuksa-databroker/"
+    "kuksa-databroker_%.bbappend"
+)
 
 
 class ValidationError(RuntimeError):
@@ -43,30 +47,37 @@ def validate() -> None:
         FACTORY / "include/factory/integration.hpp",
         FACTORY / "src/token_init.cpp",
         FACTORY / "src/runtime_cleanup.cpp",
+        FACTORY / "src/tls_prepare.cpp",
         FACTORY / "tests/factory_integration_tests.cpp",
         RECIPE,
         FILES / "aos-kuksa-substrate.target",
         FILES / "aos-kuksa-provision-reset.service",
         FILES / "aos-kuksa-token-init.service",
+        FILES / "aos-kuksa-tls-prepare.service",
         FILES / "aos-kuksa-runtime-cleanup.service",
         FILES / "aos-iam-prov.service.d/20-kuksa-token-init.conf",
         FILES / "aos-iam.service.d/20-kuksa-token-init.conf",
         FILES / "kuksa-databroker.service.d/20-kuksa-verifier.conf",
         FILES / "aos-vehicle-data-provider.service.d/20-kuksa-provider.conf",
         PORT_POLICY_PATCH,
+        KUKSA_RECIPE_APPEND,
     ]
     missing = [str(path.relative_to(ROOT)) for path in required if not path.is_file()]
     if missing:
         raise ValidationError("missing Factory files: " + ", ".join(missing))
 
     recipe = RECIPE.read_text(encoding="utf-8")
-    require(recipe, 'DEPENDS = "softhsm"', "Factory recipe")
+    require(recipe, 'DEPENDS = "openssl softhsm"', "Factory recipe")
     require(
         recipe,
         'RDEPENDS:${PN} = "aos-deprov aos-iamanager aos-kuksa-auth-compat aos-servicemanager aos-vehicle-data-provider-platform kuksa-databroker softhsm"',
         "Factory recipe",
     )
-    for executable in ("aos-kuksa-token-init", "aos-kuksa-runtime-cleanup"):
+    for executable in (
+        "aos-kuksa-token-init",
+        "aos-kuksa-tls-prepare",
+        "aos-kuksa-runtime-cleanup",
+    ):
         require(recipe, executable, "Factory recipe")
     for forbidden in ("AUTOREV", "do_rootfs", "aos-image-vm", "PACKAGES +="):
         forbid(recipe, forbidden, "Factory recipe")
@@ -74,6 +85,7 @@ def validate() -> None:
     reset = (FILES / "aos-kuksa-provision-reset.service").read_text(encoding="utf-8")
     init = (FILES / "aos-kuksa-token-init.service").read_text(encoding="utf-8")
     cleanup = (FILES / "aos-kuksa-runtime-cleanup.service").read_text(encoding="utf-8")
+    tls_prepare = (FILES / "aos-kuksa-tls-prepare.service").read_text(encoding="utf-8")
     substrate = (FILES / "aos-kuksa-substrate.target").read_text(encoding="utf-8")
     require(reset, "ConditionPathExists=!/var/aos/.provisionstate", "reset unit")
     require(reset, "ExecStart=/opt/aos/deprovision.sh", "reset unit")
@@ -81,8 +93,26 @@ def validate() -> None:
     require(init, "RemainAfterExit=yes", "token init unit")
     require(cleanup, "aos-kuksa-runtime-cleanup", "cleanup unit")
     require(cleanup, "-/var/lib/aos-kuksa-provider", "cleanup unit")
+    require(cleanup, "-/var/lib/aos-kuksa-tls", "cleanup unit")
+    require(tls_prepare, "StateDirectory=aos-kuksa-tls", "TLS prepare unit")
+    require(tls_prepare, "StateDirectoryMode=0700", "TLS prepare unit")
+    require(tls_prepare, "RemainAfterExit=yes", "TLS prepare unit")
+    require(tls_prepare, "ConditionPathExists=/var/aos/.provisionstate", "TLS prepare unit")
     require(substrate, "WantedBy=aos.target", "substrate target")
-    for text, label in ((reset, "reset"), (init, "token init"), (cleanup, "cleanup")):
+    forbid(substrate, "aos-kuksa-runtime-cleanup.service", "ordinary reboot graph")
+    for unit_path in FILES.rglob("*.service"):
+        if unit_path.name != "aos-kuksa-runtime-cleanup.service":
+            forbid(
+                unit_path.read_text(encoding="utf-8"),
+                "aos-kuksa-runtime-cleanup.service",
+                f"ordinary reboot unit {unit_path.name}",
+            )
+    for text, label in (
+        (reset, "reset"),
+        (init, "token init"),
+        (tls_prepare, "TLS prepare"),
+        (cleanup, "cleanup"),
+    ):
         require(text, "RestrictAddressFamilies=AF_UNIX", label)
         require(text, "IPAddressDeny=any", label)
         forbid(text, "IPAddressAllow=", label)
@@ -91,6 +121,12 @@ def validate() -> None:
         encoding="utf-8"
     )
     require(kuksa, "EnvironmentFile=", "KUKSA drop-in")
+    require(kuksa, "Requires=aos-kuksa-tls-prepare.service", "KUKSA drop-in")
+    require(kuksa, "LoadCredential=kuksa-server-key:/var/lib/aos-kuksa-tls/server.key", "KUKSA drop-in")
+    require(kuksa, "LoadCredential=kuksa-server-cert:/var/lib/aos-kuksa-tls/server.pem", "KUKSA drop-in")
+    require(kuksa, "--tls-cert %d/kuksa-server-cert", "KUKSA drop-in")
+    require(kuksa, "--tls-private-key %d/kuksa-server-key", "KUKSA drop-in")
+    forbid(kuksa, "/etc/kuksa-val/Server", "KUKSA drop-in")
     require(kuksa, "--jwt-public-key=/run/aos-kuksa-verifier/kuksa-jwt-public.pem", "KUKSA drop-in")
     forbid(kuksa, "/etc/kuksa-val/jwt.key.pub", "KUKSA drop-in")
 
@@ -112,8 +148,27 @@ def validate() -> None:
         "LoadCredential=kuksa-token:/var/lib/aos-kuksa-provider/kuksa-token",
         "VDP drop-in",
     )
+    require(
+        vdp,
+        "LoadCredential=kuksa-ca:/var/lib/aos-kuksa-tls/server.pem",
+        "VDP drop-in",
+    )
     require(vdp, "ConditionPathExists=/var/lib/aos-kuksa-provider/kuksa-token", "VDP drop-in")
     forbid(vdp, "systemd-slot-component/credentials/kuksa-token", "VDP drop-in")
+
+    provider_runtime = (
+        ROOT / "providers/carla-viss-kuksa/src/carla_viss_kuksa_provider/runtime.py"
+    ).read_text(encoding="utf-8")
+    require(provider_runtime, 'ca = credential_directory / "kuksa-ca"', "VDP runtime")
+    forbid(provider_runtime, "/etc/kuksa-val/CA.pem", "VDP runtime")
+
+    kuksa_recipe_append = KUKSA_RECIPE_APPEND.read_text(encoding="utf-8")
+    for fixture in ("Server.key", "Server.pem", "Client.key", "Client.pem"):
+        require(
+            kuksa_recipe_append,
+            f"${{D}}${{sysconfdir}}/kuksa-val/{fixture}",
+            "KUKSA recipe secret-negative cleanup",
+        )
 
     resources = json.loads(
         (ROOT / "meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/files/resources.cfg").read_text(
@@ -191,6 +246,7 @@ def validate() -> None:
         "aos_kuksa_provider_prepare_t",
         "aos_kuksa_token_init_t",
         "aos_kuksa_runtime_cleanup_t",
+        "aos_kuksa_tls_prepare_t",
     ):
         require(policy, domain, "SELinux")
     require(policy, "type aos_kuksa_iam_port_t;", "SELinux")
@@ -204,6 +260,12 @@ def validate() -> None:
     )
     forbid(port_policy_patch, "unreserved_port", "SELinux corenetwork patch")
     require(policy, "aos_kuksa_provider_store_t", "SELinux")
+    require(policy, "aos_kuksa_tls_store_t", "SELinux")
+    require(
+        policy,
+        "read_files_pattern(init_t, aos_kuksa_tls_store_t, aos_kuksa_tls_store_t)",
+        "SELinux",
+    )
     require(
         policy,
         "type_transition aos_kuksa_provider_prepare_t aos_kuksa_provider_store_t:file aos_kuksa_provider_credential_t;",
@@ -217,6 +279,8 @@ def validate() -> None:
 
     cleanup_source = (FACTORY / "src/runtime_cleanup.cpp").read_text(encoding="utf-8")
     require(cleanup_source, "/var/lib/aos-kuksa-provider/kuksa-token", "cleanup")
+    require(cleanup_source, "/var/lib/aos-kuksa-tls/server.key", "cleanup")
+    require(cleanup_source, "/var/lib/aos-kuksa-tls/server.pem", "cleanup")
     forbid(cleanup_source, "systemd-slot-component/credentials", "cleanup")
     for forbidden_rule in (
         "corenet_tcp_connect_all_ports",

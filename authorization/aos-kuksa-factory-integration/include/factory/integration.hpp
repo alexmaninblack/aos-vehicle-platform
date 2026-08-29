@@ -42,12 +42,17 @@ enum class InitResult { kValidated, kCreated, kRejected, kUnavailable };
 
 InitResult InitializeToken(PinStore& pins, TokenStore& tokens);
 
+enum class TlsPrepareResult { kReused, kCreated, kRejected, kUnavailable };
+
+TlsPrepareResult PrepareTlsIdentity(std::string_view directory);
+
 class CleanupRoot {
  public:
   virtual ~CleanupRoot() = default;
   virtual bool RemoveFile(std::string_view absolute_path) = 0;
   virtual bool RemoveEmptyDirectory(std::string_view absolute_path) = 0;
   virtual bool SyncProviderDirectory() = 0;
+  virtual bool SyncTlsDirectory() = 0;
 };
 
 bool CleanupRuntime(CleanupRoot& root);

@@ -3,5 +3,7 @@
 
 /usr/libexec/aos-kuksa-token-init -- gen_context(system_u:object_r:aos_kuksa_token_init_exec_t,s0)
 /usr/libexec/aos-kuksa-runtime-cleanup -- gen_context(system_u:object_r:aos_kuksa_runtime_cleanup_exec_t,s0)
+/usr/libexec/aos-kuksa-tls-prepare -- gen_context(system_u:object_r:aos_kuksa_tls_prepare_exec_t,s0)
 /var/aos/iam/\.kuksa-jwt-pin -- gen_context(system_u:object_r:aos_kuksa_pin_t,s0)
 /var/aos/iam/\.kuksa-jwt-pin\.tmp -- gen_context(system_u:object_r:aos_kuksa_pin_t,s0)
+/var/lib/aos-kuksa-tls(/.*)? gen_context(system_u:object_r:aos_kuksa_tls_store_t,s0)

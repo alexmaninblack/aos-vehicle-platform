@@ -16,10 +16,14 @@ namespace {
 const std::vector<std::string_view> kFiles{
     "/var/lib/aos-kuksa-provider/kuksa-token",
     "/var/lib/aos-kuksa-provider/.kuksa-token.tmp",
+    "/var/lib/aos-kuksa-tls/server.key",
+    "/var/lib/aos-kuksa-tls/server.pem",
+    "/var/lib/aos-kuksa-tls/.server.key.tmp",
+    "/var/lib/aos-kuksa-tls/.server.pem.tmp",
     "/run/aos-kuksa-verifier/kuksa-jwt-public.pem",
     "/run/aos-kuksa-auth-compat/request.sock"};
 const std::vector<std::string_view> kDirectories{
-    "/run/aos-kuksa-verifier", "/run/aos-kuksa-auth-compat"};
+    "/run/aos-kuksa-verifier", "/run/aos-kuksa-auth-compat", "/var/lib/aos-kuksa-tls"};
 
 std::pair<std::string, std::string> Split(std::string_view path) {
   const auto separator = path.rfind('/');
@@ -53,7 +57,12 @@ class FixedRoot final : public CleanupRoot {
     return ok;
   }
   bool SyncProviderDirectory() override {
-    constexpr const char* path = "/var/lib/aos-kuksa-provider";
+    return SyncDirectory("/var/lib/aos-kuksa-provider");
+  }
+  bool SyncTlsDirectory() override { return SyncDirectory("/var/lib/aos-kuksa-tls"); }
+
+ private:
+  static bool SyncDirectory(const char* path) {
     const int directory = ::open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
     if (directory < 0) return errno == ENOENT;
     const bool ok = ::fsync(directory) == 0;
@@ -71,6 +80,7 @@ bool CleanupRuntime(CleanupRoot& root) {
   bool ok = true;
   for (auto path : kFiles) ok = root.RemoveFile(path) && ok;
   ok = root.SyncProviderDirectory() && ok;
+  ok = root.SyncTlsDirectory() && ok;
   for (auto path : kDirectories) ok = root.RemoveEmptyDirectory(path) && ok;
   return ok;
 }

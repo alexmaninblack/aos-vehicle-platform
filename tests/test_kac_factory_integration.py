@@ -56,6 +56,10 @@ class KacFactoryIntegrationTests(unittest.TestCase):
             "LoadCredential=kuksa-token:/var/lib/aos-kuksa-provider/kuksa-token",
             dropin,
         )
+        self.assertIn(
+            "LoadCredential=kuksa-ca:/var/lib/aos-kuksa-tls/server.pem",
+            dropin,
+        )
         self.assertNotIn("systemd-slot-component/credentials", provider + dropin)
 
 

@@ -7,8 +7,11 @@
 #undef NDEBUG
 #endif
 #include <cassert>
+#include <filesystem>
 #include <optional>
 #include <string>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <vector>
 
 namespace {
@@ -45,6 +48,7 @@ class Cleanup final : public aos::factory::CleanupRoot {
   bool RemoveFile(std::string_view path) override { files.emplace_back(path); return ok; }
   bool RemoveEmptyDirectory(std::string_view path) override { directories.emplace_back(path); return ok; }
   bool SyncProviderDirectory() override { ++syncs; return ok; }
+  bool SyncTlsDirectory() override { ++syncs; return ok; }
   bool ok{true}; unsigned syncs{0};
   std::vector<std::string> files; std::vector<std::string> directories;
 };
@@ -67,9 +71,9 @@ void TestInit() {
 void TestCleanup() {
   Cleanup cleanup;
   assert(aos::factory::CleanupRuntime(cleanup));
-  assert(cleanup.files.size() == 4U);
-  assert(cleanup.directories.size() == 2U);
-  assert(cleanup.syncs == 1U);
+  assert(cleanup.files.size() == 8U);
+  assert(cleanup.directories.size() == 3U);
+  assert(cleanup.syncs == 2U);
   assert(cleanup.files[0] == "/var/lib/aos-kuksa-provider/kuksa-token");
   assert(cleanup.files[1] == "/var/lib/aos-kuksa-provider/.kuksa-token.tmp");
   for (const auto& path : cleanup.files) {
@@ -79,10 +83,37 @@ void TestCleanup() {
   }
 }
 
+void TestTlsIdentity() {
+  std::string pattern = "/tmp/aos-kuksa-tls-test-XXXXXX";
+  char* path = ::mkdtemp(pattern.data());
+  assert(path != nullptr);
+  assert(::chmod(path, 0700) == 0);
+  const mode_t prior_umask = ::umask(0077);
+  assert(aos::factory::PrepareTlsIdentity(path) ==
+         aos::factory::TlsPrepareResult::kCreated);
+  ::umask(prior_umask);
+
+  const auto directory = std::filesystem::path(path);
+  struct stat key_status {};
+  struct stat cert_status {};
+  assert(::stat((directory / "server.key").c_str(), &key_status) == 0);
+  assert(::stat((directory / "server.pem").c_str(), &cert_status) == 0);
+  assert((key_status.st_mode & 0777U) == 0600U);
+  assert((cert_status.st_mode & 0777U) == 0644U);
+  assert(aos::factory::PrepareTlsIdentity(path) ==
+         aos::factory::TlsPrepareResult::kReused);
+
+  assert(::chmod((directory / "server.key").c_str(), 0644) == 0);
+  assert(aos::factory::PrepareTlsIdentity(path) ==
+         aos::factory::TlsPrepareResult::kRejected);
+  std::filesystem::remove_all(directory);
+}
+
 }  // namespace
 
 int main() {
   TestInit();
   TestCleanup();
+  TestTlsIdentity();
   return 0;
 }

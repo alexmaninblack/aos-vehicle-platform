@@ -177,22 +177,22 @@ class ProviderTests(unittest.TestCase):
             )
             viss_ca = root / "viss-ca.pem"
             viss_ca.write_text("test trust anchor", encoding="utf-8")
-            kuksa_ca = root / "kuksa-ca.pem"
-            kuksa_ca.write_text("test trust anchor", encoding="utf-8")
             credentials = root / "credentials"
             credentials.mkdir()
             (credentials / "kuksa-token").write_text("test token", encoding="utf-8")
+            (credentials / "kuksa-ca").write_text(
+                "test trust anchor", encoding="utf-8"
+            )
             environment = {
                 runtime.EXTERNAL_CONFIGURATION_ENV: str(vehicle_configuration),
                 runtime.VISS_CA_ENV: str(viss_ca),
                 runtime.CREDENTIAL_DIRECTORY_ENV: str(credentials),
             }
 
-            with mock.patch.object(runtime, "KUKSA_CA", kuksa_ca):
-                configuration = runtime.load_configuration(
-                    ROOT / "providers/carla-viss-kuksa/config/component.json",
-                    environment,
-                )
+            configuration = runtime.load_configuration(
+                ROOT / "providers/carla-viss-kuksa/config/component.json",
+                environment,
+            )
 
             self.assertEqual(configuration.viss.uri, "wss://10.0.0.1:6443")
             self.assertEqual(configuration.kuksa.host, "127.0.0.1")
@@ -200,6 +200,7 @@ class ProviderTests(unittest.TestCase):
             self.assertEqual(
                 configuration.kuksa.token, credentials / "kuksa-token"
             )
+            self.assertEqual(configuration.kuksa.ca, credentials / "kuksa-ca")
 
     def test_vehicle_configuration_rejects_cleartext_transport(self) -> None:
         with tempfile.TemporaryDirectory(dir="/tmp") as directory:

@@ -11,8 +11,15 @@ type aos_kuksa_runtime_cleanup_t;
 type aos_kuksa_runtime_cleanup_exec_t;
 init_daemon_domain(aos_kuksa_runtime_cleanup_t, aos_kuksa_runtime_cleanup_exec_t)
 
+type aos_kuksa_tls_prepare_t;
+type aos_kuksa_tls_prepare_exec_t;
+init_daemon_domain(aos_kuksa_tls_prepare_t, aos_kuksa_tls_prepare_exec_t)
+
 type aos_kuksa_pin_t;
 files_type(aos_kuksa_pin_t)
+
+type aos_kuksa_tls_store_t;
+files_type(aos_kuksa_tls_store_t)
 
 gen_require(`
     type aos_kuksa_pkcs11_store_t;
@@ -20,6 +27,7 @@ gen_require(`
     type aos_kuksa_provider_credential_t;
     type aos_kuksa_verifier_runtime_t;
     type aos_kuksa_auth_runtime_t;
+    type init_t;
 ')
 
 manage_files_pattern(aos_kuksa_token_init_t, aos_kuksa_pin_t, aos_kuksa_pin_t)
@@ -29,9 +37,20 @@ allow aos_kuksa_token_init_t aos_kuksa_pkcs11_store_t:file lock;
 dev_read_urand(aos_kuksa_token_init_t)
 files_read_etc_files(aos_kuksa_token_init_t)
 
+manage_dirs_pattern(aos_kuksa_tls_prepare_t, aos_kuksa_tls_store_t, aos_kuksa_tls_store_t)
+manage_files_pattern(aos_kuksa_tls_prepare_t, aos_kuksa_tls_store_t, aos_kuksa_tls_store_t)
+dev_read_urand(aos_kuksa_tls_prepare_t)
+files_read_etc_files(aos_kuksa_tls_prepare_t)
+
+# systemd is the only reader of the persistent identity. It copies the key and
+# public certificate into private credentials mounts for the broker and VDP.
+read_files_pattern(init_t, aos_kuksa_tls_store_t, aos_kuksa_tls_store_t)
+
 delete_files_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_provider_store_t, aos_kuksa_provider_credential_t)
 delete_files_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_verifier_runtime_t, aos_kuksa_verifier_runtime_t)
 delete_files_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_auth_runtime_t, aos_kuksa_auth_runtime_t)
 delete_sock_files_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_auth_runtime_t, aos_kuksa_auth_runtime_t)
 delete_dirs_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_verifier_runtime_t, aos_kuksa_verifier_runtime_t)
 delete_dirs_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_auth_runtime_t, aos_kuksa_auth_runtime_t)
+delete_files_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_tls_store_t, aos_kuksa_tls_store_t)
+delete_dirs_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_tls_store_t, aos_kuksa_tls_store_t)

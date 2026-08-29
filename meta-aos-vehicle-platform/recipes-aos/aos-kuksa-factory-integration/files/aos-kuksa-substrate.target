@@ -3,7 +3,7 @@
 
 [Unit]
 Description=Aos KUKSA authenticated substrate
-Wants=aos-kuksa-verifier-prepare.service kuksa-databroker.service aos-kuksa-provider-prepare.service aos-kuksa-auth-compat.service
+Wants=aos-kuksa-tls-prepare.service aos-kuksa-verifier-prepare.service kuksa-databroker.service aos-kuksa-provider-prepare.service aos-kuksa-auth-compat.service
 After=aos-iam.service
 
 [Install]

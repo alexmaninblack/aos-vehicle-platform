@@ -16,6 +16,7 @@ SRC_URI = " \
     file://aos-kuksa-substrate.target \
     file://aos-kuksa-provision-reset.service \
     file://aos-kuksa-token-init.service \
+    file://aos-kuksa-tls-prepare.service \
     file://aos-kuksa-runtime-cleanup.service \
     file://aos-iam-prov.service.d/20-kuksa-token-init.conf \
     file://aos-iam.service.d/20-kuksa-token-init.conf \
@@ -27,7 +28,7 @@ S = "${WORKDIR}/source"
 
 inherit cmake systemd
 
-DEPENDS = "softhsm"
+DEPENDS = "openssl softhsm"
 RDEPENDS:${PN} = "aos-deprov aos-iamanager aos-kuksa-auth-compat aos-servicemanager aos-vehicle-data-provider-platform kuksa-databroker softhsm"
 
 EXTRA_OECMAKE = "-DBUILD_TESTING=ON"
@@ -39,7 +40,8 @@ SYSTEMD_AUTO_ENABLE:${PN} = "enable"
 do_install:append() {
     install -d ${D}${systemd_system_unitdir}
     for unit in aos-kuksa-substrate.target aos-kuksa-provision-reset.service \
-        aos-kuksa-token-init.service aos-kuksa-runtime-cleanup.service; do
+        aos-kuksa-token-init.service aos-kuksa-tls-prepare.service \
+        aos-kuksa-runtime-cleanup.service; do
         install -m 0644 ${WORKDIR}/${unit} ${D}${systemd_system_unitdir}/${unit}
     done
     for dropin in \
@@ -55,9 +57,11 @@ do_install:append() {
 FILES:${PN} = " \
     ${libexecdir}/aos-kuksa-token-init \
     ${libexecdir}/aos-kuksa-runtime-cleanup \
+    ${libexecdir}/aos-kuksa-tls-prepare \
     ${systemd_system_unitdir}/aos-kuksa-substrate.target \
     ${systemd_system_unitdir}/aos-kuksa-provision-reset.service \
     ${systemd_system_unitdir}/aos-kuksa-token-init.service \
+    ${systemd_system_unitdir}/aos-kuksa-tls-prepare.service \
     ${systemd_system_unitdir}/aos-kuksa-runtime-cleanup.service \
     ${systemd_system_unitdir}/aos-iam-prov.service.d/20-kuksa-token-init.conf \
     ${systemd_system_unitdir}/aos-iam.service.d/20-kuksa-token-init.conf \

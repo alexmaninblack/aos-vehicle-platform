@@ -47,7 +47,6 @@ TELEMETRY_PROFILE = "0.1.1"
 RUNTIME_INTERFACE = 1
 KUKSA_HOST = "127.0.0.1"
 KUKSA_PORT = 55555
-KUKSA_CA = Path("/etc/kuksa-val/CA.pem")
 KUKSA_TLS_SERVER_NAME = "127.0.0.1"
 EXTERNAL_CONFIGURATION_ENV = "AOS_VEHICLE_DATA_PROVIDER_CONFIGURATION"
 VISS_CA_ENV = "AOS_VEHICLE_DATA_PROVIDER_VISS_CA"
@@ -542,12 +541,13 @@ def _load_kuksa_configuration(environment: Mapping[str, str]) -> KuksaConfigurat
     if not credential_directory.is_dir() or credential_directory.is_symlink():
         raise ValueError("systemd credential directory is unavailable")
     token = credential_directory / "kuksa-token"
+    ca = credential_directory / "kuksa-ca"
     _require_regular_file(token, "KUKSA credential")
-    _require_regular_file(KUKSA_CA, "KUKSA trust anchor")
+    _require_regular_file(ca, "KUKSA trust anchor")
     return KuksaConfiguration(
         host=KUKSA_HOST,
         port=KUKSA_PORT,
-        ca=KUKSA_CA,
+        ca=ca,
         tls_server_name=KUKSA_TLS_SERVER_NAME,
         token=token,
     )

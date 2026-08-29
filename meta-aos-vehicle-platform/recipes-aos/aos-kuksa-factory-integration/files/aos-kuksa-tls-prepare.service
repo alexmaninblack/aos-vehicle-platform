@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+[Unit]
+Description=Prepare the per-vehicle KUKSA TLS identity
+PartOf=aos-kuksa-substrate.target
+ConditionPathExists=/var/aos/.provisionstate
+After=systemd-time-wait-sync.service
+Before=kuksa-databroker.service aos-vehicle-data-provider.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/aos-kuksa-tls-prepare
+RemainAfterExit=yes
+TimeoutStartSec=15s
+User=root
+Group=root
+UMask=0077
+StateDirectory=aos-kuksa-tls
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/aos-kuksa-tls
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+TasksMax=8
+LimitNOFILE=32
