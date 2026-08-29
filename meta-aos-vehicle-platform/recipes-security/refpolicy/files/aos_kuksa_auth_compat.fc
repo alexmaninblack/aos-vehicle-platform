@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+/usr/libexec/aos-kuksa-auth-compat -- gen_context(system_u:object_r:aos_kuksa_auth_compat_exec_t,s0)
+/usr/libexec/aos-kuksa-verifier-prepare -- gen_context(system_u:object_r:aos_kuksa_verifier_prepare_exec_t,s0)
+/run/aos-kuksa-auth-compat(/.*)? gen_context(system_u:object_r:aos_kuksa_auth_runtime_t,s0)
+/run/aos-kuksa-verifier(/.*)? gen_context(system_u:object_r:aos_kuksa_verifier_runtime_t,s0)
+/var/lib/softhsm(/.*)? gen_context(system_u:object_r:aos_kuksa_pkcs11_store_t,s0)

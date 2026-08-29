@@ -46,10 +46,12 @@ manufactured Unit.
 
 The accepted successor Factory Image must additionally configure the shared
 Aos IAM permission handler with `enablePermissionsHandler: true` independently
-of provisioning, package the removable `aos-kuksa-auth-compat` component and
+of provisioning and include the removable `aos-kuksa-auth-compat` package and
 its non-secret named-resource/signer-verifier preparation seams, and start all
-credential-dependent components fail closed after provisioning. None of that
-target integration exists in the current `.11` evidence. The helper remains
+credential-dependent components fail closed after provisioning. The separate
+package recipe, executables, systemd units, tmpfiles and SELinux module now
+exist in this layer, but no image recipe includes them and none of that target
+integration exists in the current `.11` evidence. The helper remains
 outside the VDP component payload, and the image must contain no provisioned
 identity, private key, shared verifier, `AOS_SECRET`, Service JWT or static
 Provider/Service credential.

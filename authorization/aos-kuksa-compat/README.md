@@ -3,9 +3,12 @@
 
 # Current-Release KUKSA Authorization Compatibility Boundary
 
-This is the accepted future source boundary for the separately packaged,
-removable `aos-kuksa-auth-compat` Factory/System component. No executable
-implementation exists here yet.
+This directory implements the accepted source boundary for the separately
+packaged, removable `aos-kuksa-auth-compat` Factory/System component. Its
+Yocto recipe builds the unprivileged helper, the short root-owned protected
+verifier-preparation executable and package-owned tests. Image inclusion,
+named-resource registration, provisioned key creation and live qualification
+remain separate gates.
 
 The helper is outside the Vehicle Data Platform FOTA payload, both functional
 SOTA services, upstream Eclipse KUKSA, analytics logic and the subsequent
@@ -40,3 +43,16 @@ The trusted OEM Provider is a separate Platform integration. It receives no
 authority, credential or lifecycle from this helper. Its exact KUKSA
 connection configuration and selected-Unit VISS mTLS profile remain explicit
 implementation parameters that must be frozen before Provider/VDP code begins.
+
+The source generates only the pinned native IAM v6/common v2 C++ gRPC stubs
+at build time. Runtime requests use fixed TLS loopback `127.0.0.1:8090`, Aos
+CA trust and expected server name `main`; callers cannot select an endpoint,
+resource, subject, claim or signing input. The only local interface is the
+mode-`0660` Unix socket owned by `aos-kac:aos-kuksa-clients`.
+
+The signer uses the official OpenSSL PKCS#11 provider and exact private-object
+URI without a PIN value. Both executables receive credential ID
+`kuksa-jwt-pin` only through systemd `LoadCredential`. The verifier process
+performs a protected sign/verify self-test and atomically publishes only the
+public PEM under `/run`; no private key, PIN, JWT or persistent helper state is
+packaged.

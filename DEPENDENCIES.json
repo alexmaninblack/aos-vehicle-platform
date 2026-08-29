@@ -41,6 +41,54 @@
       "license": "PSF-2.0",
       "source": "https://github.com/python/typing_extensions",
       "artifactSha256": "f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548"
+    },
+    {
+      "name": "gRPC C++ runtime",
+      "revision": "e5ae3b6b44bf3b64d24bfb4b4f82556239b986db",
+      "displayVersion": "1.60.1",
+      "license": "Apache-2.0 & BSD-3-Clause & MPL-2.0",
+      "source": "https://github.com/grpc/grpc",
+      "artifactSha256": "cf83d37590a24bbc3439df4cb9ca1b2b84bcf3cb5941407cbc84a3a0de978432"
+    },
+    {
+      "name": "Protocol Buffers C++ runtime",
+      "revision": "a4cbdd3ed0042e8f9b9c30e8b0634096d9532809",
+      "displayVersion": "4.25.8",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/protocolbuffers/protobuf",
+      "artifactSha256": "6ac659ddfda20f72c337f57de7d262bdda52808388ac155f917c42b1d64d29b9"
+    },
+    {
+      "name": "Abseil C++ runtime",
+      "revision": "54fac219c4ef0bc379dfffb0b8098725d77ac81b",
+      "displayVersion": "20240116.3",
+      "license": "Apache-2.0",
+      "source": "https://github.com/abseil/abseil-cpp",
+      "artifactSha256": "303723b893a6bc46eec2282e7e2b47d425a6abca11a5fae288bdec3556ae446f"
+    },
+    {
+      "name": "OpenSSL",
+      "revision": "archive-sha256:89681a9ddaa9ed7cf25ea8ef61338db805200bae47d00510490623547380c148",
+      "displayVersion": "3.2.6",
+      "license": "Apache-2.0",
+      "source": "https://github.com/openssl/openssl/releases/tag/openssl-3.2.6",
+      "artifactSha256": "89681a9ddaa9ed7cf25ea8ef61338db805200bae47d00510490623547380c148"
+    },
+    {
+      "name": "SoftHSM",
+      "revision": "archive-sha256:61249473054bcd1811519ef9a989a880a7bdcc36d317c9c25457fc614df475f2",
+      "displayVersion": "2.6.1",
+      "license": "BSD-2-Clause & ISC",
+      "source": "https://github.com/opendnssec/SoftHSMv2/releases/tag/2.6.1",
+      "artifactSha256": "61249473054bcd1811519ef9a989a880a7bdcc36d317c9c25457fc614df475f2"
+    },
+    {
+      "name": "OpenSSL PKCS#11 provider",
+      "revision": "8f6b94409d4872265076df310492da1e5f6abdf7",
+      "displayVersion": "1.0 recipe baseline",
+      "license": "Apache-2.0",
+      "source": "https://github.com/latchset/pkcs11-provider",
+      "artifactSha256": "a542545e196e60e466aefb0a45a3822e54c29210ab86808bc208d9d84968476f"
     }
   ],
   "build": [
@@ -92,6 +140,36 @@
       "displayVersion": "v9.1.0",
       "license": "Apache-2.0",
       "source": "https://github.com/AosEdge/aos_core_api"
+    },
+    {
+      "name": "gRPC C++ code generator (grpc-native)",
+      "revision": "e5ae3b6b44bf3b64d24bfb4b4f82556239b986db",
+      "displayVersion": "1.60.1",
+      "license": "Apache-2.0 & BSD-3-Clause & MPL-2.0",
+      "source": "https://github.com/grpc/grpc",
+      "artifactSha256": "cf83d37590a24bbc3439df4cb9ca1b2b84bcf3cb5941407cbc84a3a0de978432"
+    },
+    {
+      "name": "Protocol Buffers compiler (protobuf-native)",
+      "revision": "a4cbdd3ed0042e8f9b9c30e8b0634096d9532809",
+      "displayVersion": "4.25.8",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/protocolbuffers/protobuf",
+      "artifactSha256": "6ac659ddfda20f72c337f57de7d262bdda52808388ac155f917c42b1d64d29b9"
+    },
+    {
+      "name": "Poky / OpenEmbedded Core metadata",
+      "revision": "7d50718f90c51fb7f650c9db59b28c6e0194e5d2",
+      "displayVersion": "scarthgap pinned baseline",
+      "license": "MIT",
+      "source": "https://git.yoctoproject.org/poky"
+    },
+    {
+      "name": "OpenEmbedded meta-openembedded",
+      "revision": "ec0469748be4159fb83fb0fa0148d786484c88cf",
+      "displayVersion": "scarthgap pinned baseline",
+      "license": "MIT",
+      "source": "https://git.openembedded.org/meta-openembedded"
     }
   ],
   "ci": [

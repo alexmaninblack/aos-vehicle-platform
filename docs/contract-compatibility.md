@@ -53,3 +53,14 @@ A signal scheduled for removal is first marked deprecated in a minor contract
 release. It remains available through at least the next minor release. Removal
 requires a major version and a qualified integration baseline with compatible
 provider and consumer versions.
+
+## KUKSA authorization compatibility seam
+
+The removable helper implements protocol `aos-kuksa-auth-compat/v1` as an
+independent migration seam. Compatible native AosCore replacement behavior
+must preserve strict one-frame request/response schemas, fixed resource
+`kuksa`, exact `r -> read` and `rw -> actuate` mapping, complete rejection of
+unsupported authority, the pinned RS256 claims/timing profile and all negative
+isolation cases. A released native implementation must be requalified before
+the package is removed; protocol compatibility alone does not authorize that
+migration.

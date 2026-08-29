@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+## <summary>Interfaces for the removable Aos KUKSA authorization helper.</summary>
+
+########################################
+## <summary>Connect to the private KAC Unix socket.</summary>
+## <param name="domain"><summary>Calling Service bootstrap domain.</summary></param>
+#
+interface(`aos_kuksa_auth_compat_connect',`
+    gen_require(`
+        type aos_kuksa_auth_runtime_t;
+        type aos_kuksa_auth_compat_t;
+    ')
+
+    search_dirs_pattern($1, aos_kuksa_auth_runtime_t, aos_kuksa_auth_runtime_t)
+    stream_connect_pattern($1, aos_kuksa_auth_runtime_t, aos_kuksa_auth_runtime_t, aos_kuksa_auth_compat_t)
+')

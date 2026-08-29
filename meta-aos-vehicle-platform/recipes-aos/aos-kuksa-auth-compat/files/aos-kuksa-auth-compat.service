@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+[Unit]
+Description=Aos KUKSA authorization compatibility helper
+After=aos-iam.service aos-kuksa-verifier-prepare.service systemd-time-wait-sync.service
+Requires=aos-kuksa-verifier-prepare.service
+ConditionPathExists=/run/aos-kuksa-verifier/kuksa-jwt-public.pem
+
+[Service]
+Type=simple
+User=aos-kac
+Group=aos-kac
+SupplementaryGroups=aos-kuksa-clients
+ExecStart=/usr/libexec/aos-kuksa-auth-compat
+LoadCredential=kuksa-jwt-pin:/var/aos/iam/.kuksa-jwt-pin
+Restart=on-failure
+RestartSec=2s
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadWritePaths=/run/aos-kuksa-auth-compat
+RestrictAddressFamilies=AF_UNIX AF_INET
+IPAddressDeny=any
+IPAddressAllow=127.0.0.1
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+TasksMax=32
+LimitNOFILE=128
+
+[Install]
+WantedBy=multi-user.target

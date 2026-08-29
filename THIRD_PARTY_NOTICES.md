@@ -28,3 +28,24 @@ to this repository.
 
 AosEdge, COVESA VSS, CARLA, and their protocols are also referenced for
 architecture and compatibility. Their code isn't copied into this repository.
+
+## KUKSA authorization compatibility package
+
+The removable native KUKSA authorization helper uses the exact Yocto-locked
+C++ runtime and build dependencies below. Target runtime packages and native
+generators are selected as matched pairs from the same frozen revisions.
+Exact Git-mirror and archive digests are recorded in `DEPENDENCIES.json`.
+
+| Component | Version | Use | Declared recipe license | Source |
+| --- | --- | --- | --- | --- |
+| gRPC C++ | 1.60.1 | Target runtime and `grpc-native` generator | Apache-2.0 & BSD-3-Clause & MPL-2.0 | <https://github.com/grpc/grpc> |
+| Protocol Buffers C++ | 4.25.8 | Target runtime and `protobuf-native` compiler | BSD-3-Clause | <https://github.com/protocolbuffers/protobuf> |
+| Abseil C++ | 20240116.3 | Target support runtime required by generated Protocol Buffers code | Apache-2.0 | <https://github.com/abseil/abseil-cpp> |
+| OpenSSL | 3.2.6 | Target cryptographic runtime | Apache-2.0 | <https://github.com/openssl/openssl> |
+| SoftHSM | 2.6.1 | Target PKCS#11 software token | BSD-2-Clause & ISC | <https://github.com/opendnssec/SoftHSMv2> |
+| OpenSSL PKCS#11 provider | recipe 1.0 baseline | Target OpenSSL provider module | Apache-2.0 | <https://github.com/latchset/pkcs11-provider> |
+
+`grpc-native` and `protobuf-native` are build-host tools and are not target
+runtime packages. The package links only the target gRPC, Protocol Buffers,
+Abseil and OpenSSL libraries; SoftHSM and the official OpenSSL PKCS#11 provider
+remain runtime modules rather than directly linked libraries.

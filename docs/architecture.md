@@ -70,7 +70,10 @@ The target architecture keeps upstream Eclipse KUKSA Databroker unchanged.
 The separately packaged removable current-release KUKSA Authorization
 Compatibility helper belongs to the Factory/System layer under
 `authorization/aos-kuksa-compat/`; it is outside the Vehicle Data Platform
-FOTA payload and is not implemented in the current baseline.
+FOTA payload. The current branch implements it as a separately removable
+source/Yocto package containing one unprivileged helper and one short
+root-owned verifier-preparation executable. It is not yet included in an
+image or qualified against a provisioned Unit.
 
 A SOTA service declares its requested KUKSA paths and modes in Aos metadata.
 Service Manager registers them and injects a per-instance `AOS_SECRET`. The
@@ -117,6 +120,7 @@ integrated into the unsigned local rootfs `6.1.1-maninblack.11` candidate.
 The validation Unit remains on `6.1.1-maninblack.2`; no `.11` Cloud or Unit
 mutation has occurred. The separately packaged compatibility helper, protected
 per-Unit signing integration and trusted Provider connection profile remain
-target work. The stock Aos IAM permission handler requires explicit
+target work. KAC source/package implementation is present but does not claim
+image or live qualification. The stock Aos IAM permission handler requires explicit
 `enablePermissionsHandler: true` configuration and qualification in the
 accepted Factory Image independently of provisioning state.

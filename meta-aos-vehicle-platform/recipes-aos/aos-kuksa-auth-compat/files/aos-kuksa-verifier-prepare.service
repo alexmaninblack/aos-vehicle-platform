@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+[Unit]
+Description=Prepare protected KUKSA JWT public verifier
+After=aos-iam.service
+Before=aos-kuksa-auth-compat.service kuksa-databroker.service
+ConditionPathExists=/var/aos/iam/.kuksa-jwt-pin
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/libexec/aos-kuksa-verifier-prepare
+LoadCredential=kuksa-jwt-pin:/var/aos/iam/.kuksa-jwt-pin
+RemainAfterExit=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadWritePaths=/run/aos-kuksa-verifier
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+TasksMax=32
+LimitNOFILE=128
+
+[Install]
+WantedBy=multi-user.target
