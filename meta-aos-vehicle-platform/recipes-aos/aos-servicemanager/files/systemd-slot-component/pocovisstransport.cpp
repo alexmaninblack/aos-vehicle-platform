@@ -22,6 +22,7 @@
 #include <Poco/Net/HTTPResponse.h>
 #include <Poco/Net/HTTPSClientSession.h>
 #include <Poco/Net/NetSSL.h>
+#include <Poco/Net/SecureStreamSocket.h>
 #include <Poco/Net/WebSocket.h>
 #include <Poco/Timespan.h>
 #include <Poco/URI.h>
@@ -218,9 +219,11 @@ Error PocoViss31MtlsTransport::ReadSnapshot(
         config.mCertificateCredential.string(), config.mCACredential.string(),
         Poco::Net::Context::VERIFY_STRICT, 4, false,
         "HIGH:!aNULL:!eNULL:!MD5:!RC4");
-    Poco::Net::HTTPSClientSession session(endpoint.getHost(),
-                                          endpoint.getPort(), context);
-    session.setPeerHostName(config.mServerName);
+    Poco::Net::SecureStreamSocket secureSocket(context);
+    secureSocket.setPeerHostName(config.mServerName);
+    Poco::Net::HTTPSClientSession session(secureSocket);
+    session.setHost(endpoint.getHost());
+    session.setPort(endpoint.getPort());
     session.setTimeout(Poco::Timespan(
         static_cast<Poco::Timespan::TimeDiff>(timeout.count()) * 1000));
 
