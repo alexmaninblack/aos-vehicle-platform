@@ -16,7 +16,7 @@ PrivateDevices=yes
 PrivateTmp=yes
 ProtectSystem=strict
 # Deprovision is valid even if one or more runtime paths were never created.
-ReadWritePaths=-/run/aos-kuksa-auth-compat -/run/aos-kuksa-verifier -/var/lib/aos-kuksa-provider -/var/lib/aos-kuksa-tls
+ReadWritePaths=-/run/aos-kuksa-auth-compat -/run/aos-kuksa-verifier -/var/lib/aos-kuksa-provider -/var/lib/aos-kuksa-tls /var/lib/softhsm
 RestrictAddressFamilies=AF_UNIX
 IPAddressDeny=any
 TasksMax=8

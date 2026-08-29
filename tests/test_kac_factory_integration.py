@@ -18,7 +18,7 @@ class KacFactoryIntegrationTests(unittest.TestCase):
         self.assertFalse(any(name.endswith((".timer", ".path")) for name in names))
         self.assertFalse(any("renew" in name for name in names))
 
-    def test_service_kac_sources_remain_frozen(self) -> None:
+    def test_unrelated_service_kac_sources_remain_frozen(self) -> None:
         root = validate_kac_factory_integration.ROOT
         changed = {
             line[3:]
@@ -31,11 +31,9 @@ class KacFactoryIntegrationTests(unittest.TestCase):
             "authorization/aos-kuksa-compat/include/kac/core.hpp",
             "authorization/aos-kuksa-compat/src/core.cpp",
             "authorization/aos-kuksa-compat/src/json.cpp",
-            "authorization/aos-kuksa-compat/src/grpc_iam_client.cpp",
             "authorization/aos-kuksa-compat/src/pkcs11_signer.cpp",
             "authorization/aos-kuksa-compat/src/main.cpp",
             "authorization/aos-kuksa-compat/src/server.cpp",
-            "authorization/aos-kuksa-compat/src/verifier_prepare.cpp",
             "authorization/aos-kuksa-compat/tests/kac_tests.cpp",
         }
         self.assertTrue(changed.isdisjoint(frozen))

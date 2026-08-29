@@ -104,6 +104,8 @@ def validate() -> None:
     require(cleanup, "aos-kuksa-runtime-cleanup", "cleanup unit")
     require(cleanup, "-/var/lib/aos-kuksa-provider", "cleanup unit")
     require(cleanup, "-/var/lib/aos-kuksa-tls", "cleanup unit")
+    require(cleanup, "/var/lib/softhsm", "cleanup unit")
+    forbid(cleanup, "-/var/lib/softhsm", "cleanup required PKCS11 root")
     require(tls_prepare, "StateDirectory=aos-kuksa-tls", "TLS prepare unit")
     require(tls_prepare, "StateDirectoryMode=0700", "TLS prepare unit")
     require(tls_prepare, "RemainAfterExit=yes", "TLS prepare unit")
@@ -278,6 +280,26 @@ def validate() -> None:
     )
     require(
         policy,
+        "read_files_pattern(init_t, aos_var_run_t, aos_kuksa_pin_t)",
+        "SELinux systemd PIN credential read",
+    )
+    require(
+        policy,
+        "read_files_pattern(initrc_t, aos_kuksa_verifier_runtime_t, aos_kuksa_verifier_runtime_t)",
+        "SELinux broker verifier read",
+    )
+    require(
+        policy,
+        "read_files_pattern(aos_t, aos_var_run_t, aos_kuksa_pin_t)",
+        "SELinux Aos IAM PIN read",
+    )
+    require(
+        policy,
+        "manage_files_pattern(aos_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)",
+        "SELinux Aos IAM PKCS11 ownership",
+    )
+    require(
+        policy,
         "manage_files_pattern(aos_kuksa_token_init_t, aos_var_run_t, aos_kuksa_pin_t)",
         "SELinux exact PIN parent boundary",
     )
@@ -301,6 +323,9 @@ def validate() -> None:
         "aos_kuksa_token_init_t",
         "aos_kuksa_runtime_cleanup_t",
         "aos_kuksa_tls_prepare_t",
+        "aos_kuksa_auth_compat_t",
+        "aos_kuksa_verifier_prepare_t",
+        "aos_kuksa_provider_prepare_t",
     ):
         require(
             policy,
@@ -319,8 +344,6 @@ def validate() -> None:
         )
     for store in (
         "aos_kuksa_provider_store_t",
-        "aos_kuksa_verifier_runtime_t",
-        "aos_kuksa_auth_runtime_t",
         "aos_kuksa_tls_store_t",
     ):
         require(
@@ -330,8 +353,31 @@ def validate() -> None:
         )
     require(
         policy,
+        'type_transition aos_kuksa_provider_prepare_t aos_kuksa_provider_store_t:file aos_kuksa_provider_credential_t ".kuksa-token.tmp";',
+        "SELinux exact Provider temporary-file transition",
+    )
+    forbid(
+        policy,
         "type_transition aos_kuksa_provider_prepare_t aos_kuksa_provider_store_t:file aos_kuksa_provider_credential_t;",
-        "SELinux",
+        "SELinux generic Provider transition",
+    )
+    require(
+        policy,
+        "manage_dirs_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)",
+        "SELinux bounded PKCS11 cleanup",
+    )
+    require(
+        policy,
+        "manage_files_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)",
+        "SELinux bounded PKCS11 cleanup",
+    )
+    require(policy, "files_search_runtime(aos_kuksa_runtime_cleanup_t)", "SELinux cleanup runtime traversal")
+    require(policy, "miscfiles_read_localization(aos_kuksa_tls_prepare_t)", "SELinux TLS localization")
+    forbid(policy, "delete_dirs_pattern(aos_kuksa_runtime_cleanup_t", "SELinux top-level cleanup")
+    forbid(
+        policy,
+        "manage_dirs_pattern(aos_kuksa_tls_prepare_t, aos_kuksa_tls_store_t",
+        "SELinux redundant TLS directory management",
     )
     forbid(
         policy,
@@ -343,8 +389,16 @@ def validate() -> None:
     require(cleanup_source, "/var/lib/aos-kuksa-provider/kuksa-token", "cleanup")
     require(cleanup_source, "/var/lib/aos-kuksa-tls/server.key", "cleanup")
     require(cleanup_source, "/var/lib/aos-kuksa-tls/server.pem", "cleanup")
+    require(cleanup_source, "/var/lib/softhsm/tokens", "cleanup")
+    require(cleanup_source, "kMaximumPkcs11TokenDirectories", "cleanup bound")
+    require(cleanup_source, "kMaximumPkcs11FilesPerToken", "cleanup bound")
+    require(cleanup_source, "AT_SYMLINK_NOFOLLOW", "cleanup no-symlink boundary")
     require(cleanup_source, "O_PATH | O_DIRECTORY", "cleanup parent lookup")
     forbid(cleanup_source, "systemd-slot-component/credentials", "cleanup")
+    forbid(cleanup_source, "RemoveEmptyDirectory", "cleanup preserved runtime roots")
+    forbid(cleanup_source, "kDirectories", "cleanup preserved runtime roots")
+    cleanup_header = (FACTORY / "include/factory/integration.hpp").read_text(encoding="utf-8")
+    forbid(cleanup_header, "CleanupDirectories", "cleanup preserved runtime roots")
     for forbidden_rule in (
         "corenet_tcp_connect_all_ports",
         "corenet_tcp_sendrecv_all_if",

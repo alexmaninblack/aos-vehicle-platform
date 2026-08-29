@@ -99,6 +99,15 @@ if(BUILD_TESTING)
   target_compile_options(provider-tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
   target_link_libraries(provider-tests PRIVATE kac_provider)
   add_test(NAME provider-tests COMMAND provider-tests)
+
+  add_executable(verifier-prepare-tests
+    tests/verifier_prepare_tests.cpp
+    src/verifier_prepare.cpp
+  )
+  target_compile_definitions(verifier-prepare-tests PRIVATE AOS_KAC_NO_VERIFIER_MAIN=1)
+  target_include_directories(verifier-prepare-tests PRIVATE include)
+  target_compile_options(verifier-prepare-tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  add_test(NAME verifier-prepare-tests COMMAND verifier-prepare-tests)
 endif()
 
 include(GNUInstallDirs)

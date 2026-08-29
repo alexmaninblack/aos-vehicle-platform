@@ -28,6 +28,7 @@ gen_require(`
     type aos_kuksa_verifier_runtime_t;
     type aos_kuksa_auth_runtime_t;
     type aos_var_run_t;
+    type aos_t;
     type init_t;
     type initrc_t;
 ')
@@ -61,24 +62,36 @@ dev_read_urand(aos_kuksa_token_init_t)
 files_read_etc_files(aos_kuksa_token_init_t)
 miscfiles_read_localization(aos_kuksa_token_init_t)
 
-manage_dirs_pattern(aos_kuksa_tls_prepare_t, aos_kuksa_tls_store_t, aos_kuksa_tls_store_t)
 manage_files_pattern(aos_kuksa_tls_prepare_t, aos_kuksa_tls_store_t, aos_kuksa_tls_store_t)
 dev_read_urand(aos_kuksa_tls_prepare_t)
 files_read_etc_files(aos_kuksa_tls_prepare_t)
+miscfiles_read_localization(aos_kuksa_tls_prepare_t)
 
-# systemd is the only reader of the persistent identity. It copies the key and
-# public certificate into private credentials mounts for the broker and VDP.
+# systemd is the only reader of persistent TLS identity and the PIN. It copies
+# them into private credentials mounts for their exact consumers.
 read_files_pattern(init_t, aos_kuksa_tls_store_t, aos_kuksa_tls_store_t)
+read_files_pattern(init_t, aos_var_run_t, aos_kuksa_pin_t)
+
+# Aos IAM owns the fixed kuksa-jwt key and reads its dedicated PIN. The pinned
+# base policy currently leaves aos_t unconfined; retain these exact rules as
+# the finite dependency for future hardening.
+read_files_pattern(aos_t, aos_var_run_t, aos_kuksa_pin_t)
+files_search_var_lib(aos_t)
+manage_dirs_pattern(aos_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
+manage_files_pattern(aos_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
+allow aos_t aos_kuksa_pkcs11_store_t:file lock;
+
+# The unmodified broker remains in initrc_t and reads only the generated public
+# verifier. Its effective base policy is broader; keep this dependency explicit.
+read_files_pattern(initrc_t, aos_kuksa_verifier_runtime_t, aos_kuksa_verifier_runtime_t)
 
 delete_files_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_provider_store_t, aos_kuksa_provider_credential_t)
 list_dirs_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_provider_store_t, aos_kuksa_provider_store_t)
 delete_files_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_verifier_runtime_t, aos_kuksa_verifier_runtime_t)
 delete_files_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_auth_runtime_t, aos_kuksa_auth_runtime_t)
 delete_sock_files_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_auth_runtime_t, aos_kuksa_auth_runtime_t)
-list_dirs_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_verifier_runtime_t, aos_kuksa_verifier_runtime_t)
-list_dirs_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_auth_runtime_t, aos_kuksa_auth_runtime_t)
-delete_dirs_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_verifier_runtime_t, aos_kuksa_verifier_runtime_t)
-delete_dirs_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_auth_runtime_t, aos_kuksa_auth_runtime_t)
 delete_files_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_tls_store_t, aos_kuksa_tls_store_t)
 list_dirs_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_tls_store_t, aos_kuksa_tls_store_t)
-delete_dirs_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_tls_store_t, aos_kuksa_tls_store_t)
+manage_dirs_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
+manage_files_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
+files_search_runtime(aos_kuksa_runtime_cleanup_t)

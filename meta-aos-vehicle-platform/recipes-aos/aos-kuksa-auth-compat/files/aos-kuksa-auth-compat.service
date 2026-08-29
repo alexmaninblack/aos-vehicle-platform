@@ -16,6 +16,7 @@ Group=aos-kac
 SupplementaryGroups=aos-kuksa-clients
 ExecStart=/usr/libexec/aos-kuksa-auth-compat
 LoadCredential=kuksa-jwt-pin:/var/aos/iam/.kuksa-jwt-pin
+LoadCredential=aos-iam-ca:/var/aos/iam/certs/ca.pem
 Restart=on-failure
 RestartSec=2s
 NoNewPrivileges=yes

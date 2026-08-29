@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "kac/core.hpp"
+#include "kac/verifier_prepare.hpp"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -12,6 +13,7 @@
 #include <cstring>
 #include <string>
 
+#ifndef AOS_KAC_NO_VERIFIER_MAIN
 namespace {
 
 constexpr const char* kVerifier = "/run/aos-kuksa-verifier/kuksa-jwt-public.pem";
@@ -40,6 +42,7 @@ int main() {
   const auto public_key = signer.PublicKeyPem();
   if (!signature || !public_key || !signer.Verify(probe, *signature)) return 1;
 
+  if (!aos::kac::RemoveStaleTemporaryVerifier(kTemporary)) return 1;
   const int descriptor = open(kTemporary, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0444);
   if (descriptor < 0) return 1;
   bool ok = WriteAll(descriptor, *public_key) && fsync(descriptor) == 0 &&
@@ -51,3 +54,18 @@ int main() {
   }
   return 0;
 }
+#endif
+
+namespace aos::kac {
+
+bool RemoveStaleTemporaryVerifier(std::string_view path) {
+  const std::string temporary(path);
+  struct stat status {};
+  if (::lstat(temporary.c_str(), &status) != 0) return errno == ENOENT;
+  if (!S_ISREG(status.st_mode) || status.st_uid != ::geteuid() || status.st_nlink != 1) {
+    return false;
+  }
+  return ::unlink(temporary.c_str()) == 0;
+}
+
+}  // namespace aos::kac

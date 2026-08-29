@@ -10,7 +10,8 @@
 interface(`aos_kuksa_pin_read',`
     gen_require(`
         type aos_kuksa_pin_t;
+        type aos_var_run_t;
     ')
 
-    read_files_pattern($1, aos_kuksa_pin_t, aos_kuksa_pin_t)
+    read_files_pattern($1, aos_var_run_t, aos_kuksa_pin_t)
 ')

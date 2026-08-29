@@ -43,8 +43,10 @@ files_read_etc_files(vehicle_data_provider_t)
 init_dgram_send(vehicle_data_provider_t)
 init_read_runtime_files(vehicle_data_provider_t)
 init_rw_script_stream_sockets(vehicle_data_provider_t)
+files_search_runtime(vehicle_data_provider_t)
 logging_send_syslog_msg(vehicle_data_provider_t)
 miscfiles_read_generic_certs(vehicle_data_provider_t)
+miscfiles_read_localization(vehicle_data_provider_t)
 sysnet_dns_name_resolve(vehicle_data_provider_t)
 
 gen_require(`

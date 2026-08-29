@@ -7,6 +7,7 @@
 #include <grpcpp/security/credentials.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
 #include <iterator>
 #include <memory>
@@ -19,10 +20,13 @@ namespace {
 
 constexpr const char* kIamEndpoint = "ipv4:127.0.0.1:8090";
 constexpr const char* kExpectedServerName = "main";
-constexpr const char* kAosCaPath = "/var/aos/iam/certs/ca.pem";
+constexpr const char* kCaCredential = "aos-iam-ca";
 
 std::string ReadCa() {
-  std::ifstream input(kAosCaPath, std::ios::binary);
+  const char* credentials = std::getenv("CREDENTIALS_DIRECTORY");
+  if (credentials == nullptr || credentials[0] != '/') return {};
+  const std::string path = std::string(credentials) + "/" + kCaCredential;
+  std::ifstream input(path, std::ios::binary);
   if (!input) return {};
   return std::string(std::istreambuf_iterator<char>(input), {});
 }

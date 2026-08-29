@@ -47,6 +47,7 @@ def validate_kac() -> None:
     required = [
         SOURCE / "CMakeLists.txt",
         SOURCE / "include/kac/core.hpp",
+        SOURCE / "include/kac/verifier_prepare.hpp",
         SOURCE / "src/core.cpp",
         SOURCE / "src/json.cpp",
         SOURCE / "src/grpc_iam_client.cpp",
@@ -59,6 +60,7 @@ def validate_kac() -> None:
         SOURCE / "src/provider_prepare.cpp",
         SOURCE / "tests/kac_tests.cpp",
         SOURCE / "tests/provider_tests.cpp",
+        SOURCE / "tests/verifier_prepare_tests.cpp",
         RECIPE,
         FILES / "aos-kuksa-auth-compat.service",
         FILES / "aos-kuksa-verifier-prepare.service",
@@ -95,6 +97,7 @@ def validate_kac() -> None:
     require(helper, "User=aos-kac", "helper unit")
     require(helper, "SupplementaryGroups=aos-kuksa-clients", "helper unit")
     require(helper, "LoadCredential=kuksa-jwt-pin:/var/aos/iam/.kuksa-jwt-pin", "helper unit")
+    require(helper, "LoadCredential=aos-iam-ca:/var/aos/iam/certs/ca.pem", "helper unit")
     require(helper, "RestrictAddressFamilies=AF_UNIX AF_INET", "helper unit")
     require(helper, "IPAddressDeny=any", "helper unit")
     require(helper, "IPAddressAllow=127.0.0.1", "helper unit")
@@ -135,6 +138,9 @@ def validate_kac() -> None:
         "aos-vdp",
         "provide:Vehicle.Chassis.Axle.Row2.Wheel.Left.Speed",
         "/var/lib/aos-kuksa-provider",
+        "CREDENTIALS_DIRECTORY",
+        'kCaCredential = "aos-iam-ca"',
+        "RemoveStaleTemporaryVerifier",
     ):
         require(source_text, exact, "source")
     for forbidden in (
@@ -147,6 +153,13 @@ def validate_kac() -> None:
     ):
         forbid(source_text, forbidden, "source")
 
+    grpc_source = (SOURCE / "src/grpc_iam_client.cpp").read_text(encoding="utf-8")
+    forbid(grpc_source, "/var/aos/iam/certs/ca.pem", "IAM client source")
+    require(grpc_source, 'std::getenv("CREDENTIALS_DIRECTORY")', "IAM client source")
+    verifier_source = (SOURCE / "src/verifier_prepare.cpp").read_text(encoding="utf-8")
+    for required in ("::lstat", "S_ISREG", "status.st_uid != ::geteuid()", "status.st_nlink != 1"):
+        require(verifier_source, required, "verifier stale-state recovery")
+
     policy = POLICY.read_text(encoding="utf-8")
     require(policy, "aos_kuksa_auth_compat_t", "SELinux")
     require(policy, "aos_kuksa_verifier_prepare_t", "SELinux")
@@ -158,6 +171,32 @@ def validate_kac() -> None:
     forbid(policy, "corenet_port(aos_kuksa_iam_port_t)", "SELinux")
     require(policy, "corenet_tcp_sendrecv_generic_if(aos_kuksa_auth_compat_t)", "SELinux")
     require(policy, "corenet_tcp_sendrecv_generic_node(aos_kuksa_auth_compat_t)", "SELinux")
+    for domain in (
+        "aos_kuksa_auth_compat_t",
+        "aos_kuksa_verifier_prepare_t",
+        "aos_kuksa_provider_prepare_t",
+    ):
+        require(policy, f"allow initrc_t {domain}:process2 nnp_transition;", "SELinux NNP")
+        require(policy, f"init_rw_script_stream_sockets({domain})", "SELinux systemd stream")
+        require(policy, f"files_search_var_lib({domain})", "SELinux var-lib traversal")
+        require(policy, f"files_search_runtime({domain})", "SELinux runtime traversal")
+        require(policy, f"miscfiles_read_localization({domain})", "SELinux localization")
+    require(
+        policy,
+        'type_transition aos_kuksa_provider_prepare_t aos_kuksa_provider_store_t:file aos_kuksa_provider_credential_t ".kuksa-token.tmp";',
+        "SELinux named Provider transition",
+    )
+    forbid(
+        policy,
+        "type_transition aos_kuksa_provider_prepare_t aos_kuksa_provider_store_t:file aos_kuksa_provider_credential_t;",
+        "SELinux generic Provider transition",
+    )
+    for domain in (
+        "aos_kuksa_auth_compat_t, aos_kuksa_auth_runtime_t",
+        "aos_kuksa_verifier_prepare_t, aos_kuksa_verifier_runtime_t",
+        "aos_kuksa_provider_prepare_t, aos_kuksa_provider_store_t",
+    ):
+        forbid(policy, f"manage_dirs_pattern({domain}", "SELinux broad runtime directory management")
     for forbidden in (
         "corenet_tcp_connect_all_ports",
         "corenet_tcp_sendrecv_all_if",
