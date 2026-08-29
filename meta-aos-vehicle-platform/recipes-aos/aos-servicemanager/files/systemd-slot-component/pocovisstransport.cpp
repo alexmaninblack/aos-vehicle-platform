@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <sstream>
 #include <string_view>
+#include <vector>
 
 #include <arpa/inet.h>
 
@@ -62,10 +63,10 @@ Error Exchange(Poco::Net::WebSocket &socket, const std::string &path,
   socket.sendFrame(requestText.data(), static_cast<int>(requestText.size()),
                    Poco::Net::WebSocket::FRAME_TEXT);
 
-  std::array<char, cMaximumVissFrameBytes + 1> input{};
+  std::vector<char> input(cMaximumVissFrameBytes);
   int flags{};
-  const auto size = socket.receiveFrame(input.data(), cMaximumVissFrameBytes,
-                                        flags);
+  const auto size = socket.receiveFrame(
+      input.data(), static_cast<int>(input.size()), flags);
   if (size <= 0 || static_cast<size_t>(size) > cMaximumVissFrameBytes ||
       (flags & Poco::Net::WebSocket::FRAME_OP_BITMASK) !=
           Poco::Net::WebSocket::FRAME_OP_TEXT) {
