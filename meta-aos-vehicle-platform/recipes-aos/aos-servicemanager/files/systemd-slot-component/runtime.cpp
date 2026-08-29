@@ -6,6 +6,7 @@
 #include "runtime.hpp"
 
 #include <array>
+#include <chrono>
 #include <cerrno>
 #include <fcntl.h>
 #include <fstream>
@@ -208,6 +209,8 @@ Error LoadInstance(const common::utils::CaseInsensitiveObjectWrapper &object,
 
 const char *PhaseToString(ComponentTransactionPhase phase) {
   switch (phase) {
+  case ComponentTransactionPhase::eWaitingForSafeStop:
+    return "waiting-for-safe-stop";
   case ComponentTransactionPhase::ePrepared:
     return "prepared";
   case ComponentTransactionPhase::eUnavailable:
@@ -225,7 +228,9 @@ const char *PhaseToString(ComponentTransactionPhase phase) {
 
 Error StringToPhase(const std::string &value,
                     ComponentTransactionPhase &phase) {
-  if (value == "prepared") {
+  if (value == "waiting-for-safe-stop") {
+    phase = ComponentTransactionPhase::eWaitingForSafeStop;
+  } else if (value == "prepared") {
     phase = ComponentTransactionPhase::ePrepared;
   } else if (value == "unavailable") {
     phase = ComponentTransactionPhase::eUnavailable;
@@ -238,6 +243,31 @@ Error StringToPhase(const std::string &value,
   } else {
     return AOS_ERROR_WRAP(
         Error(ErrorEnum::eInvalidArgument, "invalid transaction phase"));
+  }
+
+  return ErrorEnum::eNone;
+}
+
+const char *OperationToString(ComponentTransactionOperation operation) {
+  switch (operation) {
+  case ComponentTransactionOperation::eInstallOrReplace:
+    return "install-or-replace";
+  case ComponentTransactionOperation::eRemove:
+    return "remove";
+  }
+
+  return "invalid";
+}
+
+Error StringToOperation(const std::string &value,
+                        ComponentTransactionOperation &operation) {
+  if (value == "install-or-replace") {
+    operation = ComponentTransactionOperation::eInstallOrReplace;
+  } else if (value == "remove") {
+    operation = ComponentTransactionOperation::eRemove;
+  } else {
+    return AOS_ERROR_WRAP(
+        Error(ErrorEnum::eInvalidArgument, "invalid transaction operation"));
   }
 
   return ErrorEnum::eNone;
@@ -277,6 +307,20 @@ bool ContainsControlCharacter(const std::string &value) {
   return false;
 }
 
+bool SameFrameEvidence(const VehicleStateFrame &left,
+                       const VehicleStateFrame &right) {
+  return left.mFrameID == right.mFrameID &&
+         left.mActiveMode == right.mActiveMode &&
+         left.mTransitionState == right.mTransitionState &&
+         left.mControlGeneration == right.mControlGeneration &&
+         left.mResetGeneration == right.mResetGeneration &&
+         left.mResetInProgress == right.mResetInProgress &&
+         left.mResetDiscontinuity == right.mResetDiscontinuity &&
+         left.mSpeedKmh == right.mSpeedKmh &&
+         left.mAcceleratorPercent == right.mAcceleratorPercent &&
+         left.mBrakePercent == right.mBrakePercent;
+}
+
 Error SealPayload(const std::filesystem::path &root) {
   std::error_code error;
   for (const auto &entry :
@@ -309,8 +353,21 @@ Error SealPayload(const std::filesystem::path &root) {
 } // namespace
 
 SystemdSlotComponentRuntime::SystemdSlotComponentRuntime(
-    ProviderProfileItf *profileOverride)
-    : mProfile(profileOverride) {}
+    ProviderProfileItf *profileOverride,
+    VehicleStateProviderItf *vehicleStateOverride)
+    : mProfile(profileOverride),
+      mDefaultVehicleStateProvider(&mDefaultVehicleStateTransport),
+      mVehicleStateProvider(vehicleStateOverride) {}
+
+SystemdSlotComponentRuntime::~SystemdSlotComponentRuntime() {
+  mCancelWorker = true;
+  if (mVehicleStateProvider != nullptr) {
+    mVehicleStateProvider->Cancel();
+  }
+  if (mWorker.joinable()) {
+    mWorker.join();
+  }
+}
 
 Error SystemdSlotComponentRuntime::Init(
     const RuntimeConfig &config,
@@ -340,6 +397,7 @@ Error SystemdSlotComponentRuntime::Init(
   if (auto err = mNodeID.Assign(nodeInfo->mNodeID); !err.IsNone()) {
     return AOS_ERROR_WRAP(err);
   }
+  mConfig.mVehicleState.mExpectedNodeID = mNodeID.CStr();
 
   mItemInfoProvider = &itemInfoProvider;
   mOCISpec = &ociSpec;
@@ -350,11 +408,19 @@ Error SystemdSlotComponentRuntime::Init(
     }
     mProfile = &mDefaultProfile;
   }
+  if (mVehicleStateProvider == nullptr) {
+    if (auto err = mDefaultVehicleStateProvider.Init(mConfig.mVehicleState);
+        !err.IsNone()) {
+      return AOS_ERROR_WRAP(err);
+    }
+    mVehicleStateProvider = &mDefaultVehicleStateProvider;
+  }
 
   return EnsureStore();
 }
 
 Error SystemdSlotComponentRuntime::Start() {
+  JoinFinishedWorker();
   std::lock_guard lock{mMutex};
   if (auto err = EnsureStore(); !err.IsNone()) {
     return AOS_ERROR_WRAP(err);
@@ -370,6 +436,12 @@ Error SystemdSlotComponentRuntime::Start() {
     return AOS_ERROR_WRAP(err);
   }
 
+  auto waiting = std::make_unique<ComponentTransaction>();
+  if (auto err = LoadTransaction(*waiting); err.IsNone() &&
+      waiting->mPhase == ComponentTransactionPhase::eWaitingForSafeStop) {
+    LaunchWorker(*waiting);
+  }
+
   LOG_INF() << "Vehicle data provider component runtime started"
             << Log::Field("runtimeType", mRuntimeInfo.mRuntimeType)
             << Log::Field("installed", mInstalled.has_value());
@@ -378,6 +450,9 @@ Error SystemdSlotComponentRuntime::Start() {
 }
 
 Error SystemdSlotComponentRuntime::Stop() {
+  if (auto err = CancelAndJoinWorker(); !err.IsNone()) {
+    return AOS_ERROR_WRAP(err);
+  }
   std::lock_guard lock{mMutex};
   mStarted = false;
   return ErrorEnum::eNone;
@@ -392,6 +467,7 @@ Error SystemdSlotComponentRuntime::GetRuntimeInfo(
 
 Error SystemdSlotComponentRuntime::StartInstance(const InstanceInfo &instance,
                                                  InstanceStatus &status) {
+  JoinFinishedWorker();
   std::lock_guard lock{mMutex};
   if (!mStarted || instance.mRuntimeID != mRuntimeInfo.mRuntimeID ||
       instance.mType != UpdateItemTypeEnum::eComponent ||
@@ -405,8 +481,17 @@ Error SystemdSlotComponentRuntime::StartInstance(const InstanceInfo &instance,
     if (!err.IsNone()) {
       return AOS_ERROR_WRAP(err);
     }
+    if (existing->mOperation ==
+            ComponentTransactionOperation::eInstallOrReplace &&
+        existing->mCandidate.mInstance.mManifestDigest ==
+            instance.mManifestDigest) {
+      FillStatus(existing->mCandidate, InstanceStateEnum::eActivating,
+                 ErrorEnum::eNone, status);
+      return ErrorEnum::eNone;
+    }
     return AOS_ERROR_WRAP(
-        Error(ErrorEnum::eWrongState, "component update is already active"));
+        Error(ErrorEnum::eWrongState,
+              "a different component transaction is already active"));
   }
 
   if (mInstalled.has_value() &&
@@ -436,46 +521,22 @@ Error SystemdSlotComponentRuntime::StartInstance(const InstanceInfo &instance,
   auto transaction = std::make_unique<ComponentTransaction>();
   transaction->mCandidate = *candidate;
   transaction->mPrevious = mInstalled;
-  transaction->mPhase = ComponentTransactionPhase::ePrepared;
+  transaction->mOperation =
+      ComponentTransactionOperation::eInstallOrReplace;
+  transaction->mPhase = ComponentTransactionPhase::eWaitingForSafeStop;
   if (auto err = SaveTransaction(*transaction); !err.IsNone()) {
     FillStatus(instance, InstanceStateEnum::eFailed, err, status);
     Notify(status);
     return AOS_ERROR_WRAP(err);
   }
 
-  auto activationError = Activate(*candidate, mInstalled);
-  if (!activationError.IsNone()) {
-    auto durableTransaction =
-        std::make_unique<ComponentTransaction>(*transaction);
-    if (auto loadError = LoadTransaction(*durableTransaction);
-        !loadError.IsNone()) {
-      LOG_ERR() << "Cannot reload failed component transaction"
-                << Log::Field(loadError);
-    } else if (auto rollbackError =
-                   Rollback(*durableTransaction, activationError);
-               !rollbackError.IsNone()) {
-      LOG_ERR() << "Automatic provider rollback failed"
-                << Log::Field(rollbackError);
-    }
-
-    FillStatus(instance, InstanceStateEnum::eFailed, activationError, status);
-    Notify(status);
-    if (mInstalled.has_value()) {
-      auto restored = std::make_unique<InstanceStatus>();
-      FillStatus(*mInstalled, InstanceStateEnum::eActive, ErrorEnum::eNone,
-                 *restored);
-      Notify(*restored);
-    }
-    return AOS_ERROR_WRAP(activationError);
-  }
-
-  FillStatus(*candidate, InstanceStateEnum::eActive, ErrorEnum::eNone, status);
-  Notify(status);
+  LaunchWorker(*transaction);
   return ErrorEnum::eNone;
 }
 
 Error SystemdSlotComponentRuntime::StopInstance(const InstanceIdent &instance,
                                                 InstanceStatus &status) {
+  JoinFinishedWorker();
   std::lock_guard lock{mMutex};
   if (!mStarted || !mInstalled.has_value() ||
       static_cast<const InstanceIdent &>(mInstalled->mInstance) != instance) {
@@ -488,31 +549,37 @@ Error SystemdSlotComponentRuntime::StopInstance(const InstanceIdent &instance,
         ErrorEnum::eNotFound, "vehicle data provider component is not active"));
   }
 
-  if (auto err = mProfile->MarkUnavailable(); !err.IsNone()) {
-    FillStatus(*mInstalled, InstanceStateEnum::eFailed, err, status);
-    Notify(status);
-    return AOS_ERROR_WRAP(err);
-  }
-  if (auto err = mProfile->StopProvider(); !err.IsNone()) {
-    FillStatus(*mInstalled, InstanceStateEnum::eFailed, err, status);
-    Notify(status);
-    return AOS_ERROR_WRAP(err);
-  }
-  if (auto err = RemoveActive(); !err.IsNone()) {
-    FillStatus(*mInstalled, InstanceStateEnum::eFailed, err, status);
-    Notify(status);
-    return AOS_ERROR_WRAP(err);
-  }
-  if (auto err = RemoveStateFile(StatePath(cInstalledFile)); !err.IsNone()) {
-    FillStatus(*mInstalled, InstanceStateEnum::eFailed, err, status);
-    Notify(status);
-    return AOS_ERROR_WRAP(err);
+  auto existing = std::make_unique<ComponentTransaction>();
+  if (auto err = LoadTransaction(*existing); !err.Is(ErrorEnum::eNotFound)) {
+    if (!err.IsNone()) {
+      return AOS_ERROR_WRAP(err);
+    }
+    if (existing->mOperation == ComponentTransactionOperation::eRemove &&
+        static_cast<const InstanceIdent &>(existing->mCandidate.mInstance) ==
+            instance) {
+      FillStatus(existing->mCandidate, InstanceStateEnum::eActivating,
+                 ErrorEnum::eNone, status);
+      return ErrorEnum::eNone;
+    }
+    return AOS_ERROR_WRAP(
+        Error(ErrorEnum::eWrongState,
+              "a different component transaction is already active"));
   }
 
-  auto stopped = std::make_unique<ComponentRelease>(*mInstalled);
-  mInstalled.reset();
-  FillStatus(*stopped, InstanceStateEnum::eInactive, ErrorEnum::eNone, status);
+  ComponentTransaction transaction;
+  transaction.mCandidate = *mInstalled;
+  transaction.mPrevious = *mInstalled;
+  transaction.mOperation = ComponentTransactionOperation::eRemove;
+  transaction.mPhase = ComponentTransactionPhase::eWaitingForSafeStop;
+  if (auto err = SaveTransaction(transaction); !err.IsNone()) {
+    FillStatus(*mInstalled, InstanceStateEnum::eFailed, err, status);
+    Notify(status);
+    return AOS_ERROR_WRAP(err);
+  }
+  FillStatus(*mInstalled, InstanceStateEnum::eActivating, ErrorEnum::eNone,
+             status);
   Notify(status);
+  LaunchWorker(transaction);
   return ErrorEnum::eNone;
 }
 
@@ -607,6 +674,65 @@ Error SystemdSlotComponentRuntime::Recover() {
     FillStatus(*installed, InstanceStateEnum::eActive, ErrorEnum::eNone,
                *status);
     Notify(*status);
+    return ErrorEnum::eNone;
+  }
+
+  if (transaction->mPhase ==
+      ComponentTransactionPhase::eWaitingForSafeStop) {
+    if (transaction->mOperation ==
+        ComponentTransactionOperation::eInstallOrReplace) {
+      if (auto err = ValidateReleaseSlot(transaction->mCandidate);
+          !err.IsNone()) {
+        return FailClosed(err);
+      }
+    }
+
+    if (transaction->mPrevious.has_value()) {
+      if (!installedError.IsNone() ||
+          installed->mInstance.mManifestDigest !=
+              transaction->mPrevious->mInstance.mManifestDigest ||
+          installed->mSlot != transaction->mPrevious->mSlot) {
+        return FailClosed(Error(
+            ErrorEnum::eWrongState,
+            "waiting transaction does not match the installed release"));
+      }
+      if (auto err = ValidateReleaseSlot(*installed); !err.IsNone()) {
+        return FailClosed(err);
+      }
+      std::string active;
+      if (auto err = ReadActive(active);
+          !err.IsNone() || active != installed->mSlot) {
+        return FailClosed(Error(
+            ErrorEnum::eWrongState,
+            "waiting transaction lost its healthy active release"));
+      }
+      if (auto err = mProfile->CheckHealth(); !err.IsNone()) {
+        return FailClosed(err);
+      }
+      mInstalled = *installed;
+      auto activeStatus = std::make_unique<InstanceStatus>();
+      FillStatus(*installed, InstanceStateEnum::eActive, ErrorEnum::eNone,
+                 *activeStatus);
+      Notify(*activeStatus);
+    } else {
+      if (!installedError.Is(ErrorEnum::eNotFound)) {
+        return FailClosed(Error(
+            ErrorEnum::eWrongState,
+            "first-install wait unexpectedly has an installed release"));
+      }
+      std::string active;
+      if (auto err = ReadActive(active); !err.Is(ErrorEnum::eNotFound)) {
+        return FailClosed(Error(
+            ErrorEnum::eWrongState,
+            "first-install wait unexpectedly has an active slot"));
+      }
+      mInstalled.reset();
+    }
+
+    auto waitingStatus = std::make_unique<InstanceStatus>();
+    FillStatus(transaction->mCandidate, InstanceStateEnum::eActivating,
+               ErrorEnum::eNone, *waitingStatus);
+    Notify(*waitingStatus);
     return ErrorEnum::eNone;
   }
 
@@ -984,61 +1110,349 @@ Error SystemdSlotComponentRuntime::ValidatePayloadMetadata(
   return ErrorEnum::eNone;
 }
 
-Error SystemdSlotComponentRuntime::Activate(
-    const ComponentRelease &candidate,
-    const std::optional<ComponentRelease> &previous) {
-  auto transaction = std::make_unique<ComponentTransaction>();
-  transaction->mCandidate = candidate;
-  transaction->mPrevious = previous;
-  transaction->mPhase = ComponentTransactionPhase::ePrepared;
+Error SystemdSlotComponentRuntime::WaitForSafeStop(
+    std::vector<VehicleStateFrame> &window,
+    std::chrono::steady_clock::time_point deadline) {
+  window.clear();
+  while (!mCancelWorker && std::chrono::steady_clock::now() < deadline) {
+    VehicleStateFrame frame;
+    if (auto err = mVehicleStateProvider->ReadFrame(
+            frame,
+            std::chrono::milliseconds{
+                mConfig.mSafeStopReadTimeoutMilliseconds});
+        !err.IsNone()) {
+      window.clear();
+      if (!mCancelWorker) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{50});
+      }
+      continue;
+    }
 
-  if (auto err = mProfile->MarkUnavailable(); !err.IsNone()) {
-    return AOS_ERROR_WRAP(err);
-  }
-  transaction->mPhase = ComponentTransactionPhase::eUnavailable;
-  if (auto err = SaveTransaction(*transaction); !err.IsNone()) {
-    return AOS_ERROR_WRAP(err);
-  }
+    if (!window.empty() && window.back().mFrameID.has_value() &&
+        frame.mFrameID.has_value() &&
+        *frame.mFrameID <= *window.back().mFrameID) {
+      if (*frame.mFrameID == *window.back().mFrameID &&
+          SameFrameEvidence(window.back(), frame)) {
+        // A coherent cached read is not a second observation. Do not let
+        // polling frequency manufacture the twelve-frame stability window.
+        std::this_thread::sleep_for(std::chrono::milliseconds{5});
+        continue;
+      }
+      window.clear();
+    }
 
-  if (previous.has_value()) {
-    if (auto err = mProfile->StopProvider(); !err.IsNone()) {
-      return AOS_ERROR_WRAP(err);
+    window.push_back(std::move(frame));
+    if (window.size() > SafeStopEvaluator::cRequiredFrames) {
+      window.erase(window.begin());
+    }
+    if (mSafeStopEvaluator
+            .Evaluate(window, std::chrono::steady_clock::now())
+            .mReady) {
+      return ErrorEnum::eNone;
     }
   }
-  transaction->mPhase = ComponentTransactionPhase::ePreviousStopped;
-  if (auto err = SaveTransaction(*transaction); !err.IsNone()) {
-    return AOS_ERROR_WRAP(err);
-  }
 
-  if (auto err = SwitchActive(candidate.mSlot); !err.IsNone()) {
-    return AOS_ERROR_WRAP(err);
+  if (mCancelWorker) {
+    return AOS_ERROR_WRAP(
+        Error(ErrorEnum::eWrongState, "safe stop wait canceled"));
   }
-  transaction->mPhase = ComponentTransactionPhase::eSwitched;
-  if (auto err = SaveTransaction(*transaction); !err.IsNone()) {
-    return AOS_ERROR_WRAP(err);
-  }
+  return AOS_ERROR_WRAP(
+      Error(ErrorEnum::eFailed, "safe_stop_timeout"));
+}
 
-  if (auto err = mProfile->StartProvider(); !err.IsNone()) {
-    return AOS_ERROR_WRAP(err);
+bool SystemdSlotComponentRuntime::RefreshSafeStop(
+    std::vector<VehicleStateFrame> &window) {
+  if (mCancelWorker) {
+    return false;
   }
-  transaction->mPhase = ComponentTransactionPhase::eCandidateStarted;
-  if (auto err = SaveTransaction(*transaction); !err.IsNone()) {
-    return AOS_ERROR_WRAP(err);
-  }
-  if (auto err = mProfile->CheckHealth(); !err.IsNone()) {
-    return AOS_ERROR_WRAP(err);
-  }
-
-  if (auto err = SaveRelease(StatePath(cInstalledFile), candidate);
+  VehicleStateFrame frame;
+  if (auto err = mVehicleStateProvider->ReadFrame(
+          frame,
+          std::chrono::milliseconds{mConfig.mSafeStopReadTimeoutMilliseconds});
       !err.IsNone()) {
-    return AOS_ERROR_WRAP(err);
+    window.clear();
+    return false;
   }
-  mInstalled = candidate;
-  if (auto err = RemoveStateFile(StatePath(cTransactionFile)); !err.IsNone()) {
+  if (!window.empty() && window.back().mFrameID.has_value() &&
+      frame.mFrameID.has_value() &&
+      *frame.mFrameID <= *window.back().mFrameID) {
+    if (*frame.mFrameID == *window.back().mFrameID &&
+        SameFrameEvidence(window.back(), frame)) {
+      // The source timestamp, not this repeated transport read, determines
+      // whether the latest observation is still current at the gate.
+      return mSafeStopEvaluator
+          .Evaluate(window, std::chrono::steady_clock::now())
+          .mReady;
+    }
+    window.clear();
+    return false;
+  }
+  window.push_back(std::move(frame));
+  if (window.size() > SafeStopEvaluator::cRequiredFrames) {
+    window.erase(window.begin());
+  }
+  return mSafeStopEvaluator
+      .Evaluate(window, std::chrono::steady_clock::now())
+      .mReady;
+}
+
+void SystemdSlotComponentRuntime::LaunchWorker(
+    const ComponentTransaction &transaction) {
+  std::lock_guard workerLock{mWorkerMutex};
+  if (mWorker.joinable()) {
+    return;
+  }
+  mCancelWorker = false;
+  mWorkerDone = false;
+  mWorker = std::thread(
+      [this, transaction]() mutable { RunTransaction(std::move(transaction)); });
+}
+
+void SystemdSlotComponentRuntime::RunTransaction(
+    ComponentTransaction transaction) {
+  std::vector<VehicleStateFrame> window;
+  const auto deadline = std::chrono::steady_clock::now() +
+                        std::chrono::seconds{mConfig.mSafeStopWaitSeconds};
+  auto operationError = WaitForSafeStop(window, deadline);
+  while (operationError.IsNone() && !mCancelWorker &&
+         !RefreshSafeStop(window)) {
+    operationError = WaitForSafeStop(window, deadline);
+  }
+  if (operationError.IsNone() && !mCancelWorker) {
+    operationError =
+        transaction.mOperation ==
+                ComponentTransactionOperation::eInstallOrReplace
+            ? ActivateGuarded(transaction, window)
+            : RemoveGuarded(transaction, window);
+  }
+
+  if (!mCancelWorker && !operationError.IsNone()) {
+    std::lock_guard lock{mMutex};
+    auto durable = std::make_unique<ComponentTransaction>();
+    if (auto err = LoadTransaction(*durable); err.IsNone()) {
+      if (durable->mPhase ==
+          ComponentTransactionPhase::eWaitingForSafeStop) {
+        SaveFailure(*durable, operationError);
+        RemoveStateFile(StatePath(cTransactionFile));
+      }
+    }
+    auto failed = std::make_unique<InstanceStatus>();
+    FillStatus(transaction.mCandidate, InstanceStateEnum::eFailed,
+               operationError, *failed);
+    Notify(*failed);
+    if (mInstalled.has_value()) {
+      auto restored = std::make_unique<InstanceStatus>();
+      FillStatus(*mInstalled, InstanceStateEnum::eActive, ErrorEnum::eNone,
+                 *restored);
+      Notify(*restored);
+    }
+  }
+
+  {
+    std::lock_guard workerLock{mWorkerMutex};
+    mWorkerDone = true;
+  }
+  mWorkerCondition.notify_all();
+}
+
+Error SystemdSlotComponentRuntime::CancelAndJoinWorker() {
+  std::thread completed;
+  {
+    std::unique_lock workerLock{mWorkerMutex};
+    if (!mWorker.joinable()) {
+      return ErrorEnum::eNone;
+    }
+    mCancelWorker = true;
+    if (mVehicleStateProvider != nullptr) {
+      mVehicleStateProvider->Cancel();
+    }
+    if (!mWorkerCondition.wait_for(
+            workerLock,
+            std::chrono::seconds{mConfig.mSafeStopCancelTimeoutSeconds},
+            [this]() { return mWorkerDone; })) {
+      return AOS_ERROR_WRAP(
+          Error(ErrorEnum::eFailed, "safe stop worker cancellation timed out"));
+    }
+    completed = std::move(mWorker);
+  }
+  completed.join();
+  return ErrorEnum::eNone;
+}
+
+void SystemdSlotComponentRuntime::JoinFinishedWorker() {
+  std::thread completed;
+  {
+    std::lock_guard workerLock{mWorkerMutex};
+    if (!mWorker.joinable() || !mWorkerDone) {
+      return;
+    }
+    completed = std::move(mWorker);
+  }
+  completed.join();
+}
+
+Error SystemdSlotComponentRuntime::ActivateGuarded(
+    ComponentTransaction transaction,
+    std::vector<VehicleStateFrame> &window) {
+  auto failAndRollback = [this, &transaction](const Error &error) {
+    if (auto rollbackError = Rollback(transaction, error);
+        !rollbackError.IsNone()) {
+      return AOS_ERROR_WRAP(rollbackError);
+    }
+    return AOS_ERROR_WRAP(error);
+  };
+  const auto safeStopLost = Error(
+      ErrorEnum::eFailed, "safe_stop_lost_during_apply");
+
+  {
+    std::lock_guard lock{mMutex};
+    if (auto err = mProfile->MarkUnavailable(); !err.IsNone()) {
+      return AOS_ERROR_WRAP(err);
+    }
+    transaction.mPhase = ComponentTransactionPhase::eUnavailable;
+    if (auto err = SaveTransaction(transaction); !err.IsNone()) {
+      return failAndRollback(err);
+    }
+  }
+  if (!RefreshSafeStop(window)) {
+    std::lock_guard lock{mMutex};
+    return failAndRollback(safeStopLost);
+  }
+
+  if (transaction.mPrevious.has_value()) {
+    std::lock_guard lock{mMutex};
+    if (auto err = mProfile->StopProvider(); !err.IsNone()) {
+      return failAndRollback(err);
+    }
+  }
+  {
+    std::lock_guard lock{mMutex};
+    transaction.mPhase = ComponentTransactionPhase::ePreviousStopped;
+    if (auto err = SaveTransaction(transaction); !err.IsNone()) {
+      return failAndRollback(err);
+    }
+  }
+  if (!RefreshSafeStop(window)) {
+    std::lock_guard lock{mMutex};
+    return failAndRollback(safeStopLost);
+  }
+
+  {
+    std::lock_guard lock{mMutex};
+    if (auto err = SwitchActive(transaction.mCandidate.mSlot); !err.IsNone()) {
+      return failAndRollback(err);
+    }
+    transaction.mPhase = ComponentTransactionPhase::eSwitched;
+    if (auto err = SaveTransaction(transaction); !err.IsNone()) {
+      return failAndRollback(err);
+    }
+  }
+  if (!RefreshSafeStop(window)) {
+    std::lock_guard lock{mMutex};
+    return failAndRollback(safeStopLost);
+  }
+
+  {
+    std::lock_guard lock{mMutex};
+    if (auto err = mProfile->StartProvider(); !err.IsNone()) {
+      return failAndRollback(err);
+    }
+    transaction.mPhase = ComponentTransactionPhase::eCandidateStarted;
+    if (auto err = SaveTransaction(transaction); !err.IsNone()) {
+      return failAndRollback(err);
+    }
+  }
+  if (!RefreshSafeStop(window)) {
+    std::lock_guard lock{mMutex};
+    return failAndRollback(safeStopLost);
+  }
+
+  std::lock_guard lock{mMutex};
+  if (auto err = mProfile->CheckHealth(); !err.IsNone()) {
+    return failAndRollback(err);
+  }
+  if (auto err = SaveRelease(StatePath(cInstalledFile),
+                             transaction.mCandidate);
+      !err.IsNone()) {
+    return failAndRollback(err);
+  }
+  mInstalled = transaction.mCandidate;
+  if (auto err = RemoveStateFile(StatePath(cTransactionFile));
+      !err.IsNone()) {
     LOG_WRN() << "Committed provider update retains a stale transaction"
               << Log::Field(err);
   }
+  auto active = std::make_unique<InstanceStatus>();
+  FillStatus(transaction.mCandidate, InstanceStateEnum::eActive,
+             ErrorEnum::eNone, *active);
+  Notify(*active);
+  return ErrorEnum::eNone;
+}
 
+Error SystemdSlotComponentRuntime::RemoveGuarded(
+    ComponentTransaction transaction,
+    std::vector<VehicleStateFrame> &window) {
+  auto failAndRollback = [this, &transaction](const Error &error) {
+    if (auto rollbackError = Rollback(transaction, error);
+        !rollbackError.IsNone()) {
+      return AOS_ERROR_WRAP(rollbackError);
+    }
+    return AOS_ERROR_WRAP(error);
+  };
+  const auto safeStopLost = Error(
+      ErrorEnum::eFailed, "safe_stop_lost_during_apply");
+
+  {
+    std::lock_guard lock{mMutex};
+    if (auto err = mProfile->MarkUnavailable(); !err.IsNone()) {
+      return AOS_ERROR_WRAP(err);
+    }
+    transaction.mPhase = ComponentTransactionPhase::eUnavailable;
+    if (auto err = SaveTransaction(transaction); !err.IsNone()) {
+      return failAndRollback(err);
+    }
+  }
+  if (!RefreshSafeStop(window)) {
+    std::lock_guard lock{mMutex};
+    return failAndRollback(safeStopLost);
+  }
+  {
+    std::lock_guard lock{mMutex};
+    if (auto err = mProfile->StopProvider(); !err.IsNone()) {
+      return failAndRollback(err);
+    }
+    transaction.mPhase = ComponentTransactionPhase::ePreviousStopped;
+    if (auto err = SaveTransaction(transaction); !err.IsNone()) {
+      return failAndRollback(err);
+    }
+  }
+  if (!RefreshSafeStop(window)) {
+    std::lock_guard lock{mMutex};
+    return failAndRollback(safeStopLost);
+  }
+  {
+    std::lock_guard lock{mMutex};
+    if (auto err = RemoveActive(); !err.IsNone()) {
+      return failAndRollback(err);
+    }
+  }
+  if (!RefreshSafeStop(window)) {
+    std::lock_guard lock{mMutex};
+    return failAndRollback(safeStopLost);
+  }
+  std::lock_guard lock{mMutex};
+  if (auto err = RemoveStateFile(StatePath(cInstalledFile)); !err.IsNone()) {
+    return failAndRollback(err);
+  }
+  if (auto err = RemoveStateFile(StatePath(cTransactionFile)); !err.IsNone()) {
+    return failAndRollback(err);
+  }
+  auto removed = transaction.mCandidate;
+  mInstalled.reset();
+  auto inactive = std::make_unique<InstanceStatus>();
+  FillStatus(removed, InstanceStateEnum::eInactive, ErrorEnum::eNone,
+             *inactive);
+  Notify(*inactive);
   return ErrorEnum::eNone;
 }
 
@@ -1157,7 +1571,8 @@ Error SystemdSlotComponentRuntime::SaveTransaction(
     const ComponentTransaction &transaction) const {
   auto object =
       Poco::makeShared<Poco::JSON::Object>(Poco::JSON_PRESERVE_KEY_ORDER);
-  object->set("schemaVersion", 1);
+  object->set("schemaVersion", 2);
+  object->set("operation", OperationToString(transaction.mOperation));
   object->set("phase", PhaseToString(transaction.mPhase));
   object->set("candidateSlot", transaction.mCandidate.mSlot);
   StoreInstance(*object, "candidate", transaction.mCandidate.mInstance);
@@ -1202,9 +1617,21 @@ Error SystemdSlotComponentRuntime::LoadTransaction(
     }
     const auto object =
         common::utils::CaseInsensitiveObjectWrapper(parsed.mValue);
-    if (object.GetValue<uint32_t>("schemaVersion") != 1) {
+    const auto schemaVersion = object.GetValue<uint32_t>("schemaVersion");
+    if (schemaVersion != 1 && schemaVersion != 2) {
       return AOS_ERROR_WRAP(
           Error(ErrorEnum::eInvalidArgument, "invalid transaction schema"));
+    }
+    if (schemaVersion == 2) {
+      if (auto err = StringToOperation(
+              object.GetValue<std::string>("operation"),
+              transaction.mOperation);
+          !err.IsNone()) {
+        return AOS_ERROR_WRAP(err);
+      }
+    } else {
+      transaction.mOperation =
+          ComponentTransactionOperation::eInstallOrReplace;
     }
     if (auto err = StringToPhase(object.GetValue<std::string>("phase"),
                                  transaction.mPhase);

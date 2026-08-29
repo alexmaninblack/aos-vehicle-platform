@@ -14,6 +14,8 @@
 
 #include <sm/launcher/runtimes/config.hpp>
 
+#include "vissvehiclestate.hpp"
+
 namespace aos::sm::launcher {
 
 /** Bootstrap configuration for the provider component runtime. */
@@ -26,6 +28,10 @@ struct SystemdSlotComponentConfig {
   uint64_t mMinimumFreeBytes{};
   uint32_t mStartTimeoutSeconds{};
   uint32_t mStopTimeoutSeconds{};
+  uint32_t mSafeStopWaitSeconds{};
+  uint32_t mSafeStopReadTimeoutMilliseconds{};
+  uint32_t mSafeStopCancelTimeoutSeconds{};
+  Viss31MtlsConfig mVehicleState;
 };
 
 /** Parses and validates the bootstrap runtime configuration. */

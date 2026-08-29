@@ -22,6 +22,32 @@ RUNTIME = (
     LAYER
     / "recipes-aos/aos-servicemanager/files/systemd-slot-component/runtime.cpp"
 )
+RUNTIME_HEADER = (
+    LAYER
+    / "recipes-aos/aos-servicemanager/files/systemd-slot-component/runtime.hpp"
+)
+SAFE_STOP = (
+    LAYER
+    / "recipes-aos/aos-servicemanager/files/systemd-slot-component/safestop.cpp"
+)
+SAFE_STOP_HEADER = (
+    LAYER
+    / "recipes-aos/aos-servicemanager/files/systemd-slot-component/safestop.hpp"
+)
+VISS_STATE = (
+    LAYER
+    / "recipes-aos/aos-servicemanager/files/systemd-slot-component/vissvehiclestate.cpp"
+)
+VISS_TRANSPORT = (
+    LAYER
+    / "recipes-aos/aos-servicemanager/files/systemd-slot-component/"
+    "pocovisstransport.cpp"
+)
+IAM_APPEND = LAYER / "recipes-aos/aos-iamanager/aos-iamanager_git.bbappend"
+IAM_TRANSFORM = (
+    LAYER
+    / "recipes-aos/aos-iamanager/files/enable-permissions-handler.py"
+)
 PATCH = (
     LAYER
     / "recipes-aos/aos-servicemanager/files/0001-add-production-systemd-slot-component-runtime.patch"
@@ -254,6 +280,71 @@ def validate_layer() -> None:
         "obsolete lifecycle deferral remains",
     )
     require("RebootRequired" not in runtime, "component lifecycle requests a Node reboot")
+
+    runtime_header = read(RUNTIME_HEADER)
+    safe_stop = read(SAFE_STOP)
+    safe_stop_header = read(SAFE_STOP_HEADER)
+    viss_state = read(VISS_STATE)
+    viss_transport = read(VISS_TRANSPORT)
+    for token in (
+        "eWaitingForSafeStop",
+        "LaunchWorker",
+        "WaitForSafeStop",
+        "CancelAndJoinWorker",
+        "ActivateGuarded",
+        "RemoveGuarded",
+        "safe_stop_lost_during_apply",
+    ):
+        require(token in runtime or token in runtime_header,
+                f"Safe Stop runtime operation is missing: {token}")
+    for token in (
+        "cRequiredFrames = 12",
+        "cMaximumSourceAge = std::chrono::milliseconds{250}",
+        "cMaximumSpeedKmh = 0.3",
+        "cMaximumAcceleratorPercent = 0.5",
+        "cMinimumBrakePercent = 95.0",
+    ):
+        require(token in safe_stop_header, f"Safe Stop threshold is missing: {token}")
+    for token in (
+        '"SAFE_STOP"',
+        '"STABLE"',
+        "frame.mAcquiredAt - frame.mSourceObservedAt > cMaximumSourceAge",
+        "now - latest.mSourceObservedAt > cMaximumSourceAge",
+        "buffered history is never reinterpreted as current state",
+        "eRepeatedOrOutOfOrderFrame",
+        "eContradictoryEvidence",
+        "eReset",
+    ):
+        require(token in safe_stop, f"Safe Stop rejection is missing: {token}")
+    for token in (
+        "PLATFORM_UPDATE_RUNTIME",
+        "incomplete or widened VISS snapshot",
+        "clientCertificateSha256",
+        "assignmentGeneration",
+        "mExpectedNodeID",
+    ):
+        require(token in viss_state, f"VISS runtime binding is missing: {token}")
+    for token in (
+        'getValue<std::string>("ts")',
+        "ParseSourceTimestamp",
+        "mSourceObservedAt",
+        "mAcquiredAt",
+        "VISS facts crossed a Gateway source timestamp boundary",
+        "BoundReceive",
+    ):
+        require(token in viss_transport,
+                f"VISS source freshness boundary is missing: {token}")
+
+    iam_append = read(IAM_APPEND)
+    iam_transform = read(IAM_TRANSFORM)
+    require("enable-permissions-handler.py" in iam_append,
+            "product IAM transformation is not installed")
+    require("do_install:append()" in iam_append,
+            "product IAM transformation does not run after installation")
+    require('config["enablePermissionsHandler"] = True' in iam_transform,
+            "Permission Handler is not enabled as Boolean true")
+    require("reject_duplicates" in iam_transform,
+            "IAM transformation accepts ambiguous duplicate keys")
 
     profile = read(
         LAYER
@@ -625,6 +716,14 @@ def validate_layer() -> None:
         "Requires=aos-vehicle-data-provider-bootstrap.service" in sm_drop_in,
         "Service Manager does not fail closed on store bootstrap",
     )
+    for credential in (
+        "viss-update-ca",
+        "viss-update-certificate",
+        "viss-update-private-key",
+        "viss-update-binding",
+    ):
+        require(f"LoadCredential={credential}:" in sm_drop_in,
+                f"Service Manager Safe Stop credential is missing: {credential}")
     require(
         read(STORE_MODULES_LOAD).splitlines()[-1] == "loop",
         "steady-state loop module is not selected exactly once",

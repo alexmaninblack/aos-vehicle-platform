@@ -3,7 +3,7 @@
 
 set(TARGET_NAME systemdslotcomponent_test)
 
-set(SOURCES providerarchive.cpp runtime.cpp)
+set(SOURCES providerarchive.cpp runtime.cpp safestop.cpp vissvehiclestate.cpp)
 
 set(LIBRARIES
     aos::core::common::tests::utils

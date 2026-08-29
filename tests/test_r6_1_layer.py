@@ -5,7 +5,11 @@
 
 from __future__ import annotations
 
+import json
+import runpy
+import tempfile
 import unittest
+from pathlib import Path
 
 from tools import validate_r6_1_layer
 
@@ -20,6 +24,39 @@ class R61LayerTests(unittest.TestCase):
             "/var/aos/workdirs/sm/runtimes/systemd-slot-component",
         )
         self.assertEqual(validate_r6_1_layer.COMPONENT_TYPE, "vehicle-data-provider")
+
+    def test_iam_transform_changes_only_permission_handler_value(self) -> None:
+        namespace = runpy.run_path(str(validate_r6_1_layer.IAM_TRANSFORM))
+        transform = namespace["transform"]
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "iam.cfg"
+            original = {
+                "nodeType": "main",
+                "enablePermissionsHandler": False,
+                "nested": {"preserved": [1, "two", True]},
+            }
+            config_path.write_text(json.dumps(original), encoding="utf-8")
+            transform(config_path)
+            effective = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertIs(effective["enablePermissionsHandler"], True)
+            del effective["enablePermissionsHandler"]
+            del original["enablePermissionsHandler"]
+            self.assertEqual(effective, original)
+
+    def test_safe_stop_separates_capture_freshness_from_gate_freshness(self) -> None:
+        evaluator = validate_r6_1_layer.SAFE_STOP.read_text(encoding="utf-8")
+        header = validate_r6_1_layer.SAFE_STOP_HEADER.read_text(encoding="utf-8")
+        transport = validate_r6_1_layer.VISS_TRANSPORT.read_text(encoding="utf-8")
+        self.assertIn("cMaximumSourceAge", header)
+        self.assertIn(
+            "frame.mAcquiredAt - frame.mSourceObservedAt > cMaximumSourceAge",
+            evaluator,
+        )
+        self.assertIn(
+            "now - latest.mSourceObservedAt > cMaximumSourceAge", evaluator
+        )
+        self.assertNotIn("now - frame.mSourceObservedAt", evaluator)
+        self.assertIn('getValue<std::string>("ts")', transport)
 
     def test_refpolicy_files_are_installed_from_a_shell_task(self) -> None:
         content = validate_r6_1_layer.POLICY_APPEND.read_text(encoding="utf-8")

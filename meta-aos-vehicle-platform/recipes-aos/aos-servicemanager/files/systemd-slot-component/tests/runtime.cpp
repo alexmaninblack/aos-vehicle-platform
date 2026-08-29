@@ -3,9 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <atomic>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <thread>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -24,6 +26,7 @@
 #include "providerarchive.hpp"
 #include "providerprofile.hpp"
 #include "runtime.hpp"
+#include "safestop.hpp"
 
 using namespace testing;
 
@@ -42,6 +45,83 @@ public:
   MOCK_METHOD(Error, StopProvider, (), (override));
   MOCK_METHOD(Error, StartProvider, (), (override));
   MOCK_METHOD(Error, CheckHealth, (), (override));
+};
+
+class AlwaysSafeVehicleStateProvider : public VehicleStateProviderItf {
+public:
+  Error ReadFrame(VehicleStateFrame &frame,
+                  std::chrono::milliseconds) override {
+    const auto now = std::chrono::steady_clock::now();
+    const auto frameID = ++mFrame;
+    frame = {frameID,
+             "SAFE_STOP",
+             "STABLE",
+             1,
+             1,
+             false,
+             false,
+             0.0,
+             0.0,
+             100.0,
+             now,
+             now};
+    return ErrorEnum::eNone;
+  }
+
+  void Cancel() override {}
+
+private:
+  std::atomic_uint64_t mFrame{};
+};
+
+class ScriptedVehicleStateProvider : public VehicleStateProviderItf {
+public:
+  Error ReadFrame(VehicleStateFrame &frame,
+                  std::chrono::milliseconds) override {
+    if (mCanceled) {
+      return ErrorEnum::eWrongState;
+    }
+    const auto read = ++mReads;
+    const auto safe = mUnsafeBegin == 0 || read < mUnsafeBegin ||
+                      (mUnsafeEnd != 0 && read > mUnsafeEnd);
+    const auto now = std::chrono::steady_clock::now();
+    const auto frameID = mFixedFrame ? 1 : ++mFrame;
+    frame = {frameID,
+             safe ? "SAFE_STOP" : "AUTOPILOT",
+             "STABLE",
+             1,
+             1,
+             false,
+             false,
+             0.0,
+             0.0,
+             100.0,
+             now,
+             now};
+    if (!safe) {
+      std::this_thread::sleep_for(std::chrono::milliseconds{1});
+    }
+    return ErrorEnum::eNone;
+  }
+
+  void Cancel() override { mCanceled = true; }
+
+  void SetUnsafeRange(uint64_t begin, uint64_t end = 0) {
+    mUnsafeBegin = begin;
+    mUnsafeEnd = end;
+  }
+
+  void SetFixedFrame(bool fixed) { mFixedFrame = fixed; }
+
+  uint64_t Reads() const { return mReads; }
+
+private:
+  std::atomic_uint64_t mFrame{};
+  std::atomic_uint64_t mReads{};
+  std::atomic_uint64_t mUnsafeBegin{};
+  std::atomic_uint64_t mUnsafeEnd{};
+  std::atomic_bool mCanceled{};
+  std::atomic_bool mFixedFrame{};
 };
 
 NodeInfo CreateNodeInfo() {
@@ -106,6 +186,20 @@ protected:
     config->set("minimumFreeBytes", minimumFreeBytes);
     config->set("startTimeoutSeconds", 30);
     config->set("stopTimeoutSeconds", 15);
+    config->set("safeStopWaitSeconds", 480);
+    config->set("safeStopReadTimeoutMilliseconds", 250);
+    config->set("safeStopCancelTimeoutSeconds", 2);
+    config->set("vehicleStateEndpoint", "wss://10.0.0.1:6443");
+    config->set("vehicleStateServerName", "127.0.0.1");
+    config->set("vehicleStateRole", "PLATFORM_UPDATE_RUNTIME");
+    config->set("vehicleStateCACredential",
+                "/run/credentials/aos-sm.service/viss-update-ca");
+    config->set("vehicleStateCertificateCredential",
+                "/run/credentials/aos-sm.service/viss-update-certificate");
+    config->set("vehicleStatePrivateKeyCredential",
+                "/run/credentials/aos-sm.service/viss-update-private-key");
+    config->set("vehicleStateBindingCredential",
+                "/run/credentials/aos-sm.service/viss-update-binding");
 
     return {cRuntimeSystemdSlotComponent, cComponentType, true,
             mWorkingDir.parent_path().string(), config};
@@ -248,10 +342,44 @@ protected:
 
   std::unique_ptr<SystemdSlotComponentRuntime>
   StartEmptyRuntime(const RuntimeConfig &config) {
-    auto runtime = std::make_unique<SystemdSlotComponentRuntime>(&mProfile);
+    auto runtime = std::make_unique<SystemdSlotComponentRuntime>(
+        &mProfile, &mVehicleState);
     EXPECT_TRUE(Init(*runtime, config).IsNone());
     EXPECT_TRUE(runtime->Start().IsNone());
     return runtime;
+  }
+
+  std::unique_ptr<SystemdSlotComponentRuntime>
+  StartRuntime(const RuntimeConfig &config,
+               VehicleStateProviderItf &vehicleState) {
+    auto runtime = std::make_unique<SystemdSlotComponentRuntime>(
+        &mProfile, &vehicleState);
+    EXPECT_TRUE(Init(*runtime, config).IsNone());
+    EXPECT_TRUE(runtime->Start().IsNone());
+    return runtime;
+  }
+
+  void WaitForTransactionCompletion(
+      std::chrono::seconds timeout = std::chrono::seconds{5}) const {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::filesystem::exists(mWorkingDir / "state/transaction.json") &&
+           std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds{1});
+    }
+    ASSERT_FALSE(
+        std::filesystem::exists(mWorkingDir / "state/transaction.json"));
+  }
+
+  void WaitForReads(const ScriptedVehicleStateProvider &provider,
+                    uint64_t minimum,
+                    std::chrono::seconds timeout =
+                        std::chrono::seconds{2}) const {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (provider.Reads() < minimum &&
+           std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds{1});
+    }
+    ASSERT_GE(provider.Reads(), minimum);
   }
 
   NiceMock<iamclient::CurrentNodeInfoProviderMock> mNodeInfoProvider;
@@ -260,6 +388,7 @@ protected:
   NiceMock<InstanceStatusReceiverMock> mStatusReceiver;
   NiceMock<sm::utils::SystemdConnMock> mSystemdConn;
   NiceMock<ProviderProfileMock> mProfile;
+  AlwaysSafeVehicleStateProvider mVehicleState;
   std::filesystem::path mWorkingDir;
   NodeInfo mNodeInfo;
   bool mPreserveWorkingDir{};
@@ -299,7 +428,8 @@ TEST_F(SystemdSlotComponentRuntimeTest,
   InstanceStatus status;
   const auto error = runtime.StartInstance(instance, status);
   ASSERT_TRUE(error.IsNone()) << tests::utils::ErrorToStr(error);
-  EXPECT_EQ(status.mState, InstanceStateEnum::eActive);
+  EXPECT_EQ(status.mState, InstanceStateEnum::eActivating);
+  WaitForTransactionCompletion(std::chrono::seconds{60});
   EXPECT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
             std::filesystem::path("slots/a"));
 }
@@ -338,6 +468,8 @@ TEST_F(SystemdSlotComponentRuntimeTest,
   InstanceStatus status;
   auto error = runtime.StartInstance(update, status);
   ASSERT_TRUE(error.IsNone()) << tests::utils::ErrorToStr(error);
+  EXPECT_EQ(status.mState, InstanceStateEnum::eActivating);
+  WaitForTransactionCompletion(std::chrono::seconds{60});
   ASSERT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
             std::filesystem::path("slots/b"));
 
@@ -353,14 +485,16 @@ TEST_F(SystemdSlotComponentRuntimeTest,
       CreateInstance(info, "0.4.0", "sha256:r61-real-provider-bad");
   ExpectPayload(bad, badValue, 32 * 1024 * 1024);
   error = runtime.StartInstance(bad, status);
-  EXPECT_FALSE(error.IsNone());
-  EXPECT_EQ(status.mState, InstanceStateEnum::eFailed);
+  EXPECT_TRUE(error.IsNone()) << tests::utils::ErrorToStr(error);
+  EXPECT_EQ(status.mState, InstanceStateEnum::eActivating);
+  WaitForTransactionCompletion(std::chrono::seconds{60});
+  EXPECT_TRUE(std::filesystem::exists(mWorkingDir / "state/last-failure.json"));
   EXPECT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
             std::filesystem::path("slots/b"));
 }
 
 TEST_F(SystemdSlotComponentRuntimeTest, RequiresTheFixedBootstrapContract) {
-  SystemdSlotComponentRuntime runtime(&mProfile);
+  SystemdSlotComponentRuntime runtime(&mProfile, &mVehicleState);
   auto config = CreateConfig();
   config.mConfig->set("layoutVersion", 2);
 
@@ -383,6 +517,114 @@ TEST_F(SystemdSlotComponentRuntimeTest, StartsWithAnEmptyPersistentStore) {
   EXPECT_TRUE(runtime->Reboot().Is(ErrorEnum::eNotSupported));
 }
 
+TEST_F(SystemdSlotComponentRuntimeTest,
+       WaitingIsNonDestructiveAndCandidateRetriesAreDeterministic) {
+  ScriptedVehicleStateProvider vehicleState;
+  vehicleState.SetFixedFrame(true);
+  auto runtime = StartRuntime(CreateConfig(), vehicleState);
+  RuntimeInfo info;
+  ASSERT_TRUE(runtime->GetRuntimeInfo(info).IsNone());
+  const auto candidate =
+      CreateInstance(info, "0.2.0", "sha256:waiting-release020");
+  ExpectPayload(candidate, CreatePayload("waiting020", "0.2.0"));
+  EXPECT_CALL(mProfile, MarkUnavailable()).Times(0);
+  EXPECT_CALL(mProfile, StopProvider()).Times(0);
+  EXPECT_CALL(mProfile, StartProvider()).Times(0);
+
+  InstanceStatus status;
+  ASSERT_TRUE(runtime->StartInstance(candidate, status).IsNone());
+  EXPECT_EQ(status.mState, InstanceStateEnum::eActivating);
+  WaitForReads(vehicleState, 2);
+  EXPECT_TRUE(
+      std::filesystem::exists(mWorkingDir / "state/transaction.json"));
+  EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "active"));
+
+  ASSERT_TRUE(runtime->StartInstance(candidate, status).IsNone());
+  EXPECT_EQ(status.mState, InstanceStateEnum::eActivating);
+
+  const auto different =
+      CreateInstance(info, "0.3.0", "sha256:different-while-waiting");
+  EXPECT_TRUE(runtime->StartInstance(different, status)
+                  .Is(ErrorEnum::eWrongState));
+  ASSERT_TRUE(runtime->Stop().IsNone());
+  EXPECT_TRUE(
+      std::filesystem::exists(mWorkingDir / "state/transaction.json"));
+}
+
+TEST_F(SystemdSlotComponentRuntimeTest,
+       SafeStopLossBeforeApplyReturnsToWaitingThenInstalls) {
+  ScriptedVehicleStateProvider vehicleState;
+  vehicleState.SetUnsafeRange(13, 13);
+  auto runtime = StartRuntime(CreateConfig(), vehicleState);
+  RuntimeInfo info;
+  ASSERT_TRUE(runtime->GetRuntimeInfo(info).IsNone());
+  const auto candidate =
+      CreateInstance(info, "0.2.0", "sha256:pre-apply-loss");
+  ExpectPayload(candidate, CreatePayload("pre-apply-loss", "0.2.0"));
+  EXPECT_CALL(mProfile, MarkUnavailable()).Times(1);
+
+  InstanceStatus status;
+  ASSERT_TRUE(runtime->StartInstance(candidate, status).IsNone());
+  WaitForTransactionCompletion();
+  EXPECT_GE(vehicleState.Reads(), 29U);
+  EXPECT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
+            std::filesystem::path("slots/a"));
+}
+
+TEST_F(SystemdSlotComponentRuntimeTest,
+       SafeStopLossAfterPreviousStopRollsBackReplacement) {
+  auto initial = StartEmptyRuntime(CreateConfig());
+  RuntimeInfo info;
+  ASSERT_TRUE(initial->GetRuntimeInfo(info).IsNone());
+  const auto previous =
+      CreateInstance(info, "0.2.0", "sha256:loss-previous");
+  ExpectPayload(previous, CreatePayload("loss-previous", "0.2.0"));
+  InstanceStatus status;
+  ASSERT_TRUE(initial->StartInstance(previous, status).IsNone());
+  WaitForTransactionCompletion();
+  ASSERT_TRUE(initial->Stop().IsNone());
+  initial.reset();
+
+  ScriptedVehicleStateProvider vehicleState;
+  vehicleState.SetUnsafeRange(15, 15);
+  auto runtime = StartRuntime(CreateConfig(), vehicleState);
+  const auto candidate =
+      CreateInstance(info, "0.3.0", "sha256:loss-candidate");
+  ExpectPayload(candidate, CreatePayload("loss-candidate", "0.3.0"));
+  EXPECT_CALL(mProfile, MarkUnavailable()).Times(2);
+  EXPECT_CALL(mProfile, StopProvider()).Times(2);
+  EXPECT_CALL(mProfile, StartProvider()).Times(1);
+
+  ASSERT_TRUE(runtime->StartInstance(candidate, status).IsNone());
+  WaitForTransactionCompletion();
+  EXPECT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
+            std::filesystem::path("slots/a"));
+  EXPECT_TRUE(std::filesystem::exists(mWorkingDir /
+                                      "state/last-failure.json"));
+}
+
+TEST_F(SystemdSlotComponentRuntimeTest,
+       RestartWhileWaitingDiscardsSamplesAndCollectsANewWindow) {
+  ScriptedVehicleStateProvider unavailable;
+  unavailable.SetUnsafeRange(1);
+  auto waiting = StartRuntime(CreateConfig(), unavailable);
+  RuntimeInfo info;
+  ASSERT_TRUE(waiting->GetRuntimeInfo(info).IsNone());
+  const auto candidate =
+      CreateInstance(info, "0.2.0", "sha256:restart-waiting");
+  ExpectPayload(candidate, CreatePayload("restart-waiting", "0.2.0"));
+  InstanceStatus status;
+  ASSERT_TRUE(waiting->StartInstance(candidate, status).IsNone());
+  WaitForReads(unavailable, 2);
+  ASSERT_TRUE(waiting->Stop().IsNone());
+  waiting.reset();
+
+  auto recovered = StartEmptyRuntime(CreateConfig());
+  WaitForTransactionCompletion();
+  EXPECT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
+            std::filesystem::path("slots/a"));
+}
+
 TEST_F(SystemdSlotComponentRuntimeTest, InstallsFirstReleaseAtomically) {
   auto runtime = StartEmptyRuntime(CreateConfig());
   RuntimeInfo info;
@@ -403,7 +645,8 @@ TEST_F(SystemdSlotComponentRuntimeTest, InstallsFirstReleaseAtomically) {
   InstanceStatus status;
   const auto err = runtime->StartInstance(instance, status);
   ASSERT_TRUE(err.IsNone()) << tests::utils::ErrorToStr(err);
-  EXPECT_EQ(status.mState, InstanceStateEnum::eActive);
+  EXPECT_EQ(status.mState, InstanceStateEnum::eActivating);
+  WaitForTransactionCompletion();
   EXPECT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
             std::filesystem::path("slots/a"));
   EXPECT_TRUE(std::filesystem::is_regular_file(mWorkingDir /
@@ -423,6 +666,7 @@ TEST_F(SystemdSlotComponentRuntimeTest,
   ExpectPayload(first, CreatePayload("020", "0.2.0"));
   InstanceStatus firstStatus;
   ASSERT_TRUE(runtime->StartInstance(first, firstStatus).IsNone());
+  WaitForTransactionCompletion();
 
   const auto candidate = CreateInstance(info, "0.3.0", "sha256:release030");
   ExpectPayload(candidate, CreatePayload("030", "0.3.0"));
@@ -432,8 +676,9 @@ TEST_F(SystemdSlotComponentRuntimeTest,
 
   InstanceStatus candidateStatus;
   const auto err = runtime->StartInstance(candidate, candidateStatus);
-  EXPECT_TRUE(err.Is(ErrorEnum::eFailed)) << tests::utils::ErrorToStr(err);
-  EXPECT_EQ(candidateStatus.mState, InstanceStateEnum::eFailed);
+  EXPECT_TRUE(err.IsNone()) << tests::utils::ErrorToStr(err);
+  EXPECT_EQ(candidateStatus.mState, InstanceStateEnum::eActivating);
+  WaitForTransactionCompletion();
   EXPECT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
             std::filesystem::path("slots/a"));
   EXPECT_TRUE(std::filesystem::exists(mWorkingDir / "slots/b"));
@@ -472,8 +717,9 @@ TEST_F(SystemdSlotComponentRuntimeTest,
 
   InstanceStatus status;
   const auto err = runtime->StartInstance(instance, status);
-  EXPECT_TRUE(err.Is(ErrorEnum::eFailed)) << tests::utils::ErrorToStr(err);
-  EXPECT_EQ(status.mState, InstanceStateEnum::eFailed);
+  EXPECT_TRUE(err.IsNone()) << tests::utils::ErrorToStr(err);
+  EXPECT_EQ(status.mState, InstanceStateEnum::eActivating);
+  WaitForTransactionCompletion();
   EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "active"));
   EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "state/installed.json"));
   EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "state/transaction.json"));
@@ -489,6 +735,7 @@ TEST_F(SystemdSlotComponentRuntimeTest,
   ExpectPayload(previous, CreatePayload("020", "0.2.0"));
   InstanceStatus status;
   ASSERT_TRUE(runtime->StartInstance(previous, status).IsNone());
+  WaitForTransactionCompletion();
 
   const auto candidate = CreateInstance(info, "0.3.0", "sha256:startfail");
   ExpectPayload(candidate, CreatePayload("startfail", "0.3.0"));
@@ -497,8 +744,9 @@ TEST_F(SystemdSlotComponentRuntimeTest,
       .WillOnce(Return(ErrorEnum::eNone));
 
   const auto err = runtime->StartInstance(candidate, status);
-  EXPECT_TRUE(err.Is(ErrorEnum::eFailed)) << tests::utils::ErrorToStr(err);
-  EXPECT_EQ(status.mState, InstanceStateEnum::eFailed);
+  EXPECT_TRUE(err.IsNone()) << tests::utils::ErrorToStr(err);
+  EXPECT_EQ(status.mState, InstanceStateEnum::eActivating);
+  WaitForTransactionCompletion();
   EXPECT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
             std::filesystem::path("slots/a"));
 }
@@ -512,6 +760,7 @@ TEST_F(SystemdSlotComponentRuntimeTest,
   ExpectPayload(previous, CreatePayload("020", "0.2.0"));
   InstanceStatus status;
   ASSERT_TRUE(runtime->StartInstance(previous, status).IsNone());
+  WaitForTransactionCompletion();
 
   const auto candidate = CreateInstance(info, "0.3.0", "sha256:startfail");
   ExpectPayload(candidate, CreatePayload("startfail", "0.3.0"));
@@ -523,8 +772,9 @@ TEST_F(SystemdSlotComponentRuntimeTest,
       .WillOnce(Return(ErrorEnum::eNone));
 
   const auto err = runtime->StartInstance(candidate, status);
-  EXPECT_TRUE(err.Is(ErrorEnum::eFailed)) << tests::utils::ErrorToStr(err);
-  EXPECT_EQ(status.mState, InstanceStateEnum::eFailed);
+  EXPECT_TRUE(err.IsNone()) << tests::utils::ErrorToStr(err);
+  EXPECT_EQ(status.mState, InstanceStateEnum::eActivating);
+  WaitForTransactionCompletion();
   EXPECT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
             std::filesystem::path("slots/a"));
   EXPECT_TRUE(std::filesystem::exists(mWorkingDir / "state/installed.json"));
@@ -542,11 +792,14 @@ TEST_F(SystemdSlotComponentRuntimeTest, UpdatesFromSlotAToSlotB) {
   ExpectPayload(first, CreatePayload("020", "0.2.0"));
   InstanceStatus status;
   ASSERT_TRUE(runtime->StartInstance(first, status).IsNone());
+  EXPECT_EQ(status.mState, InstanceStateEnum::eActivating);
+  WaitForTransactionCompletion();
 
   const auto second = CreateInstance(info, "0.3.0", "sha256:release030");
   ExpectPayload(second, CreatePayload("030", "0.3.0"));
   ASSERT_TRUE(runtime->StartInstance(second, status).IsNone());
-  EXPECT_EQ(status.mState, InstanceStateEnum::eActive);
+  EXPECT_EQ(status.mState, InstanceStateEnum::eActivating);
+  WaitForTransactionCompletion();
   EXPECT_EQ(status.mVersion, String("0.3.0"));
   EXPECT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
             std::filesystem::path("slots/b"));
@@ -562,6 +815,7 @@ TEST_F(SystemdSlotComponentRuntimeTest, RepeatedDigestIsIdempotent) {
   ExpectPayload(instance, CreatePayload("020", "0.2.0"));
   InstanceStatus status;
   ASSERT_TRUE(runtime->StartInstance(instance, status).IsNone());
+  WaitForTransactionCompletion();
 
   EXPECT_CALL(mItemInfoProvider, GetBlobPath(_, _)).Times(0);
   EXPECT_CALL(mProfile, MarkUnavailable()).Times(0);
@@ -759,6 +1013,7 @@ TEST_F(SystemdSlotComponentRuntimeTest, RejectsDowngradeWithoutSwitching) {
   ExpectPayload(current, CreatePayload("030", "0.3.0"));
   InstanceStatus currentStatus;
   ASSERT_TRUE(runtime->StartInstance(current, currentStatus).IsNone());
+  WaitForTransactionCompletion();
 
   const auto downgrade = CreateInstance(info, "0.2.0", "sha256:release020");
   EXPECT_CALL(mItemInfoProvider, GetBlobPath(_, _)).Times(0);
@@ -778,6 +1033,7 @@ TEST_F(SystemdSlotComponentRuntimeTest, RejectsSameVersionWithDifferentDigest) {
   ExpectPayload(current, CreatePayload("020", "0.2.0"));
   InstanceStatus status;
   ASSERT_TRUE(runtime->StartInstance(current, status).IsNone());
+  WaitForTransactionCompletion();
 
   const auto ambiguous = CreateInstance(info, "0.2.0", "sha256:different020");
   EXPECT_CALL(mItemInfoProvider, GetBlobPath(_, _)).Times(0);
@@ -796,12 +1052,14 @@ TEST_F(SystemdSlotComponentRuntimeTest, StopMakesTheComponentUnavailable) {
   ExpectPayload(instance, CreatePayload("020", "0.2.0"));
   InstanceStatus active;
   ASSERT_TRUE(runtime->StartInstance(instance, active).IsNone());
+  WaitForTransactionCompletion();
 
   EXPECT_CALL(mProfile, MarkUnavailable()).Times(1);
   EXPECT_CALL(mProfile, StopProvider()).Times(1);
   InstanceStatus stopped;
   ASSERT_TRUE(runtime->StopInstance(instance, stopped).IsNone());
-  EXPECT_EQ(stopped.mState, InstanceStateEnum::eInactive);
+  EXPECT_EQ(stopped.mState, InstanceStateEnum::eActivating);
+  WaitForTransactionCompletion();
   EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "active"));
   EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "state/installed.json"));
 }
@@ -819,6 +1077,7 @@ TEST_P(SystemdSlotComponentRecoveryTest,
   ExpectPayload(previous, CreatePayload("020", "0.2.0"));
   InstanceStatus status;
   ASSERT_TRUE(runtime->StartInstance(previous, status).IsNone());
+  WaitForTransactionCompletion();
   ASSERT_TRUE(runtime->Stop().IsNone());
 
   const auto candidate = CreateInstance(info, "0.3.0", "sha256:release030");
@@ -829,7 +1088,8 @@ TEST_P(SystemdSlotComponentRecoveryTest,
     std::filesystem::create_symlink("slots/b", mWorkingDir / "active");
   }
 
-  auto recovered = std::make_unique<SystemdSlotComponentRuntime>(&mProfile);
+  auto recovered = std::make_unique<SystemdSlotComponentRuntime>(
+      &mProfile, &mVehicleState);
   ASSERT_TRUE(Init(*recovered, CreateConfig()).IsNone());
   const auto err = recovered->Start();
   ASSERT_TRUE(err.IsNone()) << tests::utils::ErrorToStr(err);
@@ -855,13 +1115,16 @@ TEST_F(SystemdSlotComponentRuntimeTest,
   ExpectPayload(previous, CreatePayload("020", "0.2.0"));
   InstanceStatus status;
   ASSERT_TRUE(runtime->StartInstance(previous, status).IsNone());
+  WaitForTransactionCompletion();
   const auto candidate = CreateInstance(info, "0.3.0", "sha256:release030");
   ExpectPayload(candidate, CreatePayload("030", "0.3.0"));
   ASSERT_TRUE(runtime->StartInstance(candidate, status).IsNone());
+  WaitForTransactionCompletion();
   ASSERT_TRUE(runtime->Stop().IsNone());
 
   WriteInterruptedTransaction("candidate-started", candidate, previous);
-  auto recovered = std::make_unique<SystemdSlotComponentRuntime>(&mProfile);
+  auto recovered = std::make_unique<SystemdSlotComponentRuntime>(
+      &mProfile, &mVehicleState);
   ASSERT_TRUE(Init(*recovered, CreateConfig()).IsNone());
   const auto err = recovered->Start();
   ASSERT_TRUE(err.IsNone()) << tests::utils::ErrorToStr(err);
@@ -879,6 +1142,7 @@ TEST_F(SystemdSlotComponentRuntimeTest,
   ExpectPayload(previous, CreatePayload("020", "0.2.0"));
   InstanceStatus status;
   ASSERT_TRUE(runtime->StartInstance(previous, status).IsNone());
+  WaitForTransactionCompletion();
   ASSERT_TRUE(runtime->Stop().IsNone());
 
   const auto candidate = CreateInstance(info, "0.3.0", "sha256:release030");
@@ -887,7 +1151,8 @@ TEST_F(SystemdSlotComponentRuntimeTest,
   std::filesystem::create_symlink("slots/b", mWorkingDir / "active");
   EXPECT_CALL(mProfile, CheckHealth()).WillOnce(Return(ErrorEnum::eFailed));
 
-  auto recovered = std::make_unique<SystemdSlotComponentRuntime>(&mProfile);
+  auto recovered = std::make_unique<SystemdSlotComponentRuntime>(
+      &mProfile, &mVehicleState);
   ASSERT_TRUE(Init(*recovered, CreateConfig()).IsNone());
   const auto err = recovered->Start();
   EXPECT_TRUE(err.Is(ErrorEnum::eFailed)) << tests::utils::ErrorToStr(err);
@@ -905,6 +1170,7 @@ TEST_F(SystemdSlotComponentRuntimeTest,
   ExpectPayload(installed, CreatePayload("020", "0.2.0"));
   InstanceStatus status;
   ASSERT_TRUE(runtime->StartInstance(installed, status).IsNone());
+  WaitForTransactionCompletion();
   ASSERT_TRUE(runtime->Stop().IsNone());
 
   WriteFile(mWorkingDir / "state/transaction.json", "{not-json\n",
@@ -913,7 +1179,8 @@ TEST_F(SystemdSlotComponentRuntimeTest,
   EXPECT_CALL(mProfile, MarkUnavailable()).Times(1);
   EXPECT_CALL(mProfile, StopProvider()).Times(1);
 
-  auto recovered = std::make_unique<SystemdSlotComponentRuntime>(&mProfile);
+  auto recovered = std::make_unique<SystemdSlotComponentRuntime>(
+      &mProfile, &mVehicleState);
   ASSERT_TRUE(Init(*recovered, CreateConfig()).IsNone());
   const auto error = recovered->Start();
   EXPECT_FALSE(error.IsNone());

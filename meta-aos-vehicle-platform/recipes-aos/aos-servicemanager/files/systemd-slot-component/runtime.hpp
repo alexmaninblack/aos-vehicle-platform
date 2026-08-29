@@ -7,9 +7,13 @@
 #define AOS_VEHICLE_PLATFORM_SYSTEMD_SLOT_COMPONENT_RUNTIME_HPP_
 
 #include <filesystem>
+#include <atomic>
+#include <condition_variable>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include <core/common/iamclient/itf/currentnodeinfoprovider.hpp>
 #include <core/common/ocispec/itf/ocispec.hpp>
@@ -22,6 +26,8 @@
 
 #include "config.hpp"
 #include "providerprofile.hpp"
+#include "safestop.hpp"
+#include "vissvehiclestate.hpp"
 
 namespace aos::sm::launcher {
 
@@ -36,6 +42,7 @@ struct ComponentRelease {
 
 /** Durable transaction phases used for interruption recovery. */
 enum class ComponentTransactionPhase {
+  eWaitingForSafeStop,
   ePrepared,
   eUnavailable,
   ePreviousStopped,
@@ -43,11 +50,19 @@ enum class ComponentTransactionPhase {
   eCandidateStarted,
 };
 
+enum class ComponentTransactionOperation {
+  eInstallOrReplace,
+  eRemove,
+};
+
 /** Durable component transition record. */
 struct ComponentTransaction {
   ComponentRelease mCandidate;
   std::optional<ComponentRelease> mPrevious;
-  ComponentTransactionPhase mPhase{ComponentTransactionPhase::ePrepared};
+  ComponentTransactionOperation mOperation{
+      ComponentTransactionOperation::eInstallOrReplace};
+  ComponentTransactionPhase mPhase{
+      ComponentTransactionPhase::eWaitingForSafeStop};
 };
 
 /**
@@ -59,7 +74,9 @@ struct ComponentTransaction {
 class SystemdSlotComponentRuntime final : public RuntimeItf {
 public:
   explicit SystemdSlotComponentRuntime(
-      ProviderProfileItf *profileOverride = nullptr);
+      ProviderProfileItf *profileOverride = nullptr,
+      VehicleStateProviderItf *vehicleStateOverride = nullptr);
+  ~SystemdSlotComponentRuntime() override;
 
   Error Init(const RuntimeConfig &config,
              iamclient::CurrentNodeInfoProviderItf &currentNodeInfoProvider,
@@ -96,10 +113,19 @@ private:
                             uint64_t &payloadBytes) const;
   Error ValidatePayloadMetadata(const std::filesystem::path &root,
                                 const InstanceInfo &instance) const;
-  Error Activate(const ComponentRelease &candidate,
-                 const std::optional<ComponentRelease> &previous);
+  Error ActivateGuarded(ComponentTransaction transaction,
+                        std::vector<VehicleStateFrame> &window);
+  Error RemoveGuarded(ComponentTransaction transaction,
+                      std::vector<VehicleStateFrame> &window);
   Error Rollback(const ComponentTransaction &transaction,
                  const Error &candidateError);
+  Error WaitForSafeStop(std::vector<VehicleStateFrame> &window,
+                        std::chrono::steady_clock::time_point deadline);
+  bool RefreshSafeStop(std::vector<VehicleStateFrame> &window);
+  void LaunchWorker(const ComponentTransaction &transaction);
+  void RunTransaction(ComponentTransaction transaction);
+  Error CancelAndJoinWorker();
+  void JoinFinishedWorker();
 
   Error SaveRelease(const std::filesystem::path &path,
                     const ComponentRelease &release) const;
@@ -136,6 +162,15 @@ private:
   InstanceStatusReceiverItf *mStatusReceiver{};
   ProviderProfile mDefaultProfile;
   ProviderProfileItf *mProfile{};
+  PocoViss31MtlsTransport mDefaultVehicleStateTransport;
+  Viss31MtlsVehicleStateProvider mDefaultVehicleStateProvider;
+  VehicleStateProviderItf *mVehicleStateProvider{};
+  SafeStopEvaluator mSafeStopEvaluator;
+  std::thread mWorker;
+  std::mutex mWorkerMutex;
+  std::condition_variable mWorkerCondition;
+  std::atomic_bool mCancelWorker{};
+  bool mWorkerDone{true};
   std::optional<ComponentRelease> mInstalled;
   bool mStarted{};
 };
