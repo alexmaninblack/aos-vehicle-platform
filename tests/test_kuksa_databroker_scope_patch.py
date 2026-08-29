@@ -17,7 +17,6 @@ BBAPPEND = ROOT / (
 PATCH = BBAPPEND.parent / "files" / (
     "0002-authorization-accept-decimal-digits-in-scope-path.patch"
 )
-BASE_COMMIT = "570d17821edfd85915e688f7239a04eb4fc1f535"
 FROZEN_SCOPE_BLOB = "263b277d155cc2b642883724b3cd1f24abb9525d"
 FROZEN_SCOPE_SHA256 = (
     "d9abb22c118d63f728b12a1d06bc10c8e72848aaef07181dc5fbabf369a69e2b"
@@ -31,26 +30,46 @@ ALLOWED_PATHS = {
 }
 
 
-def changed_paths() -> set[str]:
-    committed = subprocess.run(
-        ["git", "diff", "--name-only", BASE_COMMIT],
+def introduction_paths() -> set[str]:
+    commits = subprocess.run(
+        [
+            "git",
+            "log",
+            "--format=%H",
+            "--diff-filter=A",
+            "--",
+            str(PATCH.relative_to(ROOT)),
+        ],
         cwd=ROOT,
         check=True,
         capture_output=True,
         text=True,
     ).stdout.splitlines()
+    if len(commits) != 1:
+        raise AssertionError("scope patch must have one introducing commit")
+    return set(
+        subprocess.run(
+            ["git", "diff-tree", "--no-commit-id", "--name-only", "-r", commits[0]],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+    )
+
+
+def dirty_paths() -> set[str]:
     status = subprocess.run(
         ["git", "status", "--porcelain=v1", "--untracked-files=all", "-z"],
         cwd=ROOT,
         check=True,
         capture_output=True,
     ).stdout.split(b"\0")
-    dirty = {
+    return {
         entry[3:].decode("utf-8")
         for entry in status
         if entry and len(entry) >= 4
     }
-    return set(committed) | dirty
 
 
 class KuksaDatabrokerScopePatchTests(unittest.TestCase):
@@ -188,9 +207,8 @@ class KuksaDatabrokerScopePatchTests(unittest.TestCase):
             self.assertNotIn(forbidden, "\n".join(production_additions))
 
     def test_repository_delta_stays_in_exact_three_path_boundary(self) -> None:
-        delta = changed_paths()
-        self.assertTrue(delta)
-        self.assertLessEqual(delta, ALLOWED_PATHS)
+        self.assertEqual(introduction_paths(), ALLOWED_PATHS)
+        self.assertLessEqual(dirty_paths(), ALLOWED_PATHS)
 
 
 if __name__ == "__main__":

@@ -3,6 +3,9 @@
 
 #include "kac/provider.hpp"
 
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
 #include <cassert>
 #include <cstdint>
 #include <optional>
