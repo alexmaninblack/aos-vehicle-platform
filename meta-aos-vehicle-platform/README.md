@@ -44,14 +44,18 @@ rootfs FOTA candidate remains a separate retrofit/platform-maintenance
 artifact and is not required to introduce the initial runtime into a newly
 manufactured Unit.
 
-The accepted successor Factory Image must additionally configure the shared
+The successor Factory source composition now configures the shared
 Aos IAM permission handler with `enablePermissionsHandler: true` independently
 of provisioning and include the removable `aos-kuksa-auth-compat` package and
-its non-secret named-resource/signer-verifier preparation seams, and start all
-credential-dependent components fail closed after provisioning. The separate
-package recipe, executables, systemd units, tmpfiles and SELinux module now
-exist in this layer, but no image recipe includes them and none of that target
-integration exists in the current `.11` evidence. The helper remains
+its non-secret named-resource/signer-verifier preparation seams. The same
+temporary package now contains a third, strictly separate networkless one-shot
+which prepares the fixed OEM Provider JWT; its socket/API remains Service-only.
+`aos-kuksa-factory-integration` supplies finite provisioning/reboot/deprovision
+ordering, token initialization and volatile cleanup. The fixed Provider token
+persists ordinary reboot under `/var/lib/aos-kuksa-provider`, while VDP gets
+only a private systemd credential snapshot and no source-store access. The
+image recipe selects both packages, but these source bytes have not yet passed package, image or VM
+qualification and are not part of current `.11` evidence. The helper remains
 outside the VDP component payload, and the image must contain no provisioned
 identity, private key, shared verifier, `AOS_SECRET`, Service JWT or static
 Provider/Service credential.

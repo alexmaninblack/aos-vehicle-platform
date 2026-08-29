@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+[Unit]
+Description=Aos KUKSA authenticated substrate
+Wants=aos-kuksa-verifier-prepare.service kuksa-databroker.service aos-kuksa-provider-prepare.service aos-kuksa-auth-compat.service
+After=aos-iam.service
+
+[Install]
+WantedBy=aos.target

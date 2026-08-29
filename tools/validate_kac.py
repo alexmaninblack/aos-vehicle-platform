@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "authorization/aos-kuksa-compat"
 RECIPE = ROOT / (
     "meta-aos-vehicle-platform/recipes-aos/aos-kuksa-auth-compat/"
-    "aos-kuksa-auth-compat_0.1.0.bb"
+    "aos-kuksa-auth-compat_0.2.0.bb"
 )
 FILES = RECIPE.parent / "files"
 POLICY = ROOT / (
@@ -50,10 +50,15 @@ def validate_kac() -> None:
         SOURCE / "src/server.cpp",
         SOURCE / "src/main.cpp",
         SOURCE / "src/verifier_prepare.cpp",
+        SOURCE / "include/kac/provider.hpp",
+        SOURCE / "src/provider.cpp",
+        SOURCE / "src/provider_prepare.cpp",
         SOURCE / "tests/kac_tests.cpp",
+        SOURCE / "tests/provider_tests.cpp",
         RECIPE,
         FILES / "aos-kuksa-auth-compat.service",
         FILES / "aos-kuksa-verifier-prepare.service",
+        FILES / "aos-kuksa-provider-prepare.service",
         FILES / "aos-kuksa-auth-compat.conf",
         POLICY,
     ]
@@ -70,6 +75,8 @@ def validate_kac() -> None:
         "recipe",
     )
     require(recipe, 'RDEPENDS:${PN} = "openssl pkcs11-provider softhsm"', "recipe")
+    require(recipe, "aos-kuksa-provider-prepare", "recipe")
+    forbid(recipe, "PACKAGES +=", "recipe")
     require(recipe, "inherit cmake systemd useradd", "recipe")
     require(recipe, "${THISDIR}/../../../authorization/aos-kuksa-compat", "recipe")
     forbid(recipe, "aos-image-vm", "recipe")
@@ -78,6 +85,7 @@ def validate_kac() -> None:
 
     helper = (FILES / "aos-kuksa-auth-compat.service").read_text(encoding="utf-8")
     verifier = (FILES / "aos-kuksa-verifier-prepare.service").read_text(encoding="utf-8")
+    provider = (FILES / "aos-kuksa-provider-prepare.service").read_text(encoding="utf-8")
     tmpfiles = (FILES / "aos-kuksa-auth-compat.conf").read_text(encoding="utf-8")
     require(helper, "User=aos-kac", "helper unit")
     require(helper, "SupplementaryGroups=aos-kuksa-clients", "helper unit")
@@ -94,6 +102,16 @@ def validate_kac() -> None:
     require(verifier, "RestrictAddressFamilies=AF_UNIX", "verifier unit")
     require(verifier, "IPAddressDeny=any", "verifier unit")
     forbid(verifier, "IPAddressAllow=", "verifier unit")
+    require(provider, "Type=oneshot", "provider unit")
+    require(provider, "ExecStart=/usr/libexec/aos-kuksa-provider-prepare", "provider unit")
+    require(provider, "LoadCredential=kuksa-jwt-pin:/var/aos/iam/.kuksa-jwt-pin", "provider unit")
+    require(provider, "StateDirectory=aos-kuksa-provider", "provider unit")
+    require(provider, "StateDirectoryMode=0700", "provider unit")
+    forbid(provider, "systemd-slot-component/credentials", "provider unit")
+    require(provider, "RestrictAddressFamilies=AF_UNIX", "provider unit")
+    require(provider, "IPAddressDeny=any", "provider unit")
+    forbid(provider, "IPAddressAllow=", "provider unit")
+    forbid(provider, "Restart=on-failure", "provider unit")
     require(tmpfiles, "d /run/aos-kuksa-auth-compat 0750 aos-kac aos-kuksa-clients -", "tmpfiles")
     require(tmpfiles, "d /run/aos-kuksa-verifier 0755 root root -", "tmpfiles")
 
@@ -108,6 +126,10 @@ def validate_kac() -> None:
         "pkcs11:token=aos-kuksa;object=kuksa-jwt;type=private",
         "/run/aos-kuksa-auth-compat/request.sock",
         "/run/aos-kuksa-verifier/kuksa-jwt-public.pem",
+        "aosedge-vdp-provider",
+        "aos-vdp",
+        "provide:Vehicle.Chassis.Axle.Row2.Wheel.Left.Speed",
+        "/var/lib/aos-kuksa-provider",
     ):
         require(source_text, exact, "source")
     for forbidden in (
@@ -123,6 +145,9 @@ def validate_kac() -> None:
     policy = POLICY.read_text(encoding="utf-8")
     require(policy, "aos_kuksa_auth_compat_t", "SELinux")
     require(policy, "aos_kuksa_verifier_prepare_t", "SELinux")
+    require(policy, "aos_kuksa_provider_prepare_t", "SELinux")
+    require(policy, "aos_kuksa_provider_store_t", "SELinux")
+    forbid(policy, "vehicle_data_provider_store_t", "SELinux")
     require(policy, "portcon tcp 8090", "SELinux")
     require(policy, "corenet_tcp_sendrecv_lo_iface(aos_kuksa_auth_compat_t)", "SELinux")
     require(policy, "corenet_tcp_connect_lo_node(aos_kuksa_auth_compat_t)", "SELinux")

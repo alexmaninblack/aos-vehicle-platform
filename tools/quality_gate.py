@@ -15,6 +15,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 EXCLUDED_FROM_HEADER = {"LICENSE", "NOTICE", "LICENSES/Apache-2.0.txt"}
+STRUCTURED_SPDX_OWNERS = {
+    "meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/files/resources.cfg":
+        "meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/"
+        "aos-servicemanager_git.bbappend",
+}
 BINARY_SUFFIXES = {
     ".7z", ".bin", ".cer", ".crt", ".der", ".dmg", ".img", ".iso",
     ".jar", ".jks", ".key", ".ova", ".ovf", ".p12", ".pfx", ".pem",
@@ -52,6 +57,26 @@ def check_spdx(files: list[Path]) -> list[str]:
         relative = path.relative_to(ROOT).as_posix()
         if relative in EXCLUDED_FROM_HEADER:
             continue
+        owner_relative = STRUCTURED_SPDX_OWNERS.get(relative)
+        if owner_relative is not None:
+            try:
+                document = json.loads(path.read_text(encoding="utf-8"))
+                owner = (ROOT / owner_relative).read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                document = None
+                owner = ""
+            resource_names = (
+                [item.get("name") for item in document]
+                if isinstance(document, list)
+                and all(isinstance(item, dict) for item in document)
+                else None
+            )
+            if (
+                resource_names == ["kuksa", "kuksa-auth-client"]
+                and copyright_tag in owner
+                and license_tag in owner
+            ):
+                continue
         try:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:

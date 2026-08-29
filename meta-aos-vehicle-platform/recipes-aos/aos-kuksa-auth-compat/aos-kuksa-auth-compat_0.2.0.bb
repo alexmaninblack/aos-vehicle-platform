@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: 2026 maninblack
 # SPDX-License-Identifier: Apache-2.0
 
-SUMMARY = "Removable Aos IAM to KUKSA Service JWT compatibility helper"
-DESCRIPTION = "Current-release fixed-resource KUKSA authorization helper and protected verifier preparation executable."
+SUMMARY = "Removable Aos IAM to KUKSA Service and Provider JWT compatibility"
+DESCRIPTION = "Current-release Service authorization, verifier preparation and fixed OEM Provider credential preparation."
 HOMEPAGE = "https://github.com/maninblack/aos-vehicle-platform"
 LICENSE = "Apache-2.0"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/Apache-2.0;md5=89aea4e17d99a7cacdbeed46a0096b10"
@@ -17,6 +17,7 @@ SRC_URI = " \
     file://tests;subdir=source \
     file://aos-kuksa-auth-compat.service \
     file://aos-kuksa-verifier-prepare.service \
+    file://aos-kuksa-provider-prepare.service \
     file://aos-kuksa-auth-compat.conf \
 "
 SRCREV_aoscoreapi = "af3552a0a5eb0237eff7f5f183780ca46c339cd3"
@@ -37,8 +38,8 @@ EXTRA_OECMAKE = " \
 "
 
 SYSTEMD_PACKAGES = "${PN}"
-SYSTEMD_SERVICE:${PN} = "aos-kuksa-verifier-prepare.service aos-kuksa-auth-compat.service"
-SYSTEMD_AUTO_ENABLE:${PN} = "enable"
+SYSTEMD_SERVICE:${PN} = "aos-kuksa-verifier-prepare.service aos-kuksa-provider-prepare.service aos-kuksa-auth-compat.service"
+SYSTEMD_AUTO_ENABLE:${PN} = "disable"
 
 USERADD_PACKAGES = "${PN}"
 GROUPADD_PARAM:${PN} = "--system aos-kac; --system aos-kuksa-clients"
@@ -50,6 +51,8 @@ do_install:append() {
         ${D}${systemd_system_unitdir}/aos-kuksa-auth-compat.service
     install -m 0644 ${WORKDIR}/aos-kuksa-verifier-prepare.service \
         ${D}${systemd_system_unitdir}/aos-kuksa-verifier-prepare.service
+    install -m 0644 ${WORKDIR}/aos-kuksa-provider-prepare.service \
+        ${D}${systemd_system_unitdir}/aos-kuksa-provider-prepare.service
 
     install -d ${D}${libdir}/tmpfiles.d
     install -m 0644 ${WORKDIR}/aos-kuksa-auth-compat.conf \
@@ -59,7 +62,9 @@ do_install:append() {
 FILES:${PN} = " \
     ${libexecdir}/aos-kuksa-auth-compat \
     ${libexecdir}/aos-kuksa-verifier-prepare \
+    ${libexecdir}/aos-kuksa-provider-prepare \
     ${systemd_system_unitdir}/aos-kuksa-auth-compat.service \
     ${systemd_system_unitdir}/aos-kuksa-verifier-prepare.service \
+    ${systemd_system_unitdir}/aos-kuksa-provider-prepare.service \
     ${libdir}/tmpfiles.d/aos-kuksa-auth-compat.conf \
 "

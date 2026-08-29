@@ -2,22 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [Unit]
-Description=Prepare protected KUKSA JWT public verifier
-After=aos-iam.service
-Requires=aos-iam.service
-Before=aos-kuksa-auth-compat.service kuksa-databroker.service
-Before=aos-kuksa-provider-prepare.service
-PartOf=aos-kuksa-substrate.target
-ConditionPathExists=/var/aos/.provisionstate
-ConditionPathExists=/var/aos/iam/.kuksa-jwt-pin
+Description=Initialize or validate the dedicated Unit KUKSA token
+Requires=aos-kuksa-provision-reset.service
+After=aos-kuksa-provision-reset.service
+Before=aos-iam-prov.service aos-iam.service
 
 [Service]
 Type=oneshot
-User=root
-Group=root
-ExecStart=/usr/libexec/aos-kuksa-verifier-prepare
-LoadCredential=kuksa-jwt-pin:/var/aos/iam/.kuksa-jwt-pin
+ExecStart=/usr/libexec/aos-kuksa-token-init
+TimeoutStartSec=10s
 RemainAfterExit=yes
+UMask=0077
 NoNewPrivileges=yes
 CapabilityBoundingSet=
 AmbientCapabilities=
@@ -31,7 +26,7 @@ ProtectKernelLogs=yes
 ProtectKernelModules=yes
 ProtectKernelTunables=yes
 ProtectSystem=strict
-ReadWritePaths=/run/aos-kuksa-verifier
+ReadWritePaths=/var/aos/iam /var/lib/softhsm
 RestrictAddressFamilies=AF_UNIX
 IPAddressDeny=any
 LockPersonality=yes
@@ -40,8 +35,5 @@ RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
 SystemCallArchitectures=native
-TasksMax=32
-LimitNOFILE=128
-
-[Install]
-WantedBy=aos-kuksa-substrate.target
+TasksMax=16
+LimitNOFILE=64

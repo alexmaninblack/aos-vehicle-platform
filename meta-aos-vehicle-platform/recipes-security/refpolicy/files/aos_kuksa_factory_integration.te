@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+policy_module(aos_kuksa_factory_integration, 1.0.0)
+
+type aos_kuksa_token_init_t;
+type aos_kuksa_token_init_exec_t;
+init_daemon_domain(aos_kuksa_token_init_t, aos_kuksa_token_init_exec_t)
+
+type aos_kuksa_runtime_cleanup_t;
+type aos_kuksa_runtime_cleanup_exec_t;
+init_daemon_domain(aos_kuksa_runtime_cleanup_t, aos_kuksa_runtime_cleanup_exec_t)
+
+type aos_kuksa_pin_t;
+files_type(aos_kuksa_pin_t)
+
+gen_require(`
+    type aos_kuksa_pkcs11_store_t;
+    type aos_kuksa_provider_store_t;
+    type aos_kuksa_provider_credential_t;
+    type aos_kuksa_verifier_runtime_t;
+    type aos_kuksa_auth_runtime_t;
+')
+
+manage_files_pattern(aos_kuksa_token_init_t, aos_kuksa_pin_t, aos_kuksa_pin_t)
+manage_dirs_pattern(aos_kuksa_token_init_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
+manage_files_pattern(aos_kuksa_token_init_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
+allow aos_kuksa_token_init_t aos_kuksa_pkcs11_store_t:file lock;
+dev_read_urand(aos_kuksa_token_init_t)
+files_read_etc_files(aos_kuksa_token_init_t)
+
+delete_files_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_provider_store_t, aos_kuksa_provider_credential_t)
+delete_files_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_verifier_runtime_t, aos_kuksa_verifier_runtime_t)
+delete_files_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_auth_runtime_t, aos_kuksa_auth_runtime_t)
+delete_sock_files_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_auth_runtime_t, aos_kuksa_auth_runtime_t)
+delete_dirs_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_verifier_runtime_t, aos_kuksa_verifier_runtime_t)
+delete_dirs_pattern(aos_kuksa_runtime_cleanup_t, aos_kuksa_auth_runtime_t, aos_kuksa_auth_runtime_t)

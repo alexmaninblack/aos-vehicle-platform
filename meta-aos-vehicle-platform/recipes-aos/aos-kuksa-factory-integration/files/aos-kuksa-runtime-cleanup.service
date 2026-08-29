@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+[Unit]
+Description=Remove only volatile KUKSA compatibility runtime state
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/aos-kuksa-runtime-cleanup
+TimeoutStartSec=10s
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+# Deprovision is valid even if one or more runtime paths were never created.
+ReadWritePaths=-/run/aos-kuksa-auth-compat -/run/aos-kuksa-verifier -/var/lib/aos-kuksa-provider
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+TasksMax=8
+LimitNOFILE=32

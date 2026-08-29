@@ -71,9 +71,13 @@ The separately packaged removable current-release KUKSA Authorization
 Compatibility helper belongs to the Factory/System layer under
 `authorization/aos-kuksa-compat/`; it is outside the Vehicle Data Platform
 FOTA payload. The current branch implements it as a separately removable
-source/Yocto package containing one unprivileged helper and one short
-root-owned verifier-preparation executable. It is not yet included in an
-image or qualified against a provisioned Unit.
+source/Yocto package containing one unprivileged Service helper, one short
+root-owned verifier-preparation executable and one separately confined,
+networkless Provider-credential one-shot. Provider issuance is not reachable
+through the Service socket/API. A second Factory-integration package owns only
+the dedicated token initializer, volatile cleanup and finite systemd drop-ins.
+The image composition selects these packages, but package/image/VM and
+provisioned-Unit qualification remain later gates.
 
 A SOTA service declares its requested KUKSA paths and modes in Aos metadata.
 Service Manager registers them and injects a per-instance `AOS_SECRET`. The
@@ -86,11 +90,14 @@ The helper stores neither Service identity nor a duplicate permission/policy
 database. KUKSA trusts only the prepared per-Unit public verifier.
 
 The Provider is separate trusted OEM Platform integration with fixed
-`aos-vdp` identity. It receives no authority from the Service helper. Its exact
-protected KUKSA connection configuration and selected-Unit VISS mTLS profile
-are now represented by source-level fail-closed configuration and unit tests;
-real connection qualification remains open. Dynamic Provider IAM/JWT is not a
-first-demo requirement.
+`aos-vdp` identity. It receives no authority from the Service helper. A fixed
+seven-day, exact-path RS256 JWT is prepared from the same per-Unit PKCS#11 trust
+root by the separate one-shot process and is consumed only through systemd
+credentials. Its persistent source is isolated in the root-owned mode-`0700`
+`/var/lib/aos-kuksa-provider` state directory, outside the VDP component store;
+VDP receives only systemd's private credential snapshot. There is no renewal
+daemon or exact in-session revocation claim; expiry is enforced at the next
+KUKSA authentication/reconnect.
 
 The VDP v1-v3 source profiles are immutable build selections. Earlier source
 prebuilds omit later release modules, and v1/v2 omit the typed-advisory module.
@@ -120,7 +127,7 @@ integrated into the unsigned local rootfs `6.1.1-maninblack.11` candidate.
 The validation Unit remains on `6.1.1-maninblack.2`; no `.11` Cloud or Unit
 mutation has occurred. The separately packaged compatibility helper, protected
 per-Unit signing integration and trusted Provider connection profile remain
-target work. KAC source/package implementation is present but does not claim
-image or live qualification. The stock Aos IAM permission handler requires explicit
+target work. KAC and Factory-integration source implementation is present but
+does not claim package, image or live qualification. The stock Aos IAM permission handler requires explicit
 `enablePermissionsHandler: true` configuration and qualification in the
 accepted Factory Image independently of provisioning state.

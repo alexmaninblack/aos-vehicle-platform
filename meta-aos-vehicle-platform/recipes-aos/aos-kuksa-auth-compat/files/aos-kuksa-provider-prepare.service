@@ -2,22 +2,28 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [Unit]
-Description=Prepare protected KUKSA JWT public verifier
-After=aos-iam.service
-Requires=aos-iam.service
-Before=aos-kuksa-auth-compat.service kuksa-databroker.service
-Before=aos-kuksa-provider-prepare.service
+Description=Prepare fixed OEM KUKSA Provider credential
 PartOf=aos-kuksa-substrate.target
+Requires=aos-kuksa-verifier-prepare.service aos-vehicle-data-provider-bootstrap.service
+After=aos-kuksa-verifier-prepare.service aos-vehicle-data-provider-bootstrap.service systemd-time-wait-sync.service
+Before=aos-vehicle-data-provider.service
 ConditionPathExists=/var/aos/.provisionstate
 ConditionPathExists=/var/aos/iam/.kuksa-jwt-pin
+ConditionPathExists=/run/aos-kuksa-verifier/kuksa-jwt-public.pem
+JobTimeoutSec=45s
 
 [Service]
 Type=oneshot
 User=root
 Group=root
-ExecStart=/usr/libexec/aos-kuksa-verifier-prepare
+ExecStart=/usr/libexec/aos-kuksa-provider-prepare
 LoadCredential=kuksa-jwt-pin:/var/aos/iam/.kuksa-jwt-pin
 RemainAfterExit=yes
+Restart=no
+TimeoutStartSec=15s
+UMask=0077
+StateDirectory=aos-kuksa-provider
+StateDirectoryMode=0700
 NoNewPrivileges=yes
 CapabilityBoundingSet=
 AmbientCapabilities=
@@ -31,7 +37,6 @@ ProtectKernelLogs=yes
 ProtectKernelModules=yes
 ProtectKernelTunables=yes
 ProtectSystem=strict
-ReadWritePaths=/run/aos-kuksa-verifier
 RestrictAddressFamilies=AF_UNIX
 IPAddressDeny=any
 LockPersonality=yes
@@ -40,8 +45,8 @@ RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
 SystemCallArchitectures=native
-TasksMax=32
-LimitNOFILE=128
+TasksMax=16
+LimitNOFILE=64
 
 [Install]
 WantedBy=aos-kuksa-substrate.target

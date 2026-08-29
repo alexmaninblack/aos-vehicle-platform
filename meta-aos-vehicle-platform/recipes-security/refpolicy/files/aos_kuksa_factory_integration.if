@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+## <summary>Interfaces for fixed KUKSA Factory credential lifecycle.</summary>
+
+########################################
+## <summary>Read the dedicated KUKSA token PIN.</summary>
+## <param name="domain"><summary>Credential consumer domain.</summary></param>
+#
+interface(`aos_kuksa_pin_read',`
+    gen_require(`
+        type aos_kuksa_pin_t;
+    ')
+
+    read_files_pattern($1, aos_kuksa_pin_t, aos_kuksa_pin_t)
+')

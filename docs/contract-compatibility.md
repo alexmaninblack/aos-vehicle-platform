@@ -64,3 +64,10 @@ unsupported authority, the pinned RS256 claims/timing profile and all negative
 isolation cases. A released native implementation must be requalified before
 the package is removed; protocol compatibility alone does not authorize that
 migration.
+
+The temporary deployable also contains a separate networkless Provider
+preparer, but this is not a protocol extension. It accepts no caller input and
+creates only the fixed `aos-vdp` seven-day token with the frozen 27-entry
+scope. The Service daemon and Provider process share neither API nor runtime
+state. Both temporary paths are removed together only after native AosCore has
+qualified replacements.

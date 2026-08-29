@@ -5,6 +5,8 @@
 Description=Aos KUKSA authorization compatibility helper
 After=aos-iam.service aos-kuksa-verifier-prepare.service systemd-time-wait-sync.service
 Requires=aos-kuksa-verifier-prepare.service
+PartOf=aos-kuksa-substrate.target
+ConditionPathExists=/var/aos/.provisionstate
 ConditionPathExists=/run/aos-kuksa-verifier/kuksa-jwt-public.pem
 
 [Service]
@@ -43,4 +45,4 @@ TasksMax=32
 LimitNOFILE=128
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=aos-kuksa-substrate.target

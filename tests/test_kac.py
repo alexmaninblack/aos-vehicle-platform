@@ -32,7 +32,21 @@ class KacTests(unittest.TestCase):
     def test_package_is_separately_removable(self) -> None:
         recipe = validate_kac.RECIPE.read_text(encoding="utf-8")
         self.assertNotIn("aos-image-vm", recipe)
-        self.assertIn("aos-kuksa-auth-compat_0.1.0.bb", validate_kac.RECIPE.name)
+        self.assertIn("aos-kuksa-auth-compat_0.2.0.bb", validate_kac.RECIPE.name)
+        self.assertIn("aos-kuksa-provider-prepare", recipe)
+        self.assertNotIn("PACKAGES +=", recipe)
+
+    def test_provider_is_a_separate_networkless_one_shot(self) -> None:
+        unit = (validate_kac.FILES / "aos-kuksa-provider-prepare.service").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Type=oneshot", unit)
+        self.assertIn("RestrictAddressFamilies=AF_UNIX", unit)
+        self.assertIn("IPAddressDeny=any", unit)
+        self.assertIn("StateDirectory=aos-kuksa-provider", unit)
+        self.assertIn("StateDirectoryMode=0700", unit)
+        self.assertNotIn("systemd-slot-component/credentials", unit)
+        self.assertNotIn("IPAddressAllow=", unit)
 
 
 if __name__ == "__main__":

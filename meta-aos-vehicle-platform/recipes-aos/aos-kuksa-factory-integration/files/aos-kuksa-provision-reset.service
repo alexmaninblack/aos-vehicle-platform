@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+[Unit]
+Description=Reset unprovisioned Aos state before KUKSA token initialization
+ConditionPathExists=!/var/aos/.provisionstate
+Before=aos-kuksa-token-init.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/aos/deprovision.sh
+TimeoutStartSec=45s
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any

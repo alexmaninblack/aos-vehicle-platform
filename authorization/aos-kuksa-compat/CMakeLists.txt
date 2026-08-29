@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 cmake_minimum_required(VERSION 3.20)
-project(aos_kuksa_auth_compat VERSION 0.1.0 LANGUAGES CXX)
+project(aos_kuksa_auth_compat VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -72,14 +72,36 @@ add_executable(aos-kuksa-verifier-prepare src/verifier_prepare.cpp)
 target_compile_options(aos-kuksa-verifier-prepare PRIVATE -Wall -Wextra -Wpedantic -Werror)
 target_link_libraries(aos-kuksa-verifier-prepare PRIVATE kac_core)
 
+# The fixed Provider path deliberately has no kac_proto, gRPC or IAM client
+# linkage.  core.cpp/json.cpp are compiled here only for the already-audited
+# Base64URL/strict JSON primitives; the Service daemon target is unchanged.
+add_library(kac_provider STATIC
+  src/provider.cpp
+  src/core.cpp
+  src/json.cpp
+  src/pkcs11_signer.cpp)
+target_include_directories(kac_provider PUBLIC include)
+target_compile_options(kac_provider PRIVATE -Wall -Wextra -Wpedantic -Werror)
+target_link_libraries(kac_provider PUBLIC OpenSSL::Crypto)
+
+add_executable(aos-kuksa-provider-prepare src/provider_prepare.cpp)
+target_compile_options(aos-kuksa-provider-prepare PRIVATE -Wall -Wextra -Wpedantic -Werror)
+target_link_libraries(aos-kuksa-provider-prepare PRIVATE kac_provider)
+
 include(CTest)
 if(BUILD_TESTING)
   add_executable(kac-tests tests/kac_tests.cpp)
   target_compile_options(kac-tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
   target_link_libraries(kac-tests PRIVATE kac_core)
   add_test(NAME kac-tests COMMAND kac-tests)
+
+  add_executable(provider-tests tests/provider_tests.cpp)
+  target_compile_options(provider-tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  target_link_libraries(provider-tests PRIVATE kac_provider)
+  add_test(NAME provider-tests COMMAND provider-tests)
 endif()
 
 include(GNUInstallDirs)
 install(TARGETS aos-kuksa-auth-compat aos-kuksa-verifier-prepare
+  aos-kuksa-provider-prepare
   RUNTIME DESTINATION ${CMAKE_INSTALL_LIBEXECDIR})

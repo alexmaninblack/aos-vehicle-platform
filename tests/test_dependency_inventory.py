@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+import tempfile
 import unittest
+from unittest import mock
 
 from tools import quality_gate
 
@@ -63,6 +66,55 @@ class DependencyInventoryTests(unittest.TestCase):
         inventory = self.valid_inventory()
         inventory["runtime"][0]["license"] = "MIT"
         self.assertEqual([], quality_gate.validate_dependency_inventory(inventory))
+
+    def test_only_exact_structured_resources_path_inherits_owner_spdx(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            resources = root / (
+                "meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/files/"
+                "resources.cfg"
+            )
+            owner = root / (
+                "meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/"
+                "aos-servicemanager_git.bbappend"
+            )
+            resources.parent.mkdir(parents=True)
+            owner.parent.mkdir(parents=True, exist_ok=True)
+            resources.write_text(
+                '[{"name":"kuksa"},{"name":"kuksa-auth-client"}]\n',
+                encoding="utf-8",
+            )
+            owner.write_text(
+                "# SPDX-FileCopyrightText: 2026 maninblack\n"
+                "# SPDX-License-Identifier: Apache-2.0\n",
+                encoding="utf-8",
+            )
+            unrelated = root / "unrelated.json"
+            unrelated.write_text("{}\n", encoding="utf-8")
+            with mock.patch.object(quality_gate, "ROOT", root):
+                self.assertEqual([], quality_gate.check_spdx([resources]))
+                errors = quality_gate.check_spdx([unrelated])
+                self.assertEqual(2, len(errors))
+                self.assertTrue(all(error.startswith("unrelated.json:") for error in errors))
+
+    def test_resources_exemption_requires_the_exact_schema_and_licensed_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            resources = root / (
+                "meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/files/"
+                "resources.cfg"
+            )
+            owner = root / (
+                "meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/"
+                "aos-servicemanager_git.bbappend"
+            )
+            resources.parent.mkdir(parents=True)
+            owner.parent.mkdir(parents=True, exist_ok=True)
+            resources.write_text('[{"name":"kuksa"}]\n', encoding="utf-8")
+            owner.write_text("unlicensed owner\n", encoding="utf-8")
+            with mock.patch.object(quality_gate, "ROOT", root):
+                errors = quality_gate.check_spdx([resources])
+                self.assertEqual(2, len(errors))
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 maninblack
 # SPDX-License-Identifier: Apache-2.0
 
-policy_module(aos_kuksa_auth_compat, 1.0.0)
+policy_module(aos_kuksa_auth_compat, 1.1.0)
 
 type aos_kuksa_auth_compat_t;
 type aos_kuksa_auth_compat_exec_t;
@@ -11,12 +11,20 @@ type aos_kuksa_verifier_prepare_t;
 type aos_kuksa_verifier_prepare_exec_t;
 init_daemon_domain(aos_kuksa_verifier_prepare_t, aos_kuksa_verifier_prepare_exec_t)
 
+type aos_kuksa_provider_prepare_t;
+type aos_kuksa_provider_prepare_exec_t;
+init_daemon_domain(aos_kuksa_provider_prepare_t, aos_kuksa_provider_prepare_exec_t)
+
 type aos_kuksa_auth_runtime_t;
 files_runtime_file(aos_kuksa_auth_runtime_t)
 type aos_kuksa_verifier_runtime_t;
 files_runtime_file(aos_kuksa_verifier_runtime_t)
 type aos_kuksa_pkcs11_store_t;
 files_type(aos_kuksa_pkcs11_store_t)
+type aos_kuksa_provider_store_t;
+files_type(aos_kuksa_provider_store_t)
+type aos_kuksa_provider_credential_t;
+files_type(aos_kuksa_provider_credential_t)
 
 type aos_kuksa_iam_port_t, port_type;
 portcon tcp 8090 gen_context(system_u:object_r:aos_kuksa_iam_port_t,s0)
@@ -39,15 +47,25 @@ allow aos_kuksa_auth_compat_t aos_kuksa_pkcs11_store_t:file lock;
 list_dirs_pattern(aos_kuksa_verifier_prepare_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
 read_files_pattern(aos_kuksa_verifier_prepare_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
 allow aos_kuksa_verifier_prepare_t aos_kuksa_pkcs11_store_t:file lock;
+list_dirs_pattern(aos_kuksa_provider_prepare_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
+read_files_pattern(aos_kuksa_provider_prepare_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
+allow aos_kuksa_provider_prepare_t aos_kuksa_pkcs11_store_t:file lock;
+manage_files_pattern(aos_kuksa_provider_prepare_t, aos_kuksa_provider_store_t, aos_kuksa_provider_credential_t)
+type_transition aos_kuksa_provider_prepare_t aos_kuksa_provider_store_t:file aos_kuksa_provider_credential_t;
 
 gen_require(`
     type initrc_runtime_t;
+    type init_t;
 ')
 
 allow aos_kuksa_auth_compat_t initrc_runtime_t:dir { getattr search };
 allow aos_kuksa_auth_compat_t initrc_runtime_t:file { getattr open read };
 allow aos_kuksa_verifier_prepare_t initrc_runtime_t:dir { getattr search };
 allow aos_kuksa_verifier_prepare_t initrc_runtime_t:file { getattr open read };
+allow aos_kuksa_provider_prepare_t initrc_runtime_t:dir { getattr search };
+allow aos_kuksa_provider_prepare_t initrc_runtime_t:file { getattr open read };
+allow init_t aos_kuksa_provider_store_t:dir { getattr open read search };
+allow init_t aos_kuksa_provider_credential_t:file { getattr open read };
 
 dev_read_urand(aos_kuksa_auth_compat_t)
 files_read_etc_files(aos_kuksa_auth_compat_t)
@@ -59,3 +77,8 @@ dev_read_urand(aos_kuksa_verifier_prepare_t)
 files_read_etc_files(aos_kuksa_verifier_prepare_t)
 init_read_runtime_files(aos_kuksa_verifier_prepare_t)
 miscfiles_read_generic_certs(aos_kuksa_verifier_prepare_t)
+
+dev_read_urand(aos_kuksa_provider_prepare_t)
+files_read_etc_files(aos_kuksa_provider_prepare_t)
+init_read_runtime_files(aos_kuksa_provider_prepare_t)
+miscfiles_read_generic_certs(aos_kuksa_provider_prepare_t)
