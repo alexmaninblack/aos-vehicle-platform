@@ -156,10 +156,12 @@ def validate_kac() -> None:
     forbid(policy, "vehicle_data_provider_store_t", "SELinux")
     forbid(policy, "portcon tcp", "SELinux")
     forbid(policy, "corenet_port(aos_kuksa_iam_port_t)", "SELinux")
-    require(policy, "corenet_tcp_sendrecv_lo_iface(aos_kuksa_auth_compat_t)", "SELinux")
-    require(policy, "corenet_tcp_connect_lo_node(aos_kuksa_auth_compat_t)", "SELinux")
+    require(policy, "corenet_tcp_sendrecv_generic_if(aos_kuksa_auth_compat_t)", "SELinux")
+    require(policy, "corenet_tcp_sendrecv_generic_node(aos_kuksa_auth_compat_t)", "SELinux")
     for forbidden in (
         "corenet_tcp_connect_all_ports",
+        "corenet_tcp_sendrecv_all_if",
+        "corenet_tcp_sendrecv_all_nodes",
         "sysnet_dns_name_resolve",
         "audit2allow",
         "create_file_perms",

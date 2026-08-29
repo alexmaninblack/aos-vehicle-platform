@@ -218,7 +218,14 @@ def validate() -> None:
     cleanup_source = (FACTORY / "src/runtime_cleanup.cpp").read_text(encoding="utf-8")
     require(cleanup_source, "/var/lib/aos-kuksa-provider/kuksa-token", "cleanup")
     forbid(cleanup_source, "systemd-slot-component/credentials", "cleanup")
-    for forbidden_rule in ("corenet_tcp_connect_all_ports", "sysnet_dns_name_resolve", "audit2allow", "sys_admin"):
+    for forbidden_rule in (
+        "corenet_tcp_connect_all_ports",
+        "corenet_tcp_sendrecv_all_if",
+        "corenet_tcp_sendrecv_all_nodes",
+        "sysnet_dns_name_resolve",
+        "audit2allow",
+        "sys_admin",
+    ):
         forbid(policy, forbidden_rule, "SELinux")
 
 
