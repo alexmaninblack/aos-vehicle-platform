@@ -62,6 +62,27 @@ class KacFactoryIntegrationTests(unittest.TestCase):
         )
         self.assertNotIn("systemd-slot-component/credentials", provider + dropin)
 
+    def test_reset_recreates_only_the_token_parent(self) -> None:
+        files = validate_kac_factory_integration.FILES
+        reset = (files / "aos-kuksa-provision-reset.service").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(reset.count("ExecStartPost="), 1)
+        self.assertIn(
+            "ExecStartPost=/usr/bin/install -d -m 0700 -o root -g root /var/aos/iam",
+            reset,
+        )
+        self.assertNotIn(".kuksa-jwt-pin", reset)
+        token_init = (files / "aos-kuksa-token-init.service").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Requires=aos-kuksa-provision-reset.service", token_init)
+        self.assertIn("After=aos-kuksa-provision-reset.service", token_init)
+        self.assertIn(
+            "ReadWritePaths=/var/aos/iam /var/lib/softhsm", token_init
+        )
+        self.assertNotIn("ReadWritePaths=-/var/aos/iam", token_init)
+
 
 if __name__ == "__main__":
     unittest.main()

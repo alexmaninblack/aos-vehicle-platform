@@ -70,7 +70,7 @@ def validate() -> None:
     require(recipe, 'DEPENDS = "openssl softhsm"', "Factory recipe")
     require(
         recipe,
-        'RDEPENDS:${PN} = "aos-deprov aos-iamanager aos-kuksa-auth-compat aos-servicemanager aos-vehicle-data-provider-platform kuksa-databroker softhsm"',
+        'RDEPENDS:${PN} = "aos-deprov aos-iamanager aos-kuksa-auth-compat aos-servicemanager aos-vehicle-data-provider-platform coreutils kuksa-databroker softhsm"',
         "Factory recipe",
     )
     for executable in (
@@ -89,8 +89,18 @@ def validate() -> None:
     substrate = (FILES / "aos-kuksa-substrate.target").read_text(encoding="utf-8")
     require(reset, "ConditionPathExists=!/var/aos/.provisionstate", "reset unit")
     require(reset, "ExecStart=/opt/aos/deprovision.sh", "reset unit")
+    require(
+        reset,
+        "ExecStartPost=/usr/bin/install -d -m 0700 -o root -g root /var/aos/iam",
+        "reset unit IAM parent",
+    )
+    if reset.count("ExecStartPost=") != 1:
+        raise ValidationError("reset unit must recreate the IAM parent exactly once")
     require(init, "TimeoutStartSec=10s", "token init unit")
     require(init, "RemainAfterExit=yes", "token init unit")
+    require(init, "ReadWritePaths=/var/aos/iam /var/lib/softhsm", "token init unit")
+    forbid(init, "ReadWritePaths=-/var/aos/iam", "token init unit")
+    forbid(init, "ReadWritePaths=/var/aos ", "token init unit")
     require(cleanup, "aos-kuksa-runtime-cleanup", "cleanup unit")
     require(cleanup, "-/var/lib/aos-kuksa-provider", "cleanup unit")
     require(cleanup, "-/var/lib/aos-kuksa-tls", "cleanup unit")
@@ -265,6 +275,22 @@ def validate() -> None:
         policy,
         "read_files_pattern(init_t, aos_kuksa_tls_store_t, aos_kuksa_tls_store_t)",
         "SELinux",
+    )
+    require(
+        policy,
+        "manage_files_pattern(aos_kuksa_token_init_t, aos_var_run_t, aos_kuksa_pin_t)",
+        "SELinux exact PIN parent boundary",
+    )
+    require(policy, "type aos_var_run_t;", "SELinux IAM parent type")
+    require(
+        policy,
+        'type_transition aos_kuksa_token_init_t aos_var_run_t:file aos_kuksa_pin_t ".kuksa-jwt-pin.tmp";',
+        "SELinux exact PIN temporary-file transition",
+    )
+    forbid(
+        policy,
+        "manage_files_pattern(aos_kuksa_token_init_t, aos_kuksa_pin_t, aos_kuksa_pin_t)",
+        "SELinux invalid PIN-as-parent boundary",
     )
     for domain in (
         "aos_kuksa_token_init_t",

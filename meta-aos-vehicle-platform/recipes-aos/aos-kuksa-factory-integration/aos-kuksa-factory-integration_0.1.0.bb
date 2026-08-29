@@ -29,7 +29,7 @@ S = "${WORKDIR}/source"
 inherit cmake systemd
 
 DEPENDS = "openssl softhsm"
-RDEPENDS:${PN} = "aos-deprov aos-iamanager aos-kuksa-auth-compat aos-servicemanager aos-vehicle-data-provider-platform kuksa-databroker softhsm"
+RDEPENDS:${PN} = "aos-deprov aos-iamanager aos-kuksa-auth-compat aos-servicemanager aos-vehicle-data-provider-platform coreutils kuksa-databroker softhsm"
 
 EXTRA_OECMAKE = "-DBUILD_TESTING=ON"
 

@@ -27,6 +27,7 @@ gen_require(`
     type aos_kuksa_provider_credential_t;
     type aos_kuksa_verifier_runtime_t;
     type aos_kuksa_auth_runtime_t;
+    type aos_var_run_t;
     type init_t;
     type initrc_t;
 ')
@@ -48,7 +49,11 @@ files_search_var_lib(aos_kuksa_token_init_t)
 files_search_var_lib(aos_kuksa_runtime_cleanup_t)
 files_search_var_lib(aos_kuksa_tls_prepare_t)
 
-manage_files_pattern(aos_kuksa_token_init_t, aos_kuksa_pin_t, aos_kuksa_pin_t)
+# Reset recreates only the root-owned 0700 IAM parent.  Token initialization
+# can manage exact typed PIN files there, while the named transition prevents
+# unrelated files below /var/aos/iam from receiving the credential type.
+manage_files_pattern(aos_kuksa_token_init_t, aos_var_run_t, aos_kuksa_pin_t)
+type_transition aos_kuksa_token_init_t aos_var_run_t:file aos_kuksa_pin_t ".kuksa-jwt-pin.tmp";
 manage_dirs_pattern(aos_kuksa_token_init_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
 manage_files_pattern(aos_kuksa_token_init_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
 allow aos_kuksa_token_init_t aos_kuksa_pkcs11_store_t:file lock;
