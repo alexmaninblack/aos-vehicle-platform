@@ -4,6 +4,7 @@
 set(TARGET_NAME systemdslotcomponent)
 
 find_package(Threads REQUIRED)
+find_package(Poco REQUIRED JSON Net NetSSL)
 
 set(SOURCES
     config.cpp
