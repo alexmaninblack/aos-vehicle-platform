@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 maninblack
 # SPDX-License-Identifier: Apache-2.0
 
-policy_module(aos_kuksa_auth_compat, 1.1.0)
+policy_module(aos_kuksa_auth_compat, 1.1.1)
 
 type aos_kuksa_auth_compat_t;
 type aos_kuksa_auth_compat_exec_t;
@@ -54,6 +54,10 @@ gen_require(`
     type initrc_t;
     type init_t;
     type aos_kuksa_iam_port_t;
+    type aos_var_run_t;
+    type proc_t;
+    type sysfs_t;
+    type syslogd_runtime_t;
 ')
 
 # These finite systemd services retain NoNewPrivileges. Permit only their
@@ -80,6 +84,23 @@ allow aos_kuksa_provider_prepare_t initrc_runtime_t:dir { getattr search };
 allow aos_kuksa_provider_prepare_t initrc_runtime_t:file { getattr open read };
 allow init_t aos_kuksa_provider_store_t:dir { getattr open read search };
 allow init_t aos_kuksa_provider_credential_t:file { getattr open read };
+
+# The three KAC units gate startup on native Aos state and receive private
+# credential copies from systemd.  Their processes need only parent traversal;
+# they never read the persistent PIN or another file below /var/aos directly.
+allow aos_kuksa_auth_compat_t aos_var_run_t:dir search;
+allow aos_kuksa_verifier_prepare_t aos_var_run_t:dir search;
+allow aos_kuksa_provider_prepare_t aos_var_run_t:dir search;
+
+# gRPC observes the CPU topology and its own scheduling state.  Keep the
+# proven closure to the exact read-only operations emitted by the target.
+allow aos_kuksa_auth_compat_t sysfs_t:file read;
+allow aos_kuksa_auth_compat_t proc_t:file read;
+allow aos_kuksa_auth_compat_t self:process getsched;
+
+# The pinned logging interface lacks this path lookup permission for the
+# target's syslogd runtime label; socket send authority remains interface-owned.
+allow aos_kuksa_auth_compat_t syslogd_runtime_t:sock_file write;
 
 dev_read_urand(aos_kuksa_auth_compat_t)
 files_read_etc_files(aos_kuksa_auth_compat_t)

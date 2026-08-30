@@ -245,6 +245,7 @@ def validate_kac() -> None:
     )
 
     policy = POLICY.read_text(encoding="utf-8")
+    require(policy, "policy_module(aos_kuksa_auth_compat, 1.1.1)", "SELinux version")
     require(policy, "aos_kuksa_auth_compat_t", "SELinux")
     require(policy, "aos_kuksa_verifier_prepare_t", "SELinux")
     require(policy, "aos_kuksa_provider_prepare_t", "SELinux")
@@ -265,6 +266,47 @@ def validate_kac() -> None:
         require(policy, f"files_search_var_lib({domain})", "SELinux var-lib traversal")
         require(policy, f"files_search_runtime({domain})", "SELinux runtime traversal")
         require(policy, f"miscfiles_read_localization({domain})", "SELinux localization")
+
+    expected_aos_parent_rules = [
+        "allow aos_kuksa_auth_compat_t aos_var_run_t:dir search;",
+        "allow aos_kuksa_verifier_prepare_t aos_var_run_t:dir search;",
+        "allow aos_kuksa_provider_prepare_t aos_var_run_t:dir search;",
+    ]
+    actual_aos_parent_rules = [
+        line.strip()
+        for line in policy.splitlines()
+        if line.strip().startswith("allow aos_kuksa_")
+        and " aos_var_run_t:" in line
+    ]
+    if actual_aos_parent_rules != expected_aos_parent_rules:
+        raise KacValidationError(
+            "SELinux persistent Aos traversal exceeds the exact live closure: "
+            + repr(actual_aos_parent_rules)
+        )
+
+    expected_auth_observation_rules = [
+        "allow aos_kuksa_auth_compat_t sysfs_t:file read;",
+        "allow aos_kuksa_auth_compat_t proc_t:file read;",
+        "allow aos_kuksa_auth_compat_t self:process getsched;",
+        "allow aos_kuksa_auth_compat_t syslogd_runtime_t:sock_file write;",
+    ]
+    actual_auth_observation_rules = [
+        line.strip()
+        for line in policy.splitlines()
+        if line.strip().startswith(
+            (
+                "allow aos_kuksa_auth_compat_t sysfs_t:",
+                "allow aos_kuksa_auth_compat_t proc_t:",
+                "allow aos_kuksa_auth_compat_t self:process",
+                "allow aos_kuksa_auth_compat_t syslogd_runtime_t:",
+            )
+        )
+    ]
+    if actual_auth_observation_rules != expected_auth_observation_rules:
+        raise KacValidationError(
+            "SELinux KAC observation/logging access exceeds the exact live closure: "
+            + repr(actual_auth_observation_rules)
+        )
     require(
         policy,
         'type_transition aos_kuksa_provider_prepare_t aos_kuksa_provider_store_t:file aos_kuksa_provider_credential_t ".kuksa-token.tmp";',
@@ -289,6 +331,9 @@ def validate_kac() -> None:
         "audit2allow",
         "create_file_perms",
         "manage_lnk_files_pattern",
+        "kernel_read_system_state(aos_kuksa_auth_compat_t)",
+        "kernel_read_kernel_sysctls(aos_kuksa_auth_compat_t)",
+        "files_read_all_pids(aos_kuksa_auth_compat_t)",
     ):
         forbid(policy, forbidden, "SELinux")
     port_policy_patch = PORT_POLICY_PATCH.read_text(encoding="utf-8")

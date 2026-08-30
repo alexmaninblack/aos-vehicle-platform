@@ -35,6 +35,10 @@ FACTORY_FILE_CONTEXTS = ROOT / (
     "meta-aos-vehicle-platform/recipes-security/refpolicy/files/"
     "aos_kuksa_factory_integration.fc"
 )
+FACTORY_POLICY = ROOT / (
+    "meta-aos-vehicle-platform/recipes-security/refpolicy/files/"
+    "aos_kuksa_factory_integration.te"
+)
 
 
 class ValidationError(RuntimeError):
@@ -70,6 +74,7 @@ def validate() -> None:
         PORT_POLICY_PATCH,
         KUKSA_RECIPE_APPEND,
         FACTORY_FILE_CONTEXTS,
+        FACTORY_POLICY,
     ]
     missing = [str(path.relative_to(ROOT)) for path in required if not path.is_file()]
     if missing:
@@ -409,6 +414,29 @@ def validate() -> None:
                 "aos_kuksa_*"
             )
         )
+    )
+    factory_policy = FACTORY_POLICY.read_text(encoding="utf-8")
+    require(
+        factory_policy,
+        "policy_module(aos_kuksa_factory_integration, 1.0.1)",
+        "SELinux Factory policy version",
+    )
+    cert_probe_rules = [
+        line.strip()
+        for line in factory_policy.splitlines()
+        if "aos_kuksa_tls_prepare_t cert_t:" in line
+    ]
+    if cert_probe_rules != [
+        "dontaudit aos_kuksa_tls_prepare_t cert_t:dir search;"
+    ]:
+        raise ValidationError(
+            "SELinux TLS certificate probe exceeds exact deny-only closure: "
+            + repr(cert_probe_rules)
+        )
+    forbid(
+        factory_policy,
+        "miscfiles_read_generic_certs(aos_kuksa_tls_prepare_t)",
+        "SELinux TLS optional certificate access",
     )
     file_contexts = FACTORY_FILE_CONTEXTS.read_text(encoding="utf-8")
     require(

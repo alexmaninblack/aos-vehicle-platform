@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 maninblack
 # SPDX-License-Identifier: Apache-2.0
 
-policy_module(aos_kuksa_factory_integration, 1.0.0)
+policy_module(aos_kuksa_factory_integration, 1.0.1)
 
 type aos_kuksa_runtime_cleanup_t;
 type aos_kuksa_runtime_cleanup_exec_t;
@@ -26,6 +26,7 @@ gen_require(`
     type aos_var_run_t;
     type aos_t;
     type aos_exec_t;
+    type cert_t;
     type init_t;
     type initrc_t;
 ')
@@ -48,6 +49,11 @@ manage_files_pattern(aos_kuksa_tls_prepare_t, aos_kuksa_tls_store_t, aos_kuksa_t
 dev_read_urand(aos_kuksa_tls_prepare_t)
 files_read_etc_files(aos_kuksa_tls_prepare_t)
 miscfiles_read_localization(aos_kuksa_tls_prepare_t)
+
+# OpenSSL optionally probes its default /etc/ssl configuration while this
+# helper constructs a fully specified self-signed identity.  The probe is not
+# part of the helper contract: keep it denied and suppress only that search.
+dontaudit aos_kuksa_tls_prepare_t cert_t:dir search;
 
 # systemd is the only reader of persistent TLS identity and the PIN. It copies
 # them into private credentials mounts for their exact consumers.
