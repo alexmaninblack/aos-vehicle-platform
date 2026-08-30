@@ -66,6 +66,97 @@ class R61LayerTests(unittest.TestCase):
         self.assertNotIn("now - frame.mSourceObservedAt", evaluator)
         self.assertIn('getValue<std::string>("ts")', transport)
 
+    def test_runtime_credentials_are_deferred_without_blocking_sm_startup(self) -> None:
+        drop_in = validate_r6_1_layer.SM_DROP_IN.read_text(encoding="utf-8")
+        template = validate_r6_1_layer.SM_CREDENTIAL_TEMPLATE.read_text(
+            encoding="utf-8"
+        )
+        recipe = validate_r6_1_layer.PLATFORM_RECIPE.read_text(encoding="utf-8")
+        directives = tuple(
+            line.strip()
+            for line in template.splitlines()
+            if line.startswith("LoadCredential=")
+        )
+
+        self.assertIn(
+            "Requires=aos-vehicle-data-provider-bootstrap.service", drop_in
+        )
+        self.assertIn(
+            "After=aos-vehicle-data-provider-bootstrap.service", drop_in
+        )
+        self.assertNotIn("LoadCredential=", drop_in)
+        self.assertNotIn("[Service]", drop_in)
+        self.assertEqual(
+            validate_r6_1_layer.PLATFORM_UPDATE_RUNTIME_CREDENTIAL_DIRECTIVES,
+            directives,
+        )
+        self.assertIn(
+            validate_r6_1_layer.SM_CREDENTIAL_TEMPLATE_INSTALL, recipe
+        )
+        self.assertNotIn("${D}/var/aos/iam/vehicle-state", recipe)
+        self.assertNotIn("Restart=", drop_in)
+        self.assertNotIn("RestartSec=", drop_in)
+        for credential_source in (
+            "ca.pem",
+            "client.pem",
+            "client-key.pem",
+            "binding.json",
+        ):
+            self.assertFalse(
+                any(
+                    path.name == credential_source
+                    for path in validate_r6_1_layer.LAYER.rglob("*")
+                )
+            )
+
+    def test_missing_runtime_credentials_fail_the_action_before_transport(self) -> None:
+        provider = validate_r6_1_layer.VISS_STATE.read_text(encoding="utf-8")
+        runtime = validate_r6_1_layer.RUNTIME.read_text(encoding="utf-8")
+        provider_test = (
+            validate_r6_1_layer.VISS_STATE.parent
+            / "tests/vissvehiclestate.cpp"
+        ).read_text(encoding="utf-8")
+        runtime_test = (
+            validate_r6_1_layer.RUNTIME.parent / "tests/runtime.cpp"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "PLATFORM_UPDATE_RUNTIME systemd credential is unavailable",
+            provider,
+        )
+        self.assertLess(
+            provider.index("ValidateCredential(credential)"),
+            provider.index("mTransport->ReadSnapshot"),
+        )
+        self.assertLess(
+            runtime.index("WaitForSafeStop(window, deadline)"),
+            runtime.index("ActivateGuarded(*transaction, window)"),
+        )
+        self.assertIn(
+            "RejectsMissingCredentialsBeforeReadingVehicleState", provider_test
+        )
+        self.assertIn("EXPECT_EQ(transport.mReads, 0U)", provider_test)
+        self.assertIn(
+            "MissingVehicleStateCredentialsKeepPlatformUpdateWaitingAndNonDestructive",
+            runtime_test,
+        )
+        self.assertNotIn(
+            'config.mConfig->set("safeStopWaitSeconds", 1)', runtime_test
+        )
+        self.assertIn(
+            "template <typename Provider>\n  void WaitForReads(const Provider &provider",
+            runtime_test,
+        )
+        for operation in (
+            "MarkUnavailable()",
+            "StopProvider()",
+            "StartProvider()",
+            "CheckHealth()",
+        ):
+            self.assertIn(
+                f"EXPECT_CALL(mProfile, {operation}).Times(0)", runtime_test
+            )
+
     def test_refpolicy_files_are_installed_from_a_shell_task(self) -> None:
         content = validate_r6_1_layer.POLICY_APPEND.read_text(encoding="utf-8")
         self.assertIn("do_compile:prepend()", content)

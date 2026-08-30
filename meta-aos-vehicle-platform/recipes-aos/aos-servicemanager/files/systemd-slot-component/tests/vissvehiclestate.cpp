@@ -21,6 +21,7 @@ public:
                      const std::array<const char *, 10> &,
                      Viss31Snapshot &snapshot,
                      std::chrono::milliseconds) override {
+    ++mReads;
     snapshot = mSnapshot;
     return mError;
   }
@@ -29,6 +30,7 @@ public:
 
   Viss31Snapshot mSnapshot;
   Error mError;
+  uint64_t mReads{};
   bool mCanceled{};
 };
 
@@ -122,6 +124,26 @@ TEST(Viss31VehicleStateProviderTest, RejectsWidenedSnapshotsAndWrongBindings) {
         R"({"schemaVersion":1,"unitId":"unit-1","nodeId":"another-node","role":"PLATFORM_UPDATE_RUNTIME","clientCertificateSha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","assignmentGeneration":1})");
   EXPECT_TRUE(provider.ReadFrame(frame, std::chrono::milliseconds{250})
                   .Is(ErrorEnum::eInvalidArgument));
+  std::filesystem::remove_all(directory);
+}
+
+TEST(Viss31VehicleStateProviderTest,
+     RejectsMissingCredentialsBeforeReadingVehicleState) {
+  const auto directory = std::filesystem::temp_directory_path() /
+                         ("viss-state-provider-missing-" +
+                          std::to_string(getpid()));
+  std::filesystem::remove_all(directory);
+  std::filesystem::create_directories(directory);
+  const auto config = CreateConfig(directory);
+  std::filesystem::remove(config.mPrivateKeyCredential);
+  FakeVissTransport transport;
+  Viss31MtlsVehicleStateProvider provider(&transport);
+  ASSERT_TRUE(provider.Init(config).IsNone());
+
+  VehicleStateFrame frame;
+  EXPECT_TRUE(provider.ReadFrame(frame, std::chrono::milliseconds{250})
+                  .Is(ErrorEnum::eNotFound));
+  EXPECT_EQ(transport.mReads, 0U);
   std::filesystem::remove_all(directory);
 }
 

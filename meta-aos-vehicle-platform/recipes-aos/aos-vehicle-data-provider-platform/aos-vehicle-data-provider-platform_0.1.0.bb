@@ -23,6 +23,7 @@ SRC_URI = " \
     file://aos-vehicle-data-provider-loop.conf \
     file://aos-vehicle-data-provider.conf \
     file://30-aos-vehicle-data-provider.conf \
+    file://platform-update-runtime-credentials.conf.template \
 "
 
 S = "${WORKDIR}"
@@ -88,6 +89,10 @@ do_install() {
     install -m 0644 ${WORKDIR}/30-aos-vehicle-data-provider.conf \
         ${D}${sysconfdir}/systemd/system/aos-sm.service.d
 
+    install -d ${D}${datadir}/aos-vehicle-platform/contracts
+    install -m 0644 ${WORKDIR}/platform-update-runtime-credentials.conf.template \
+        ${D}${datadir}/aos-vehicle-platform/contracts
+
     install -d ${D}/var/aos/workdirs/sm/runtimes/systemd-slot-component
 }
 
@@ -107,5 +112,6 @@ FILES:${PN} += " \
     ${libdir}/aos-vehicle-data-provider/store.conf \
     ${sysconfdir}/modules-load.d/aos-vehicle-data-provider-loop.conf \
     ${sysconfdir}/systemd/system/aos-sm.service.d/30-aos-vehicle-data-provider.conf \
+    ${datadir}/aos-vehicle-platform/contracts/platform-update-runtime-credentials.conf.template \
     /var/aos/workdirs/sm/runtimes/systemd-slot-component \
 "

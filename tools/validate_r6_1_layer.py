@@ -146,6 +146,25 @@ SM_DROP_IN = (
     / "recipes-aos/aos-vehicle-data-provider-platform/files/"
     "30-aos-vehicle-data-provider.conf"
 )
+SM_CREDENTIAL_TEMPLATE = (
+    LAYER
+    / "recipes-aos/aos-vehicle-data-provider-platform/files/"
+    "platform-update-runtime-credentials.conf.template"
+)
+SM_CREDENTIAL_TEMPLATE_INSTALL = (
+    "${datadir}/aos-vehicle-platform/contracts/"
+    "platform-update-runtime-credentials.conf.template"
+)
+PLATFORM_UPDATE_RUNTIME_CREDENTIAL_DIRECTIVES = (
+    "LoadCredential=viss-update-ca:"
+    "/var/aos/iam/vehicle-state/platform-update-runtime/ca.pem",
+    "LoadCredential=viss-update-certificate:"
+    "/var/aos/iam/vehicle-state/platform-update-runtime/client.pem",
+    "LoadCredential=viss-update-private-key:"
+    "/var/aos/iam/vehicle-state/platform-update-runtime/client-key.pem",
+    "LoadCredential=viss-update-binding:"
+    "/var/aos/iam/vehicle-state/platform-update-runtime/binding.json",
+)
 POLICY = LAYER / "recipes-security/refpolicy/files/vehicle_data_provider.te"
 POLICY_FC = LAYER / "recipes-security/refpolicy/files/vehicle_data_provider.fc"
 POLICY_APPEND = LAYER / "recipes-security/refpolicy/refpolicy-aos_git.bbappend"
@@ -722,20 +741,77 @@ def validate_layer() -> None:
         "Requires=aos-vehicle-data-provider-bootstrap.service" in sm_drop_in,
         "Service Manager does not fail closed on store bootstrap",
     )
-    for credential in (
-        "viss-update-ca",
-        "viss-update-certificate",
-        "viss-update-private-key",
-        "viss-update-binding",
-    ):
-        require(f"LoadCredential={credential}:" in sm_drop_in,
-                f"Service Manager Safe Stop credential is missing: {credential}")
+    require(
+        "After=aos-vehicle-data-provider-bootstrap.service" in sm_drop_in,
+        "Service Manager bootstrap ordering changed",
+    )
+    require(
+        "LoadCredential=" not in sm_drop_in and "[Service]" not in sm_drop_in,
+        "deferred Safe Stop credentials are still active on Service Manager startup",
+    )
+    require(
+        "/var/aos/iam/vehicle-state/platform-update-runtime" not in sm_drop_in,
+        "Service Manager startup still requires an unproduced credential source",
+    )
+
+    credential_template = read(SM_CREDENTIAL_TEMPLATE)
+    template_directives = tuple(
+        line.strip()
+        for line in credential_template.splitlines()
+        if line.startswith("LoadCredential=")
+    )
+    require(
+        credential_template.count("[Service]") == 1
+        and template_directives == PLATFORM_UPDATE_RUNTIME_CREDENTIAL_DIRECTIVES,
+        "deferred Safe Stop credential contract is not exact",
+    )
+    active_layer_text = "\n".join(
+        read(path)
+        for path in LAYER.rglob("*")
+        if path.is_file() and path != SM_CREDENTIAL_TEMPLATE
+    )
+    for directive in PLATFORM_UPDATE_RUNTIME_CREDENTIAL_DIRECTIVES:
+        require(
+            directive not in active_layer_text,
+            "deferred Safe Stop credential contract is active outside its template",
+        )
+    for credential_source in ("ca.pem", "client.pem", "client-key.pem", "binding.json"):
+        require(
+            not any(path.name == credential_source for path in LAYER.rglob("*")),
+            f"layer bakes a Safe Stop credential source: {credential_source}",
+        )
+    require(
+        "Restart=" not in sm_drop_in and "RestartSec=" not in sm_drop_in,
+        "Service Manager drop-in introduces a credential restart loop",
+    )
     require(
         read(STORE_MODULES_LOAD).splitlines()[-1] == "loop",
         "steady-state loop module is not selected exactly once",
     )
 
     platform_recipe = read(PLATFORM_RECIPE)
+    require(
+        "file://platform-update-runtime-credentials.conf.template"
+        in platform_recipe,
+        "deferred Safe Stop credential contract is not a recipe source",
+    )
+    require(
+        "install -d ${D}${datadir}/aos-vehicle-platform/contracts"
+        in platform_recipe
+        and SM_CREDENTIAL_TEMPLATE_INSTALL in platform_recipe,
+        "deferred Safe Stop credential contract is not installed inertly",
+    )
+    require(
+        "${systemd_system_unitdir}/platform-update-runtime-credentials"
+        not in platform_recipe
+        and "${sysconfdir}/systemd/platform-update-runtime-credentials"
+        not in platform_recipe,
+        "deferred Safe Stop credential contract is installed in a systemd search path",
+    )
+    require(
+        "${D}/var/aos/iam/vehicle-state" not in platform_recipe,
+        "provider recipe bakes a Safe Stop credential source",
+    )
     for dependency in (
         "coreutils",
         "e2fsprogs-e2fsck",

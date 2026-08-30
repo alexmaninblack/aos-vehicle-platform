@@ -124,6 +124,26 @@ private:
   std::atomic_bool mFixedFrame{};
 };
 
+class MissingCredentialVehicleStateProvider : public VehicleStateProviderItf {
+public:
+  Error ReadFrame(VehicleStateFrame &,
+                  std::chrono::milliseconds) override {
+    ++mReads;
+    return Error(
+        ErrorEnum::eNotFound,
+        "PLATFORM_UPDATE_RUNTIME systemd credential is unavailable");
+  }
+
+  void Cancel() override { mCanceled = true; }
+
+  uint64_t Reads() const { return mReads; }
+  bool Canceled() const { return mCanceled; }
+
+private:
+  std::atomic_uint64_t mReads{};
+  std::atomic_bool mCanceled{};
+};
+
 NodeInfo CreateNodeInfo() {
   NodeInfo nodeInfo;
   nodeInfo.mNodeID = "r61-bootstrap-node";
@@ -370,8 +390,8 @@ protected:
         std::filesystem::exists(mWorkingDir / "state/transaction.json"));
   }
 
-  void WaitForReads(const ScriptedVehicleStateProvider &provider,
-                    uint64_t minimum,
+  template <typename Provider>
+  void WaitForReads(const Provider &provider, uint64_t minimum,
                     std::chrono::seconds timeout =
                         std::chrono::seconds{2}) const {
     const auto deadline = std::chrono::steady_clock::now() + timeout;
@@ -547,6 +567,36 @@ TEST_F(SystemdSlotComponentRuntimeTest,
   EXPECT_TRUE(runtime->StartInstance(different, status)
                   .Is(ErrorEnum::eWrongState));
   ASSERT_TRUE(runtime->Stop().IsNone());
+  EXPECT_TRUE(
+      std::filesystem::exists(mWorkingDir / "state/transaction.json"));
+}
+
+TEST_F(SystemdSlotComponentRuntimeTest,
+       MissingVehicleStateCredentialsKeepPlatformUpdateWaitingAndNonDestructive) {
+  MissingCredentialVehicleStateProvider vehicleState;
+  auto runtime = StartRuntime(CreateConfig(), vehicleState);
+  RuntimeInfo info;
+  ASSERT_TRUE(runtime->GetRuntimeInfo(info).IsNone());
+  const auto candidate =
+      CreateInstance(info, "0.2.0", "sha256:missing-safe-stop-credentials");
+  ExpectPayload(candidate,
+                CreatePayload("missing-safe-stop-credentials", "0.2.0"));
+  EXPECT_CALL(mProfile, MarkUnavailable()).Times(0);
+  EXPECT_CALL(mProfile, StopProvider()).Times(0);
+  EXPECT_CALL(mProfile, StartProvider()).Times(0);
+  EXPECT_CALL(mProfile, CheckHealth()).Times(0);
+
+  InstanceStatus status;
+  ASSERT_TRUE(runtime->StartInstance(candidate, status).IsNone());
+  EXPECT_EQ(status.mState, InstanceStateEnum::eActivating);
+  WaitForReads(vehicleState, 1);
+  EXPECT_TRUE(
+      std::filesystem::exists(mWorkingDir / "state/transaction.json"));
+  EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "active"));
+  EXPECT_FALSE(
+      std::filesystem::exists(mWorkingDir / "state/installed.json"));
+  ASSERT_TRUE(runtime->Stop().IsNone());
+  EXPECT_TRUE(vehicleState.Canceled());
   EXPECT_TRUE(
       std::filesystem::exists(mWorkingDir / "state/transaction.json"));
 }
