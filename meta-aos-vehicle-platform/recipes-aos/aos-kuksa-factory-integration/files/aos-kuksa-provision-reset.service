@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [Unit]
-Description=Reset unprovisioned Aos state before KUKSA token initialization
+Description=Reset unprovisioned Aos state before native IAM provisioning
 ConditionPathExists=!/var/aos/.provisionstate
-Before=aos-kuksa-token-init.service
+Before=aos-iam-prov.service
 
 [Service]
 Type=oneshot

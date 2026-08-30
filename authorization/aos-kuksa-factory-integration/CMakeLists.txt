@@ -10,16 +10,11 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-add_library(kuksa_factory_logic STATIC src/token_init.cpp src/runtime_cleanup.cpp src/tls_prepare.cpp)
+add_library(kuksa_factory_logic STATIC src/runtime_cleanup.cpp src/tls_prepare.cpp)
 target_compile_definitions(kuksa_factory_logic PRIVATE AOS_FACTORY_NO_MAIN=1)
 target_include_directories(kuksa_factory_logic PUBLIC include)
 target_compile_options(kuksa_factory_logic PRIVATE -Wall -Wextra -Wpedantic -Werror)
-target_link_libraries(kuksa_factory_logic PUBLIC ${CMAKE_DL_LIBS} OpenSSL::Crypto)
-
-add_executable(aos-kuksa-token-init src/token_init.cpp)
-target_include_directories(aos-kuksa-token-init PRIVATE include)
-target_compile_options(aos-kuksa-token-init PRIVATE -Wall -Wextra -Wpedantic -Werror)
-target_link_libraries(aos-kuksa-token-init PRIVATE ${CMAKE_DL_LIBS})
+target_link_libraries(kuksa_factory_logic PUBLIC OpenSSL::Crypto)
 
 add_executable(aos-kuksa-runtime-cleanup src/runtime_cleanup.cpp)
 target_include_directories(aos-kuksa-runtime-cleanup PRIVATE include)
@@ -39,5 +34,5 @@ if(BUILD_TESTING)
 endif()
 
 include(GNUInstallDirs)
-install(TARGETS aos-kuksa-token-init aos-kuksa-runtime-cleanup aos-kuksa-tls-prepare
+install(TARGETS aos-kuksa-runtime-cleanup aos-kuksa-tls-prepare
   RUNTIME DESTINATION ${CMAKE_INSTALL_LIBEXECDIR})

@@ -3,58 +3,10 @@
 
 #pragma once
 
-#include <optional>
-#include <string>
 #include <string_view>
 #include <vector>
 
 namespace aos::factory {
-
-struct PinState {
-  bool exists{false};
-  bool regular{false};
-  bool root_owned{false};
-  unsigned mode{0};
-  std::string value;
-};
-
-struct TokenState {
-  unsigned matching_tokens{0};
-  bool user_pin_valid{false};
-};
-
-struct Pkcs11TokenSlot {
-  unsigned long id{0};
-  unsigned long result{0};
-  unsigned long flags{0};
-};
-
-class PinStore {
-public:
-  virtual ~PinStore() = default;
-  virtual std::optional<PinState> Inspect() = 0;
-  virtual std::optional<std::string> Generate() = 0;
-  virtual bool Publish(std::string_view pin) = 0;
-};
-
-class TokenStore {
-public:
-  virtual ~TokenStore() = default;
-  virtual std::optional<TokenState>
-  Inspect(std::optional<std::string_view> pin) = 0;
-  virtual bool Initialize(std::string_view user_pin,
-                          std::string_view ephemeral_so_pin) = 0;
-};
-
-enum class InitResult { kValidated, kCreated, kRejected, kUnavailable };
-
-InitResult InitializeToken(PinStore &pins, TokenStore &tokens);
-
-// PKCS#11 CKF_TOKEN_INITIALIZED.  Keep the ABI constant local so the bounded
-// Factory helper does not need the full provider headers at runtime.
-inline constexpr unsigned long kPkcs11TokenInitialized = 0x00000400UL;
-std::optional<unsigned long>
-SelectSingleUninitializedSlot(const std::vector<Pkcs11TokenSlot> &slots);
 
 enum class TlsPrepareResult { kReused, kCreated, kRejected, kUnavailable };
 

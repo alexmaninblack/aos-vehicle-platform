@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 SUMMARY = "Aos KUKSA Factory credential lifecycle integration"
-DESCRIPTION = "Fixed token initialization, finite systemd wiring and deprovision runtime cleanup."
+DESCRIPTION = "Native IAM token ownership, finite systemd wiring and deprovision runtime cleanup."
 HOMEPAGE = "https://github.com/maninblack/aos-vehicle-platform"
 LICENSE = "Apache-2.0"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/Apache-2.0;md5=89aea4e17d99a7cacdbeed46a0096b10"
@@ -15,11 +15,9 @@ SRC_URI = " \
     file://tests;subdir=source \
     file://aos-kuksa-substrate.target \
     file://aos-kuksa-provision-reset.service \
-    file://aos-kuksa-token-init.service \
     file://aos-kuksa-tls-prepare.service \
     file://aos-kuksa-runtime-cleanup.service \
-    file://aos-iam-prov.service.d/20-kuksa-token-init.conf \
-    file://aos-iam.service.d/20-kuksa-token-init.conf \
+    file://aos-iam-prov.service.d/20-kuksa-provision-reset.conf \
     file://kuksa-databroker.service.d/20-kuksa-verifier.conf \
     file://aos-vehicle-data-provider.service.d/20-kuksa-provider.conf \
 "
@@ -40,13 +38,11 @@ SYSTEMD_AUTO_ENABLE:${PN} = "enable"
 do_install:append() {
     install -d ${D}${systemd_system_unitdir}
     for unit in aos-kuksa-substrate.target aos-kuksa-provision-reset.service \
-        aos-kuksa-token-init.service aos-kuksa-tls-prepare.service \
-        aos-kuksa-runtime-cleanup.service; do
+        aos-kuksa-tls-prepare.service aos-kuksa-runtime-cleanup.service; do
         install -m 0644 ${WORKDIR}/${unit} ${D}${systemd_system_unitdir}/${unit}
     done
     for dropin in \
-        aos-iam-prov.service.d/20-kuksa-token-init.conf \
-        aos-iam.service.d/20-kuksa-token-init.conf \
+        aos-iam-prov.service.d/20-kuksa-provision-reset.conf \
         kuksa-databroker.service.d/20-kuksa-verifier.conf \
         aos-vehicle-data-provider.service.d/20-kuksa-provider.conf; do
         install -d ${D}${systemd_system_unitdir}/$(dirname ${dropin})
@@ -55,16 +51,13 @@ do_install:append() {
 }
 
 FILES:${PN} = " \
-    ${libexecdir}/aos-kuksa-token-init \
     ${libexecdir}/aos-kuksa-runtime-cleanup \
     ${libexecdir}/aos-kuksa-tls-prepare \
     ${systemd_system_unitdir}/aos-kuksa-substrate.target \
     ${systemd_system_unitdir}/aos-kuksa-provision-reset.service \
-    ${systemd_system_unitdir}/aos-kuksa-token-init.service \
     ${systemd_system_unitdir}/aos-kuksa-tls-prepare.service \
     ${systemd_system_unitdir}/aos-kuksa-runtime-cleanup.service \
-    ${systemd_system_unitdir}/aos-iam-prov.service.d/20-kuksa-token-init.conf \
-    ${systemd_system_unitdir}/aos-iam.service.d/20-kuksa-token-init.conf \
+    ${systemd_system_unitdir}/aos-iam-prov.service.d/20-kuksa-provision-reset.conf \
     ${systemd_system_unitdir}/kuksa-databroker.service.d/20-kuksa-verifier.conf \
     ${systemd_system_unitdir}/aos-vehicle-data-provider.service.d/20-kuksa-provider.conf \
 "

@@ -46,18 +46,15 @@ def validate() -> None:
     required = [
         FACTORY / "CMakeLists.txt",
         FACTORY / "include/factory/integration.hpp",
-        FACTORY / "src/token_init.cpp",
         FACTORY / "src/runtime_cleanup.cpp",
         FACTORY / "src/tls_prepare.cpp",
         FACTORY / "tests/factory_integration_tests.cpp",
         RECIPE,
         FILES / "aos-kuksa-substrate.target",
         FILES / "aos-kuksa-provision-reset.service",
-        FILES / "aos-kuksa-token-init.service",
         FILES / "aos-kuksa-tls-prepare.service",
         FILES / "aos-kuksa-runtime-cleanup.service",
-        FILES / "aos-iam-prov.service.d/20-kuksa-token-init.conf",
-        FILES / "aos-iam.service.d/20-kuksa-token-init.conf",
+        FILES / "aos-iam-prov.service.d/20-kuksa-provision-reset.conf",
         FILES / "kuksa-databroker.service.d/20-kuksa-verifier.conf",
         FILES / "aos-vehicle-data-provider.service.d/20-kuksa-provider.conf",
         PORT_POLICY_PATCH,
@@ -67,6 +64,20 @@ def validate() -> None:
     if missing:
         raise ValidationError("missing Factory files: " + ", ".join(missing))
 
+    removed_product_paths = [
+        FACTORY / "src/token_init.cpp",
+        FILES / "aos-kuksa-token-init.service",
+        FILES / "aos-iam-prov.service.d/20-kuksa-token-init.conf",
+        FILES / "aos-iam.service.d/20-kuksa-token-init.conf",
+    ]
+    stale = [
+        str(path.relative_to(ROOT))
+        for path in removed_product_paths
+        if path.exists()
+    ]
+    if stale:
+        raise ValidationError("custom token initializer still exists: " + ", ".join(stale))
+
     recipe = RECIPE.read_text(encoding="utf-8")
     require(recipe, 'DEPENDS = "openssl softhsm"', "Factory recipe")
     require(
@@ -75,20 +86,21 @@ def validate() -> None:
         "Factory recipe",
     )
     for executable in (
-        "aos-kuksa-token-init",
         "aos-kuksa-tls-prepare",
         "aos-kuksa-runtime-cleanup",
     ):
         require(recipe, executable, "Factory recipe")
+    forbid(recipe, "aos-kuksa-token-init", "Factory recipe")
     for forbidden in ("AUTOREV", "do_rootfs", "aos-image-vm", "PACKAGES +="):
         forbid(recipe, forbidden, "Factory recipe")
 
     reset = (FILES / "aos-kuksa-provision-reset.service").read_text(encoding="utf-8")
-    init = (FILES / "aos-kuksa-token-init.service").read_text(encoding="utf-8")
     cleanup = (FILES / "aos-kuksa-runtime-cleanup.service").read_text(encoding="utf-8")
     tls_prepare = (FILES / "aos-kuksa-tls-prepare.service").read_text(encoding="utf-8")
     substrate = (FILES / "aos-kuksa-substrate.target").read_text(encoding="utf-8")
     require(reset, "ConditionPathExists=!/var/aos/.provisionstate", "reset unit")
+    require(reset, "Before=aos-iam-prov.service", "reset before native provisioning")
+    forbid(reset, "aos-kuksa-token-init", "reset unit")
     require(reset, "ExecStart=/opt/aos/deprovision.sh", "reset unit")
     require(reset, "RemainAfterExit=yes", "successful reset latch")
     require(
@@ -98,9 +110,6 @@ def validate() -> None:
     )
     if reset.count("ExecStartPost=") != 1:
         raise ValidationError("reset unit must recreate the IAM parent exactly once")
-    require(init, "TimeoutStartSec=10s", "token init unit")
-    require(init, "RemainAfterExit=yes", "token init unit")
-    require(init, "Environment=OPENSSL_CONF=/dev/null", "token init OpenSSL scope")
     scoped_unit_texts = {
         path: path.read_text(encoding="utf-8")
         for directory in (FILES, AUTH_FILES)
@@ -111,14 +120,27 @@ def validate() -> None:
         for path, unit_text in scoped_unit_texts.items()
         if "OPENSSL_CONF=" in unit_text
     ]
-    if openssl_conf_units != [FILES / "aos-kuksa-token-init.service"]:
+    if openssl_conf_units:
         raise ValidationError(
-            "OPENSSL_CONF override must remain scoped only to token init: "
+            "obsolete OpenSSL override remains in a KUKSA unit: "
             + ", ".join(str(path.relative_to(ROOT)) for path in openssl_conf_units)
         )
-    require(init, "ReadWritePaths=/var/aos/iam /var/lib/softhsm", "token init unit")
-    forbid(init, "ReadWritePaths=-/var/aos/iam", "token init unit")
-    forbid(init, "ReadWritePaths=/var/aos ", "token init unit")
+
+    provisioning_dropin = (
+        FILES / "aos-iam-prov.service.d/20-kuksa-provision-reset.conf"
+    ).read_text(encoding="utf-8")
+    require(
+        provisioning_dropin,
+        "Requires=aos-kuksa-provision-reset.service",
+        "native provisioning reset dependency",
+    )
+    require(
+        provisioning_dropin,
+        "After=aos-kuksa-provision-reset.service",
+        "native provisioning reset order",
+    )
+    require(provisioning_dropin, "ExecStartPre=", "native provisioning reset override")
+    forbid(provisioning_dropin, "aos-kuksa-token-init", "native provisioning drop-in")
     require(cleanup, "aos-kuksa-runtime-cleanup", "cleanup unit")
     require(cleanup, "-/var/lib/aos-kuksa-provider", "cleanup unit")
     require(cleanup, "-/var/lib/aos-kuksa-tls", "cleanup unit")
@@ -139,7 +161,6 @@ def validate() -> None:
             )
     for text, label in (
         (reset, "reset"),
-        (init, "token init"),
         (tls_prepare, "TLS prepare"),
         (cleanup, "cleanup"),
     ):
@@ -282,14 +303,12 @@ def validate() -> None:
         "systemctl stop -- $(systemctl show -p Wants aos.target | cut -d= -f2) "
         "|| exit 1"
     )
-    token_stop = "systemctl stop aos-kuksa-token-init.service || exit 1"
     reset_stop = "systemctl stop aos-kuksa-provision-reset.service || exit 1"
     require(deprov, consumer_stop, "asynchronous consumer stop")
-    require(deprov, token_stop, "asynchronous token-init re-arm")
     require(deprov, reset_stop, "asynchronous reset-latch re-arm")
+    forbid(deprov, "aos-kuksa-token-init", "asynchronous native provisioning flow")
     if not (
         deprov.index(consumer_stop)
-        < deprov.index(token_stop)
         < deprov.index(reset_stop)
         < deprov.index("run_kuksa_cleanup || exit 1")
         < deprov.index("rm /var/aos/.provisionstate")
@@ -353,11 +372,12 @@ def validate() -> None:
     )
     for domain in (
         "aos_kuksa_provider_prepare_t",
-        "aos_kuksa_token_init_t",
         "aos_kuksa_runtime_cleanup_t",
         "aos_kuksa_tls_prepare_t",
     ):
         require(policy, domain, "SELinux")
+    forbid(policy, "aos_kuksa_token_init_t", "SELinux custom initializer domain")
+    forbid(policy, "aos_kuksa_token_init_exec_t", "SELinux custom initializer executable")
     require(policy, "type aos_kuksa_iam_port_t;", "SELinux")
     forbid(policy, "corenet_port(aos_kuksa_iam_port_t)", "SELinux")
     forbid(policy, "portcon tcp", "SELinux")
@@ -387,8 +407,8 @@ def validate() -> None:
     )
     require(
         policy,
-        "read_files_pattern(aos_t, aos_var_run_t, aos_kuksa_pin_t)",
-        "SELinux Aos IAM PIN read",
+        "manage_files_pattern(aos_t, aos_var_run_t, aos_kuksa_pin_t)",
+        "SELinux native Aos IAM PIN ownership",
     )
     require(
         policy,
@@ -397,25 +417,11 @@ def validate() -> None:
     )
     require(
         policy,
-        "manage_files_pattern(aos_kuksa_token_init_t, aos_var_run_t, aos_kuksa_pin_t)",
-        "SELinux exact PIN parent boundary",
+        'type_transition aos_t aos_var_run_t:file aos_kuksa_pin_t ".kuksa-jwt-pin";',
+        "SELinux exact native PIN transition",
     )
     require(policy, "type aos_var_run_t;", "SELinux IAM parent type")
-    require(
-        policy,
-        'type_transition aos_kuksa_token_init_t aos_var_run_t:file aos_kuksa_pin_t ".kuksa-jwt-pin.tmp";',
-        "SELinux exact PIN temporary-file transition",
-    )
-    require(
-        policy,
-        "miscfiles_read_localization(aos_kuksa_token_init_t)",
-        "SELinux SoftHSM localization read",
-    )
-    forbid(
-        policy,
-        "manage_files_pattern(aos_kuksa_token_init_t, aos_kuksa_pin_t, aos_kuksa_pin_t)",
-        "SELinux invalid PIN-as-parent boundary",
-    )
+    forbid(policy, ".kuksa-jwt-pin.tmp", "SELinux obsolete helper temporary PIN")
     require(
         policy,
         "allow aos_kuksa_auth_compat_t aos_kuksa_pkcs11_store_t:file write;",
@@ -449,7 +455,6 @@ def validate() -> None:
             "SELinux signer directory write boundary",
         )
     for domain in (
-        "aos_kuksa_token_init_t",
         "aos_kuksa_runtime_cleanup_t",
         "aos_kuksa_tls_prepare_t",
         "aos_kuksa_auth_compat_t",
@@ -528,10 +533,20 @@ def validate() -> None:
     forbid(cleanup_source, "kDirectories", "cleanup preserved runtime roots")
     cleanup_header = (FACTORY / "include/factory/integration.hpp").read_text(encoding="utf-8")
     forbid(cleanup_header, "CleanupDirectories", "cleanup preserved runtime roots")
-    token_source = (FACTORY / "src/token_init.cpp").read_text(encoding="utf-8")
-    require(token_source, "SelectSingleUninitializedSlot(states)", "token slot selection")
-    require(token_source, "kPkcs11TokenInitialized", "token initialized flag")
-    forbid(token_source, "info_(slot, &info) != kOk) candidates.push_back", "legacy slot bug")
+    product_roots = [
+        FACTORY,
+        RECIPE_DIR,
+        ROOT / "meta-aos-vehicle-platform/recipes-security/refpolicy/files",
+    ]
+    product_text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for product_root in product_roots
+        for path in product_root.rglob("*")
+        if path.is_file()
+    )
+    forbid(product_text, "aos-kuksa-token-init", "custom initializer product artifact")
+    forbid(product_text, "aos_kuksa_token_init", "custom initializer policy artifact")
+    forbid(product_text, "token_init.cpp", "custom initializer source artifact")
     verifier_source = ROOT / "authorization/aos-kuksa-compat/src/verifier_prepare.cpp"
     verifier_text = verifier_source.read_text(encoding="utf-8")
     for needle in (

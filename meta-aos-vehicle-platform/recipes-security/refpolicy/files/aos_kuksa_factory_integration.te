@@ -3,10 +3,6 @@
 
 policy_module(aos_kuksa_factory_integration, 1.0.0)
 
-type aos_kuksa_token_init_t;
-type aos_kuksa_token_init_exec_t;
-init_daemon_domain(aos_kuksa_token_init_t, aos_kuksa_token_init_exec_t)
-
 type aos_kuksa_runtime_cleanup_t;
 type aos_kuksa_runtime_cleanup_exec_t;
 init_daemon_domain(aos_kuksa_runtime_cleanup_t, aos_kuksa_runtime_cleanup_exec_t)
@@ -36,31 +32,16 @@ gen_require(`
 # These finite systemd one-shots retain NoNewPrivileges.  Permit only the
 # corresponding init-to-domain transitions; without process2:nnp_transition,
 # enforcing systems reject exec before any Factory helper code can run.
-allow initrc_t aos_kuksa_token_init_t:process2 nnp_transition;
 allow initrc_t aos_kuksa_runtime_cleanup_t:process2 nnp_transition;
 allow initrc_t aos_kuksa_tls_prepare_t:process2 nnp_transition;
 
 # The one-shots inherit systemd's script stream sockets.  They also need only
 # traversal of /var/lib; access below it remains confined to the typed KUKSA
 # and SoftHSM stores declared in this module.
-init_rw_script_stream_sockets(aos_kuksa_token_init_t)
 init_rw_script_stream_sockets(aos_kuksa_runtime_cleanup_t)
 init_rw_script_stream_sockets(aos_kuksa_tls_prepare_t)
-files_search_var_lib(aos_kuksa_token_init_t)
 files_search_var_lib(aos_kuksa_runtime_cleanup_t)
 files_search_var_lib(aos_kuksa_tls_prepare_t)
-
-# Reset recreates only the root-owned 0700 IAM parent.  Token initialization
-# can manage exact typed PIN files there, while the named transition prevents
-# unrelated files below /var/aos/iam from receiving the credential type.
-manage_files_pattern(aos_kuksa_token_init_t, aos_var_run_t, aos_kuksa_pin_t)
-type_transition aos_kuksa_token_init_t aos_var_run_t:file aos_kuksa_pin_t ".kuksa-jwt-pin.tmp";
-manage_dirs_pattern(aos_kuksa_token_init_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
-manage_files_pattern(aos_kuksa_token_init_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
-allow aos_kuksa_token_init_t aos_kuksa_pkcs11_store_t:file lock;
-dev_read_urand(aos_kuksa_token_init_t)
-files_read_etc_files(aos_kuksa_token_init_t)
-miscfiles_read_localization(aos_kuksa_token_init_t)
 
 manage_files_pattern(aos_kuksa_tls_prepare_t, aos_kuksa_tls_store_t, aos_kuksa_tls_store_t)
 dev_read_urand(aos_kuksa_tls_prepare_t)
@@ -72,10 +53,12 @@ miscfiles_read_localization(aos_kuksa_tls_prepare_t)
 read_files_pattern(init_t, aos_kuksa_tls_store_t, aos_kuksa_tls_store_t)
 read_files_pattern(init_t, aos_var_run_t, aos_kuksa_pin_t)
 
-# Aos IAM owns the fixed kuksa-jwt key and reads its dedicated PIN. The pinned
-# base policy currently leaves aos_t unconfined; retain these exact rules as
-# the finite dependency for future hardening.
-read_files_pattern(aos_t, aos_var_run_t, aos_kuksa_pin_t)
+# Native Aos IAM is the sole creator and owner of the fixed kuksa-jwt token,
+# key and PIN. The named transition confines its direct final-path PIN write;
+# the pinned base policy currently leaves aos_t unconfined, so retain these
+# exact rules as the finite dependency for future hardening.
+manage_files_pattern(aos_t, aos_var_run_t, aos_kuksa_pin_t)
+type_transition aos_t aos_var_run_t:file aos_kuksa_pin_t ".kuksa-jwt-pin";
 files_search_var_lib(aos_t)
 manage_dirs_pattern(aos_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)
 manage_files_pattern(aos_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)

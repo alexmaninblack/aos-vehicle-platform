@@ -9,45 +9,12 @@
 #include <cassert>
 #include <filesystem>
 #include <fstream>
-#include <optional>
 #include <string>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
 
 namespace {
-
-class Pins final : public aos::factory::PinStore {
-public:
-  std::optional<aos::factory::PinState> Inspect() override { return state; }
-  std::optional<std::string> Generate() override {
-    ++generated;
-    return generated == 1 ? "user-fixed-fake" : "so-fixed-fake";
-  }
-  bool Publish(std::string_view pin) override {
-    published.assign(pin);
-    return publish_ok;
-  }
-  aos::factory::PinState state{};
-  unsigned generated{0};
-  bool publish_ok{true};
-  std::string published;
-};
-
-class Tokens final : public aos::factory::TokenStore {
-public:
-  std::optional<aos::factory::TokenState>
-  Inspect(std::optional<std::string_view>) override {
-    return state;
-  }
-  bool Initialize(std::string_view user, std::string_view so) override {
-    initialized = std::string(user) + ":" + std::string(so);
-    return initialize_ok;
-  }
-  aos::factory::TokenState state{};
-  bool initialize_ok{true};
-  std::string initialized;
-};
 
 class Cleanup final : public aos::factory::CleanupRoot {
 public:
@@ -102,50 +69,6 @@ void WriteFile(const std::filesystem::path &path,
 bool ClearTokens(const std::filesystem::path &path) {
   const std::string value = path.string();
   return aos::factory::ClearPkcs11Tokens(value);
-}
-
-void TestInit() {
-  Pins pins;
-  Tokens tokens;
-  assert(aos::factory::InitializeToken(pins, tokens) ==
-         aos::factory::InitResult::kCreated);
-  assert(pins.published == "user-fixed-fake");
-  pins.state = {true, true, true, 0600U, "user-fixed-fake"};
-  tokens.state = {1U, true};
-  assert(aos::factory::InitializeToken(pins, tokens) ==
-         aos::factory::InitResult::kValidated);
-  tokens.state = {2U, true};
-  assert(aos::factory::InitializeToken(pins, tokens) ==
-         aos::factory::InitResult::kRejected);
-  tokens.state = {1U, false};
-  assert(aos::factory::InitializeToken(pins, tokens) ==
-         aos::factory::InitResult::kRejected);
-  pins.state.mode = 0644U;
-  assert(aos::factory::InitializeToken(pins, tokens) ==
-         aos::factory::InitResult::kRejected);
-
-  Pins failed_pins;
-  Tokens failed_tokens;
-  failed_tokens.initialize_ok = false;
-  assert(aos::factory::InitializeToken(failed_pins, failed_tokens) ==
-         aos::factory::InitResult::kUnavailable);
-  assert(failed_pins.published.empty());
-}
-
-void TestPkcs11SlotSelection() {
-  using aos::factory::kPkcs11TokenInitialized;
-  using aos::factory::Pkcs11TokenSlot;
-  using aos::factory::SelectSingleUninitializedSlot;
-
-  auto selected = SelectSingleUninitializedSlot({{17U, 0U, 0U}});
-  assert(selected && *selected == 17U);
-  assert(!SelectSingleUninitializedSlot({}));
-  assert(!SelectSingleUninitializedSlot({{17U, 0U, kPkcs11TokenInitialized}}));
-  assert(!SelectSingleUninitializedSlot({{17U, 5U, 0U}}));
-  assert(!SelectSingleUninitializedSlot({{17U, 0U, 0U}, {18U, 0U, 0U}}));
-  selected = SelectSingleUninitializedSlot(
-      {{17U, 0U, kPkcs11TokenInitialized}, {18U, 0U, 0U}});
-  assert(selected && *selected == 18U);
 }
 
 void TestCleanup() {
@@ -276,8 +199,6 @@ void TestTlsIdentity() {
 } // namespace
 
 int main() {
-  TestInit();
-  TestPkcs11SlotSelection();
   TestCleanup();
   TestPkcs11CleanupNormalAndEmpty();
   TestPkcs11CleanupRejectsHostileTrees();
