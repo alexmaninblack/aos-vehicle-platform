@@ -26,6 +26,10 @@ KUKSA_RECIPE_APPEND = ROOT / (
     "kuksa-databroker_%.bbappend"
 )
 AUTH_FILES = ROOT / "meta-aos-vehicle-platform/recipes-aos/aos-kuksa-auth-compat/files"
+FACTORY_FILE_CONTEXTS = ROOT / (
+    "meta-aos-vehicle-platform/recipes-security/refpolicy/files/"
+    "aos_kuksa_factory_integration.fc"
+)
 
 
 class ValidationError(RuntimeError):
@@ -59,6 +63,7 @@ def validate() -> None:
         FILES / "aos-vehicle-data-provider.service.d/20-kuksa-provider.conf",
         PORT_POLICY_PATCH,
         KUKSA_RECIPE_APPEND,
+        FACTORY_FILE_CONTEXTS,
     ]
     missing = [str(path.relative_to(ROOT)) for path in required if not path.is_file()]
     if missing:
@@ -370,6 +375,12 @@ def validate() -> None:
             )
         )
     )
+    file_contexts = FACTORY_FILE_CONTEXTS.read_text(encoding="utf-8")
+    require(
+        file_contexts,
+        "/usr/bin/aos_iam_app -- gen_context(system_u:object_r:aos_exec_t,s0)",
+        "SELinux native Aos IAM executable domain",
+    )
     for domain in (
         "aos_kuksa_provider_prepare_t",
         "aos_kuksa_runtime_cleanup_t",
@@ -410,6 +421,8 @@ def validate() -> None:
         "manage_files_pattern(aos_t, aos_var_run_t, aos_kuksa_pin_t)",
         "SELinux native Aos IAM PIN ownership",
     )
+    require(policy, "type aos_t;", "SELinux native Aos IAM process type")
+    require(policy, "type aos_exec_t;", "SELinux native Aos IAM executable type")
     require(
         policy,
         "manage_files_pattern(aos_t, aos_kuksa_pkcs11_store_t, aos_kuksa_pkcs11_store_t)",

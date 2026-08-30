@@ -25,6 +25,7 @@ gen_require(`
     type aos_kuksa_auth_runtime_t;
     type aos_var_run_t;
     type aos_t;
+    type aos_exec_t;
     type init_t;
     type initrc_t;
 ')
