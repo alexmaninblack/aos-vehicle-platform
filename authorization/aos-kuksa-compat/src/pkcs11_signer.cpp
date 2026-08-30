@@ -151,14 +151,16 @@ class Pkcs11Signer::Impl {
         EVP_DigestSignUpdate(context.get(), input.data(), input.size()) != 1) {
       return std::nullopt;
     }
-    std::size_t size = 0;
-    if (EVP_DigestSignFinal(context.get(), nullptr, &size) != 1 || size != 256U) {
+    const int key_size = EVP_PKEY_get_size(key_);
+    if (key_size != 256) {
       return std::nullopt;
     }
+    std::size_t size = static_cast<std::size_t>(key_size);
     std::vector<std::uint8_t> signature(size);
     if (EVP_DigestSignFinal(context.get(), signature.data(), &size) != 1) {
       return std::nullopt;
     }
+    if (size != static_cast<std::size_t>(key_size)) return std::nullopt;
     signature.resize(size);
     return signature;
   }
