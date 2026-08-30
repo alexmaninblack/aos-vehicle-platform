@@ -16,7 +16,7 @@ Group=aos-kac
 SupplementaryGroups=aos-kuksa-clients
 ExecStart=/usr/libexec/aos-kuksa-auth-compat
 LoadCredential=kuksa-jwt-pin:/var/aos/iam/.kuksa-jwt-pin
-LoadCredential=aos-iam-ca:/var/aos/iam/certs/ca.pem
+LoadCredential=aos-iam-ca:/usr/share/ca-certificates/aos/AosRootCA.crt
 Environment=PKCS11_PROVIDER_MODULE=/usr/lib/softhsm/libsofthsm2.so
 Restart=on-failure
 RestartSec=2s

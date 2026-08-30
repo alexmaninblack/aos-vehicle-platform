@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 
@@ -26,6 +27,9 @@ PORT_POLICY_PATCH = ROOT / (
 )
 POLICY_APPEND = ROOT / (
     "meta-aos-vehicle-platform/recipes-security/refpolicy/refpolicy-aos_git.bbappend"
+)
+NATIVE_AOS_CONFIG = ROOT / (
+    "meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/files/sm.cfg"
 )
 
 
@@ -68,6 +72,7 @@ def validate_kac() -> None:
         FILES / "aos-kuksa-auth-compat.conf",
         POLICY,
         PORT_POLICY_PATCH,
+        NATIVE_AOS_CONFIG,
     ]
     missing = [str(path.relative_to(ROOT)) for path in required if not path.is_file()]
     if missing:
@@ -94,6 +99,11 @@ def validate_kac() -> None:
     verifier = (FILES / "aos-kuksa-verifier-prepare.service").read_text(encoding="utf-8")
     provider = (FILES / "aos-kuksa-provider-prepare.service").read_text(encoding="utf-8")
     tmpfiles = (FILES / "aos-kuksa-auth-compat.conf").read_text(encoding="utf-8")
+    native_ca = json.loads(NATIVE_AOS_CONFIG.read_text(encoding="utf-8"))["caCert"]
+    if native_ca != "/usr/share/ca-certificates/aos/AosRootCA.crt":
+        raise KacValidationError(
+            "native Aos CA contract changed: " + repr(native_ca)
+        )
     expected_module_environment = (
         "Environment=PKCS11_PROVIDER_MODULE=/usr/lib/softhsm/libsofthsm2.so"
     )
@@ -113,7 +123,7 @@ def validate_kac() -> None:
     require(helper, "User=aos-kac", "helper unit")
     require(helper, "SupplementaryGroups=aos-kuksa-clients", "helper unit")
     require(helper, "LoadCredential=kuksa-jwt-pin:/var/aos/iam/.kuksa-jwt-pin", "helper unit")
-    require(helper, "LoadCredential=aos-iam-ca:/var/aos/iam/certs/ca.pem", "helper unit")
+    require(helper, f"LoadCredential=aos-iam-ca:{native_ca}", "helper unit")
     require(helper, "RestrictAddressFamilies=AF_UNIX AF_INET", "helper unit")
     require(helper, "IPAddressDeny=any", "helper unit")
     require(helper, "IPAddressAllow=127.0.0.1", "helper unit")
@@ -157,6 +167,8 @@ def validate_kac() -> None:
     forbid(provider, "Restart=on-failure", "provider unit")
     require(provider, "RestrictSUIDSGID=yes", "provider unit")
     require(tmpfiles, "d /run/aos-kuksa-auth-compat 0750 aos-kac aos-kuksa-clients -", "tmpfiles")
+    require(tmpfiles, "a+ /run/aos-kuksa-auth-compat - - - - u:root:-wx", "tmpfiles")
+    forbid(tmpfiles, "0770 aos-kac aos-kuksa-clients", "tmpfiles")
     require(tmpfiles, "d /run/aos-kuksa-verifier 0755 root root -", "tmpfiles")
 
     source_text = "\n".join(
@@ -192,7 +204,33 @@ def validate_kac() -> None:
     grpc_source = (SOURCE / "src/grpc_iam_client.cpp").read_text(encoding="utf-8")
     forbid(grpc_source, "/var/aos/iam/certs/ca.pem", "IAM client source")
     require(grpc_source, 'std::getenv("CREDENTIALS_DIRECTORY")', "IAM client source")
+    server_source = (SOURCE / "src/server.cpp").read_text(encoding="utf-8")
+    for stage in (
+        "client-group",
+        "socket",
+        "socket-path",
+        "bind",
+        "chmod",
+        "chown",
+        "listen",
+        "accept",
+    ):
+        require(server_source, f'"{stage}"', "auth startup diagnostics")
+    forbid(server_source, "kSocketPath, error", "auth startup diagnostics")
     verifier_source = (SOURCE / "src/verifier_prepare.cpp").read_text(encoding="utf-8")
+    for stage in (
+        "resolve-token",
+        "target-group",
+        "finalize-token-access",
+        "signer-ready",
+        "signer-sign",
+        "signer-public-key",
+        "signer-verify",
+        "remove-stale-output",
+        "create-output",
+        "publish-output",
+    ):
+        require(verifier_source, f'"{stage}"', "verifier diagnostics")
     for required in ("::lstat", "S_ISREG", "status.st_uid != ::geteuid()", "status.st_nlink != 1"):
         require(verifier_source, required, "verifier stale-state recovery")
     require(

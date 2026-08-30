@@ -12,6 +12,7 @@
 
 #include <cerrno>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <mutex>
 #include <thread>
@@ -92,28 +93,41 @@ class ActiveRequest {
   ConcurrencyGate& gate_;
 };
 
+int StartupFailure(const char* stage, int error) {
+  std::fprintf(stderr,
+               "aos-kuksa-auth-compat: startup stage=%s failed errno=%d\n",
+               stage, error);
+  return 1;
+}
+
+int ListenerFailure(int listener, const char* stage, int error) {
+  close(listener);
+  unlink(kSocketPath);
+  return StartupFailure(stage, error);
+}
+
 }  // namespace
 
 int RunServer(Core& core) {
   const group* group = getgrnam(kClientGroup);
-  if (group == nullptr) return 1;
+  if (group == nullptr) return StartupFailure("client-group", errno);
   const int listener = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
-  if (listener < 0) return 1;
+  if (listener < 0) return StartupFailure("socket", errno);
   sockaddr_un address{};
   address.sun_family = AF_UNIX;
   if (std::strlen(kSocketPath) >= sizeof(address.sun_path)) {
-    close(listener);
-    return 1;
+    return ListenerFailure(listener, "socket-path", ENAMETOOLONG);
   }
   std::strncpy(address.sun_path, kSocketPath, sizeof(address.sun_path) - 1U);
   unlink(kSocketPath);
-  if (bind(listener, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0 ||
-      chmod(kSocketPath, 0660) != 0 || chown(kSocketPath, static_cast<uid_t>(-1), group->gr_gid) != 0 ||
-      listen(listener, kBacklog) != 0) {
-    close(listener);
-    unlink(kSocketPath);
-    return 1;
-  }
+  if (bind(listener, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0)
+    return ListenerFailure(listener, "bind", errno);
+  if (chmod(kSocketPath, 0660) != 0)
+    return ListenerFailure(listener, "chmod", errno);
+  if (chown(kSocketPath, static_cast<uid_t>(-1), group->gr_gid) != 0)
+    return ListenerFailure(listener, "chown", errno);
+  if (listen(listener, kBacklog) != 0)
+    return ListenerFailure(listener, "listen", errno);
 
   static ConcurrencyGate active{kMaximumConcurrent};
   static RateLimiter rates;
@@ -121,7 +135,10 @@ int RunServer(Core& core) {
     const int connection = accept4(listener, nullptr, nullptr, SOCK_CLOEXEC);
     if (connection < 0) {
       if (errno == EINTR) continue;
-      break;
+      const int error = errno;
+      close(listener);
+      unlink(kSocketPath);
+      return StartupFailure("accept", error);
     }
     ucred credentials{};
     socklen_t size = sizeof(credentials);
@@ -165,9 +182,6 @@ int RunServer(Core& core) {
       close(connection);
     }
   }
-  close(listener);
-  unlink(kSocketPath);
-  return 1;
 }
 
 }  // namespace aos::kac

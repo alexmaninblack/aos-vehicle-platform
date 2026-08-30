@@ -205,6 +205,17 @@ def validate() -> None:
     auth_unit = (AUTH_FILES / "aos-kuksa-auth-compat.service").read_text(
         encoding="utf-8"
     )
+    native_config = json.loads(
+        (
+            ROOT
+            / "meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/files/sm.cfg"
+        ).read_text(encoding="utf-8")
+    )
+    require(
+        auth_unit,
+        f"LoadCredential=aos-iam-ca:{native_config['caCert']}",
+        "KAC native IAM CA contract",
+    )
     expected_module_environment = (
         "Environment=PKCS11_PROVIDER_MODULE=/usr/lib/softhsm/libsofthsm2.so"
     )

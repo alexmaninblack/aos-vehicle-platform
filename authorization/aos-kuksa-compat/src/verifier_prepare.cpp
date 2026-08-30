@@ -36,6 +36,13 @@ constexpr const char *kVerifier =
 constexpr const char *kTemporary =
     "/run/aos-kuksa-verifier/.kuksa-jwt-public.pem.tmp";
 constexpr const char *kTokensRoot = "/var/lib/softhsm/tokens";
+
+int PreparationFailure(const char *stage, int error = 0) {
+  std::fprintf(stderr,
+               "aos-kuksa-verifier-prepare: stage=%s failed errno=%d\n",
+               stage, error);
+  return 1;
+}
 #endif
 
 #ifdef __APPLE__
@@ -591,37 +598,44 @@ int main() {
     identity = resolver.Resolve();
   }
   const struct group *kac_group = ::getgrnam("aos-kac");
-  if (!identity || kac_group == nullptr || kac_group->gr_gid == 0U)
-    return 1;
+  if (!identity)
+    return PreparationFailure("resolve-token");
+  if (kac_group == nullptr || kac_group->gr_gid == 0U)
+    return PreparationFailure("target-group", errno);
   const auto access = aos::kac::FinalizeSoftHsmAccess(
       kTokensRoot, *identity, 0U, 0U, kac_group->gr_gid);
   if (access != aos::kac::SoftHsmAccessResult::kAlreadyCorrect &&
       access != aos::kac::SoftHsmAccessResult::kUpdated) {
-    return 1;
+    return PreparationFailure("finalize-token-access", errno);
   }
 
   aos::kac::Pkcs11Signer signer;
   if (!signer.Ready())
-    return 1;
+    return PreparationFailure("signer-ready");
   const std::string probe = "aosedge-kuksa-verifier-self-test/v1";
   const auto signature = signer.Sign(probe);
+  if (!signature)
+    return PreparationFailure("signer-sign");
   const auto public_key = signer.PublicKeyPem();
-  if (!signature || !public_key || !signer.Verify(probe, *signature))
-    return 1;
+  if (!public_key)
+    return PreparationFailure("signer-public-key");
+  if (!signer.Verify(probe, *signature))
+    return PreparationFailure("signer-verify");
 
   if (!aos::kac::RemoveStaleTemporaryVerifier(kTemporary))
-    return 1;
+    return PreparationFailure("remove-stale-output", errno);
   const int descriptor =
       open(kTemporary, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0444);
   if (descriptor < 0)
-    return 1;
+    return PreparationFailure("create-output", errno);
   bool ok = WriteAll(descriptor, *public_key) && fsync(descriptor) == 0 &&
             fchmod(descriptor, 0444) == 0;
   if (close(descriptor) != 0)
     ok = false;
   if (!ok || rename(kTemporary, kVerifier) != 0) {
+    const int error = errno;
     unlink(kTemporary);
-    return 1;
+    return PreparationFailure("publish-output", error);
   }
   return 0;
 }

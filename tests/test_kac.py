@@ -71,6 +71,41 @@ class KacTests(unittest.TestCase):
                 name,
             )
 
+    def test_helper_uses_native_aos_ca_contract(self) -> None:
+        unit = (validate_kac.FILES / "aos-kuksa-auth-compat.service").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "LoadCredential=aos-iam-ca:/usr/share/ca-certificates/aos/AosRootCA.crt",
+            unit,
+        )
+        self.assertNotIn("/var/aos/iam/certs/ca.pem", unit)
+
+    def test_runtime_directory_keeps_consumers_read_only(self) -> None:
+        config = (validate_kac.FILES / "aos-kuksa-auth-compat.conf").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "d /run/aos-kuksa-auth-compat 0750 aos-kac aos-kuksa-clients -",
+            config,
+        )
+        self.assertIn(
+            "a+ /run/aos-kuksa-auth-compat - - - - u:root:-wx", config
+        )
+        self.assertNotIn("0770 aos-kac aos-kuksa-clients", config)
+
+    def test_startup_diagnostics_are_fixed_stage_names_only(self) -> None:
+        server = (validate_kac.SOURCE / "src/server.cpp").read_text(
+            encoding="utf-8"
+        )
+        verifier = (validate_kac.SOURCE / "src/verifier_prepare.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("startup stage=%s failed errno=%d", server)
+        self.assertIn("stage=%s failed errno=%d", verifier)
+        self.assertNotIn("startup path=", server)
+        self.assertNotIn("pin=", server + verifier)
+
     def test_package_is_separately_removable(self) -> None:
         recipe = validate_kac.RECIPE.read_text(encoding="utf-8")
         self.assertNotIn("aos-image-vm", recipe)
