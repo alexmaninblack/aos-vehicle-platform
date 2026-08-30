@@ -17,6 +17,7 @@ import sys
 import tarfile
 from pathlib import Path, PurePosixPath
 
+import vdp_artifact
 import vdp_family
 
 
@@ -247,8 +248,28 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("candidate", type=Path)
     parser.add_argument("--source-prebuild-version", choices=vdp_family.VERSIONS)
+    parser.add_argument("--vdp-version", choices=vdp_family.VERSIONS)
+    parser.add_argument("--producer-manifest", type=Path)
+    parser.add_argument("--stage", action="store_true")
     options = parser.parse_args()
     try:
+        if options.vdp_version:
+            if options.source_prebuild_version:
+                raise ValidationError("VDP artifact and source-prebuild modes are exclusive")
+            root = options.candidate.resolve()
+            manifest = (
+                options.producer_manifest.resolve()
+                if options.producer_manifest is not None
+                else root / vdp_artifact.manifest_filename(options.vdp_version)
+            )
+            vdp_artifact.validate(root, options.vdp_version, manifest)
+            print("VDP_UNSIGNED_CANDIDATE=PASS")
+            if options.stage:
+                staged = vdp_artifact.stage(root, options.vdp_version, manifest)
+                print(f"VDP_CONTENT_STORE={staged}")
+            return 0
+        if options.producer_manifest is not None or options.stage:
+            raise ValidationError("producer-manifest and staging require VDP artifact mode")
         if options.source_prebuild_version:
             vdp_family.validate_directory(
                 options.candidate.resolve(), options.source_prebuild_version
@@ -261,6 +282,7 @@ def main() -> int:
         OSError,
         json.JSONDecodeError,
         tarfile.TarError,
+        vdp_artifact.ArtifactError,
         vdp_family.PrebuildError,
     ) as error:
         print(f"Unsigned provider validation failed: {error}", file=sys.stderr)

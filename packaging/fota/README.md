@@ -29,6 +29,43 @@ python3 packaging/fota/validate-provider-component build/provider-0.2.0
 Signing, publication, assignment, and deployment are integration gates and
 are intentionally absent from this repository workflow.
 
+## Deployable VDP v1-v3 candidates
+
+The authorized offline path prepares one immutable unsigned `linux/arm64`
+Component FOTA candidate for each accepted VDP release. It requires the exact
+five-file ARM64 wheelhouse, an explicit offline guard, a clean worktree that
+contains accepted source revision `667afb1512cf43ff27f1ab5327293208bf73045b`,
+and at least 55 GiB free on the selected output filesystem:
+
+```text
+AOS_VDP_BUILD_OFFLINE=1 PIP_NO_INDEX=1 \
+python3 packaging/fota/build-provider-component \
+  --vdp-version 1.0.0 \
+  --wheelhouse /verified/local/arm64-wheelhouse \
+  /temporary/output/vdp-1.0.0
+
+python3 packaging/fota/validate-provider-component \
+  --vdp-version 1.0.0 \
+  --producer-manifest manifests/release-candidates/aosedge-vdp-component-1.0.0.manifest.json \
+  /temporary/output/vdp-1.0.0
+```
+
+Repeat with `2.0.0` and `3.0.0`. Build every version twice under fresh
+temporary roots and require byte equality for the prepared artifact, layer,
+candidate record and canonical producer manifest before staging. After that
+comparison, `--stage` on the validator copies only the prepared bytes and the
+verified producer manifest to
+`.local/release-candidates/sha256/<prepared-sha256>/`. The local store is
+excluded from Git and is never a signing, publication, Cloud or deployment
+operation.
+
+The prepared filenames are fixed; there is no `latest` alias. VDP v1 contains
+only the seven-path base-dynamics release, v2 is its wheel-speed strict
+superset, and v3 alone contains wheel-slip plus the two typed advisory flows.
+The payload includes exact source/configuration identity, the five normalized
+runtime wheels, SPDX SBOM, licenses, notices and provenance. It contains no
+credential, certificate, Unit identity, Cloud configuration or signing data.
+
 ## VDP v1-v3 source prebuilds
 
 The same entry points also prepare and validate deterministic, explicitly

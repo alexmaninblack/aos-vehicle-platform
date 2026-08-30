@@ -23,6 +23,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 import vdp_family
+import vdp_artifact
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -83,7 +84,6 @@ def release_source_revision() -> str:
         stderr=subprocess.DEVNULL,
     )
     unchanged_inputs = [
-        "DEPENDENCIES.json",
         "LICENSES/Apache-2.0.txt",
         "packaging/fota/config.yaml",
         "packaging/fota/provider_main.py",
@@ -244,7 +244,9 @@ def create_payload(
     (root / "THIRD_PARTY_NOTICES.md").write_bytes(
         accepted_file("THIRD_PARTY_NOTICES.md")
     )
-    shutil.copyfile(DEPENDENCIES, root / "DEPENDENCIES.json")
+    # The repository dependency inventory has since gained Factory-runtime
+    # inputs. Provider 0.2.0 keeps the exact release-time inventory bytes.
+    (root / "DEPENDENCIES.json").write_bytes(accepted_file("DEPENDENCIES.json"))
     source_prefix = "providers/carla-viss-kuksa/src/carla_viss_kuksa_provider"
     accepted_source = accepted_tree(source_prefix)
     for source_path, content in sorted(accepted_source.items()):
@@ -302,7 +304,7 @@ def create_payload(
             "wheelInputs": wheel_inputs,
         },
     )
-    inventory = json.loads(DEPENDENCIES.read_text(encoding="utf-8"))["runtime"]
+    inventory = json.loads(accepted_file("DEPENDENCIES.json"))["runtime"]
     write_json(
         root / "sbom/spdx.json",
         {
@@ -447,8 +449,25 @@ def main() -> int:
     parser.add_argument("output", type=Path)
     parser.add_argument("--wheelhouse", type=Path)
     parser.add_argument("--source-prebuild-version", choices=vdp_family.VERSIONS)
+    parser.add_argument("--vdp-version", choices=vdp_family.VERSIONS)
     options = parser.parse_args()
     try:
+        if options.vdp_version:
+            if options.source_prebuild_version:
+                raise BuildError("VDP artifact and source-prebuild modes are exclusive")
+            if options.wheelhouse is None:
+                raise BuildError("VDP artifact build requires the verified local wheelhouse")
+            vdp_artifact.build(
+                options.output.resolve(),
+                options.vdp_version,
+                options.wheelhouse.resolve(),
+            )
+            artifact = options.output.resolve() / vdp_artifact.prepared_filename(
+                options.vdp_version
+            )
+            print(f"Unsigned VDP candidate: {artifact}")
+            print(f"Prepared SHA256: {vdp_artifact.sha256_file(artifact)}")
+            return 0
         if options.source_prebuild_version:
             if options.wheelhouse:
                 raise BuildError("source prebuild does not accept a wheelhouse")
@@ -480,6 +499,7 @@ def main() -> int:
         BuildError,
         OSError,
         subprocess.CalledProcessError,
+        vdp_artifact.ArtifactError,
         vdp_family.PrebuildError,
         zipfile.BadZipFile,
     ) as error:

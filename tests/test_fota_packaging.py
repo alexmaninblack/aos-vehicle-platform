@@ -65,7 +65,18 @@ class FotaPackagingTests(unittest.TestCase):
         self.assertIn("provider 0.2.0 release inputs differ", builder)
         self.assertIn("provider 0.2.0 ARM64 dependency lock changed", builder)
         self.assertIn('accepted_file("THIRD_PARTY_NOTICES.md")', builder)
+        self.assertIn('accepted_file("DEPENDENCIES.json")', builder)
         self.assertIn("accepted_tree(source_prefix)", builder)
+
+    def test_deployable_vdp_path_requires_offline_verified_wheels(self) -> None:
+        builder = (FOTA / "build-provider-component").read_text(encoding="utf-8")
+        validator = (FOTA / "validate-provider-component").read_text(encoding="utf-8")
+        self.assertIn('parser.add_argument("--vdp-version"', builder)
+        self.assertIn("VDP artifact build requires the verified local wheelhouse", builder)
+        self.assertIn("vdp_artifact.build", builder)
+        self.assertIn('parser.add_argument("--vdp-version"', validator)
+        self.assertIn("vdp_artifact.validate", validator)
+        self.assertIn("vdp_artifact.stage", validator)
 
 
 if __name__ == "__main__":
