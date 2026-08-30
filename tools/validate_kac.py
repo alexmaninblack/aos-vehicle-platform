@@ -245,7 +245,7 @@ def validate_kac() -> None:
     )
 
     policy = POLICY.read_text(encoding="utf-8")
-    require(policy, "policy_module(aos_kuksa_auth_compat, 1.1.1)", "SELinux version")
+    require(policy, "policy_module(aos_kuksa_auth_compat, 1.1.2)", "SELinux version")
     require(policy, "aos_kuksa_auth_compat_t", "SELinux")
     require(policy, "aos_kuksa_verifier_prepare_t", "SELinux")
     require(policy, "aos_kuksa_provider_prepare_t", "SELinux")
@@ -267,26 +267,28 @@ def validate_kac() -> None:
         require(policy, f"files_search_runtime({domain})", "SELinux runtime traversal")
         require(policy, f"miscfiles_read_localization({domain})", "SELinux localization")
 
-    expected_aos_parent_rules = [
-        "allow aos_kuksa_auth_compat_t aos_var_run_t:dir search;",
-        "allow aos_kuksa_verifier_prepare_t aos_var_run_t:dir search;",
-        "allow aos_kuksa_provider_prepare_t aos_var_run_t:dir search;",
+    expected_aos_probe_rules = [
+        "dontaudit aos_kuksa_auth_compat_t aos_var_run_t:dir search;",
+        "dontaudit aos_kuksa_verifier_prepare_t aos_var_run_t:dir search;",
+        "dontaudit aos_kuksa_provider_prepare_t aos_var_run_t:dir search;",
+        "dontaudit aos_kuksa_verifier_prepare_t aos_var_run_t:file read;",
+        "dontaudit aos_kuksa_provider_prepare_t aos_var_run_t:file read;",
     ]
-    actual_aos_parent_rules = [
+    actual_aos_probe_rules = [
         line.strip()
         for line in policy.splitlines()
-        if line.strip().startswith("allow aos_kuksa_")
+        if line.strip().startswith(("allow aos_kuksa_", "dontaudit aos_kuksa_"))
         and " aos_var_run_t:" in line
     ]
-    if actual_aos_parent_rules != expected_aos_parent_rules:
+    if actual_aos_probe_rules != expected_aos_probe_rules:
         raise KacValidationError(
-            "SELinux persistent Aos traversal exceeds the exact live closure: "
-            + repr(actual_aos_parent_rules)
+            "SELinux persistent Aos probes exceed the exact deny-only closure: "
+            + repr(actual_aos_probe_rules)
         )
 
     expected_auth_observation_rules = [
-        "allow aos_kuksa_auth_compat_t sysfs_t:file read;",
-        "allow aos_kuksa_auth_compat_t proc_t:file read;",
+        "allow aos_kuksa_auth_compat_t sysfs_t:file { open read };",
+        "allow aos_kuksa_auth_compat_t proc_t:file { open read };",
         "allow aos_kuksa_auth_compat_t self:process getsched;",
         "allow aos_kuksa_auth_compat_t syslogd_runtime_t:sock_file write;",
     ]
