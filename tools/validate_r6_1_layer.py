@@ -11,6 +11,11 @@ import re
 import sys
 from pathlib import Path
 
+try:
+    from tools import validate_iam_pkcs11_allocator
+except ModuleNotFoundError:  # Direct execution from the tools directory.
+    import validate_iam_pkcs11_allocator
+
 
 ROOT = Path(__file__).resolve().parents[1]
 LAYER = ROOT / "meta-aos-vehicle-platform"
@@ -167,6 +172,7 @@ def read(path: Path) -> str:
 
 
 def validate_layer() -> None:
+    validate_iam_pkcs11_allocator.validate()
     layer_conf = read(LAYER / "conf/layer.conf")
     require(
         'LAYERSERIES_COMPAT_aos-vehicle-platform = "scarthgap"' in layer_conf,

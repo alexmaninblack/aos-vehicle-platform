@@ -11,6 +11,11 @@ import json
 from pathlib import Path
 import re
 
+try:
+    from tools import validate_iam_pkcs11_allocator
+except ModuleNotFoundError:  # Direct execution from the tools directory.
+    import validate_iam_pkcs11_allocator
+
 
 ROOT = Path(__file__).resolve().parents[1]
 FACTORY = ROOT / "authorization/aos-kuksa-factory-integration"
@@ -47,6 +52,7 @@ def forbid(text: str, needle: str, label: str) -> None:
 
 
 def validate() -> None:
+    validate_iam_pkcs11_allocator.validate()
     required = [
         FACTORY / "CMakeLists.txt",
         FACTORY / "include/factory/integration.hpp",
