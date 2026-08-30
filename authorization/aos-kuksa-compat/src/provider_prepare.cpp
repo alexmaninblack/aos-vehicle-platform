@@ -4,6 +4,8 @@
 #include "kac/core.hpp"
 #include "kac/provider.hpp"
 
+#include <openssl/crypto.h>
+
 #include <cstdio>
 #include <ctime>
 
@@ -27,6 +29,7 @@ class Adapter final : public aos::kac::provider::Signer {
 }  // namespace
 
 int main() {
+  if (OPENSSL_init_crypto(OPENSSL_INIT_NO_ATEXIT, nullptr) != 1) return 1;
   const std::time_t now = std::time(nullptr);
   if (now < 0) return 1;
   aos::kac::provider::Result result = aos::kac::provider::Result::kUnavailable;
