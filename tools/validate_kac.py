@@ -103,10 +103,30 @@ def validate_kac() -> None:
     require(helper, "IPAddressAllow=127.0.0.1", "helper unit")
     require(helper, "TasksMax=32", "helper unit")
     require(helper, "LimitNOFILE=128", "helper unit")
+    require(helper, "RestrictSUIDSGID=yes", "helper unit")
     forbid(helper, "MemoryMax=", "helper unit")
     forbid(helper, "CPUQuota=", "helper unit")
     forbid(helper, "Environment=", "helper unit")
     require(verifier, "Type=oneshot", "verifier unit")
+    require(verifier, "User=root", "verifier unit")
+    require(verifier, "Group=root", "verifier unit")
+    require(verifier, "SupplementaryGroups=aos-kac", "verifier unit")
+    require(verifier, "NoNewPrivileges=yes", "verifier unit")
+    require(verifier, "CapabilityBoundingSet=\n", "verifier unit")
+    require(verifier, "AmbientCapabilities=\n", "verifier unit")
+    require(verifier, "ProtectSystem=strict", "verifier unit")
+    expected_verifier_write_paths = (
+        "ReadWritePaths=/run/aos-kuksa-verifier /var/lib/softhsm/tokens"
+    )
+    verifier_write_paths = [
+        line for line in verifier.splitlines() if line.startswith("ReadWritePaths=")
+    ]
+    if verifier_write_paths != [expected_verifier_write_paths]:
+        raise KacValidationError(
+            "verifier unit: exact writable paths changed: "
+            + repr(verifier_write_paths)
+        )
+    forbid(verifier, "RestrictSUIDSGID=", "verifier unit")
     require(verifier, "RestrictAddressFamilies=AF_UNIX", "verifier unit")
     require(verifier, "IPAddressDeny=any", "verifier unit")
     forbid(verifier, "IPAddressAllow=", "verifier unit")
@@ -120,6 +140,7 @@ def validate_kac() -> None:
     require(provider, "IPAddressDeny=any", "provider unit")
     forbid(provider, "IPAddressAllow=", "provider unit")
     forbid(provider, "Restart=on-failure", "provider unit")
+    require(provider, "RestrictSUIDSGID=yes", "provider unit")
     require(tmpfiles, "d /run/aos-kuksa-auth-compat 0750 aos-kac aos-kuksa-clients -", "tmpfiles")
     require(tmpfiles, "d /run/aos-kuksa-verifier 0755 root root -", "tmpfiles")
 
@@ -159,6 +180,16 @@ def validate_kac() -> None:
     verifier_source = (SOURCE / "src/verifier_prepare.cpp").read_text(encoding="utf-8")
     for required in ("::lstat", "S_ISREG", "status.st_uid != ::geteuid()", "status.st_nlink != 1"):
         require(verifier_source, required, "verifier stale-state recovery")
+    require(
+        verifier_source,
+        "constexpr mode_t kFinalTokenDirectoryMode = 02750U;",
+        "verifier target SoftHSM directory mode",
+    )
+    require(
+        verifier_source,
+        "::fchmod(token.get(), kFinalTokenDirectoryMode)",
+        "verifier target SoftHSM directory finalization",
+    )
 
     policy = POLICY.read_text(encoding="utf-8")
     require(policy, "aos_kuksa_auth_compat_t", "SELinux")

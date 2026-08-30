@@ -39,7 +39,6 @@ LockPersonality=yes
 MemoryDenyWriteExecute=yes
 RestrictNamespaces=yes
 RestrictRealtime=yes
-RestrictSUIDSGID=yes
 SystemCallArchitectures=native
 TasksMax=32
 LimitNOFILE=128
