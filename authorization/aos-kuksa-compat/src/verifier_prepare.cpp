@@ -585,8 +585,11 @@ bool RemoveStaleTemporaryVerifier(std::string_view path) {
 
 #ifndef AOS_KAC_NO_VERIFIER_MAIN
 int main() {
-  Pkcs11IdentityResolver resolver;
-  const auto identity = resolver.Resolve();
+  std::optional<aos::kac::SoftHsmAccessIdentity> identity;
+  {
+    Pkcs11IdentityResolver resolver;
+    identity = resolver.Resolve();
+  }
   const struct group *kac_group = ::getgrnam("aos-kac");
   if (!identity || kac_group == nullptr || kac_group->gr_gid == 0U)
     return 1;

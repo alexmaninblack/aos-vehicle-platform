@@ -205,6 +205,24 @@ def validate() -> None:
     auth_unit = (AUTH_FILES / "aos-kuksa-auth-compat.service").read_text(
         encoding="utf-8"
     )
+    expected_module_environment = (
+        "Environment=PKCS11_PROVIDER_MODULE=/usr/lib/softhsm/libsofthsm2.so"
+    )
+    for unit_text, label in (
+        (verifier_unit, "Verifier unit"),
+        (provider, "Provider unit"),
+        (auth_unit, "KAC daemon unit"),
+    ):
+        environments = [
+            line
+            for line in unit_text.splitlines()
+            if line.startswith("Environment=")
+        ]
+        if environments != [expected_module_environment]:
+            raise ValidationError(
+                f"{label}: exact PKCS11 provider environment changed: "
+                + repr(environments)
+            )
     tmpfiles = (AUTH_FILES / "aos-kuksa-auth-compat.conf").read_text(encoding="utf-8")
     require(
         tmpfiles,

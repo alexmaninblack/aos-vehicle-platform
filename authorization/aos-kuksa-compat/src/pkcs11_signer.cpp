@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <mutex>
 
@@ -103,9 +104,27 @@ class Pkcs11Signer::Impl {
       EVP_PKEY_free(key_);
       key_ = nullptr;
     }
+    if (key_ == nullptr) return;
+
+    std::unique_ptr<BIO, BioDeleter> output(BIO_new(BIO_s_mem()));
+    if (!output || PEM_write_bio_PUBKEY(output.get(), key_) != 1) return;
+    char* data = nullptr;
+    const long size = BIO_get_mem_data(output.get(), &data);
+    if (size <= 0 || data == nullptr ||
+        size > static_cast<long>(std::numeric_limits<int>::max())) {
+      return;
+    }
+    public_key_pem_.assign(data, static_cast<std::size_t>(size));
+    std::unique_ptr<BIO, BioDeleter> input(BIO_new_mem_buf(
+        public_key_pem_.data(), static_cast<int>(public_key_pem_.size())));
+    if (!input) return;
+    verification_key_ = PEM_read_bio_PUBKEY_ex(
+        input.get(), nullptr, nullptr, nullptr, nullptr, "provider=default");
+    if (verification_key_ == nullptr) public_key_pem_.clear();
   }
 
   ~Impl() {
+    EVP_PKEY_free(verification_key_);
     EVP_PKEY_free(key_);
     if (pkcs11_provider_ != nullptr) OSSL_PROVIDER_unload(pkcs11_provider_);
     if (default_provider_ != nullptr) OSSL_PROVIDER_unload(default_provider_);
@@ -113,8 +132,10 @@ class Pkcs11Signer::Impl {
   }
 
   bool Ready() const {
-    return key_ != nullptr && EVP_PKEY_is_a(key_, "RSA") == 1 &&
-           EVP_PKEY_bits(key_) == 2048;
+    return key_ != nullptr && verification_key_ != nullptr &&
+           EVP_PKEY_is_a(key_, "RSA") == 1 && EVP_PKEY_bits(key_) == 2048 &&
+           EVP_PKEY_is_a(verification_key_, "RSA") == 1 &&
+           EVP_PKEY_bits(verification_key_) == 2048;
   }
 
   std::optional<std::vector<std::uint8_t>> Sign(std::string_view input) {
@@ -149,7 +170,8 @@ class Pkcs11Signer::Impl {
     EVP_PKEY_CTX* key_context = nullptr;
     return context &&
            EVP_DigestVerifyInit(
-               context.get(), &key_context, EVP_sha256(), nullptr, key_) == 1 &&
+               context.get(), &key_context, EVP_sha256(), nullptr,
+               verification_key_) == 1 &&
            key_context != nullptr &&
            EVP_PKEY_CTX_set_rsa_padding(key_context, RSA_PKCS1_PADDING) == 1 &&
            EVP_DigestVerifyUpdate(context.get(), input.data(), input.size()) == 1 &&
@@ -159,12 +181,7 @@ class Pkcs11Signer::Impl {
   std::optional<std::string> PublicKeyPem() const {
     std::lock_guard<std::mutex> guard(lock_);
     if (!Ready()) return std::nullopt;
-    std::unique_ptr<BIO, BioDeleter> bio(BIO_new(BIO_s_mem()));
-    if (!bio || PEM_write_bio_PUBKEY(bio.get(), key_) != 1) return std::nullopt;
-    char* data = nullptr;
-    const long size = BIO_get_mem_data(bio.get(), &data);
-    if (size <= 0 || data == nullptr) return std::nullopt;
-    return std::string(data, static_cast<std::size_t>(size));
+    return public_key_pem_;
   }
 
  private:
@@ -172,6 +189,8 @@ class Pkcs11Signer::Impl {
   OSSL_PROVIDER* default_provider_{nullptr};
   OSSL_PROVIDER* pkcs11_provider_{nullptr};
   EVP_PKEY* key_{nullptr};
+  EVP_PKEY* verification_key_{nullptr};
+  std::string public_key_pem_;
   mutable std::mutex lock_;
 };
 

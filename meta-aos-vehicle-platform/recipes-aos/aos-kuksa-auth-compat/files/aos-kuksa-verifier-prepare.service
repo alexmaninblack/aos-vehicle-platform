@@ -18,6 +18,7 @@ Group=root
 SupplementaryGroups=aos-kac
 ExecStart=/usr/libexec/aos-kuksa-verifier-prepare
 LoadCredential=kuksa-jwt-pin:/var/aos/iam/.kuksa-jwt-pin
+Environment=PKCS11_PROVIDER_MODULE=/usr/lib/softhsm/libsofthsm2.so
 RemainAfterExit=yes
 NoNewPrivileges=yes
 CapabilityBoundingSet=

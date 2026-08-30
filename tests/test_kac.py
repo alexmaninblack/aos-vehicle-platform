@@ -55,6 +55,22 @@ class KacTests(unittest.TestCase):
             unit = (validate_kac.FILES / name).read_text(encoding="utf-8")
             self.assertIn("RestrictSUIDSGID=yes", unit, name)
 
+    def test_each_signer_unit_selects_only_the_exact_softhsm_module(self) -> None:
+        expected = (
+            "Environment=PKCS11_PROVIDER_MODULE=/usr/lib/softhsm/libsofthsm2.so"
+        )
+        for name in (
+            "aos-kuksa-verifier-prepare.service",
+            "aos-kuksa-provider-prepare.service",
+            "aos-kuksa-auth-compat.service",
+        ):
+            unit = (validate_kac.FILES / name).read_text(encoding="utf-8")
+            self.assertEqual(
+                [line for line in unit.splitlines() if line.startswith("Environment=")],
+                [expected],
+                name,
+            )
+
     def test_package_is_separately_removable(self) -> None:
         recipe = validate_kac.RECIPE.read_text(encoding="utf-8")
         self.assertNotIn("aos-image-vm", recipe)

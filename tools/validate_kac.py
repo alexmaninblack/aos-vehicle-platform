@@ -94,6 +94,22 @@ def validate_kac() -> None:
     verifier = (FILES / "aos-kuksa-verifier-prepare.service").read_text(encoding="utf-8")
     provider = (FILES / "aos-kuksa-provider-prepare.service").read_text(encoding="utf-8")
     tmpfiles = (FILES / "aos-kuksa-auth-compat.conf").read_text(encoding="utf-8")
+    expected_module_environment = (
+        "Environment=PKCS11_PROVIDER_MODULE=/usr/lib/softhsm/libsofthsm2.so"
+    )
+    for unit, label in (
+        (helper, "helper unit"),
+        (verifier, "verifier unit"),
+        (provider, "provider unit"),
+    ):
+        environments = [
+            line for line in unit.splitlines() if line.startswith("Environment=")
+        ]
+        if environments != [expected_module_environment]:
+            raise KacValidationError(
+                f"{label}: exact PKCS11 provider environment changed: "
+                + repr(environments)
+            )
     require(helper, "User=aos-kac", "helper unit")
     require(helper, "SupplementaryGroups=aos-kuksa-clients", "helper unit")
     require(helper, "LoadCredential=kuksa-jwt-pin:/var/aos/iam/.kuksa-jwt-pin", "helper unit")
@@ -106,7 +122,6 @@ def validate_kac() -> None:
     require(helper, "RestrictSUIDSGID=yes", "helper unit")
     forbid(helper, "MemoryMax=", "helper unit")
     forbid(helper, "CPUQuota=", "helper unit")
-    forbid(helper, "Environment=", "helper unit")
     require(verifier, "Type=oneshot", "verifier unit")
     require(verifier, "User=root", "verifier unit")
     require(verifier, "Group=root", "verifier unit")

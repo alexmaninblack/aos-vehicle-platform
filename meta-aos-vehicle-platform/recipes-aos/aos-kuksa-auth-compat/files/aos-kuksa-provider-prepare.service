@@ -18,6 +18,7 @@ User=root
 Group=root
 ExecStart=/usr/libexec/aos-kuksa-provider-prepare
 LoadCredential=kuksa-jwt-pin:/var/aos/iam/.kuksa-jwt-pin
+Environment=PKCS11_PROVIDER_MODULE=/usr/lib/softhsm/libsofthsm2.so
 RemainAfterExit=yes
 Restart=no
 TimeoutStartSec=15s
