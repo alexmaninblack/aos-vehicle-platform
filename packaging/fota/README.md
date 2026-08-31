@@ -57,7 +57,9 @@ comparison, `--stage` on the validator copies only the prepared bytes and the
 verified producer manifest to
 `.local/release-candidates/sha256/<prepared-sha256>/`. The local store is
 excluded from Git and is never a signing, publication, Cloud or deployment
-operation.
+operation. Staging rejects a manifest unless its bytes exactly equal the
+version-controlled canonical producer manifest. Provenance binds the exact
+embedded `dependency-lock/requirements-arm64.txt` bytes as a build input.
 
 The prepared filenames are fixed; there is no `latest` alias. VDP v1 contains
 only the seven-path base-dynamics release, v2 is its wheel-speed strict

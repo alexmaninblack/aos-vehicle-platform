@@ -78,6 +78,17 @@ class FotaPackagingTests(unittest.TestCase):
         self.assertIn("vdp_artifact.validate", validator)
         self.assertIn("vdp_artifact.stage", validator)
 
+    def test_historical_provider_validator_pins_the_accepted_golden_bytes(self) -> None:
+        validator = (FOTA / "validate-provider-component").read_text(encoding="utf-8")
+        for digest in (
+            "8a36c0c1a9a2efd8f69927de5c3e78fe7b15d3d858fd849d513724b995907fac",
+            "cb636649e253510cd1c06d8888a0254fc1bd4b7642de79a9601bb9d5979f0d9a",
+            "baf1c29c9264b8f2422dc155540c3b22716bb43d5f80c1cfeb3cc9529f0bf3cb",
+            "1f634839e5678efa2ec9677c1342c9b4c4b7ede929ff0fd166d25de84103f051",
+        ):
+            self.assertIn(digest, validator)
+        self.assertIn("provider 0.2.0 candidate bytes changed", validator)
+
 
 if __name__ == "__main__":
     unittest.main()

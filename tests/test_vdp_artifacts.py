@@ -139,6 +139,56 @@ class VdpArtifactTests(unittest.TestCase):
             self.assertNotIn("prebuild.json", names)
             self.assertNotIn("grpc/_cython/_credentials/roots.pem", names)
 
+    def test_embedded_dependency_lock_is_bound_in_provenance(self) -> None:
+        expected = (FOTA / "requirements-arm64.txt").read_bytes()
+        for version, (first, _) in self.outputs.items():
+            members = vdp_artifact._member_map(first / vdp_artifact.layer_name(version))
+            embedded = members["dependency-lock/requirements-arm64.txt"][1]
+            self.assertEqual(embedded, expected)
+            provenance = json.loads(members["provenance/provenance.json"][1])
+            records = [
+                record
+                for record in provenance["buildInputs"]
+                if record["path"]
+                == "payload/dependency-lock/requirements-arm64.txt"
+            ]
+            self.assertEqual(
+                records,
+                [
+                    {
+                        "byteLength": len(expected),
+                        "path": "payload/dependency-lock/requirements-arm64.txt",
+                        "sha256": vdp_artifact.sha256_bytes(expected),
+                    }
+                ],
+            )
+
+    def test_stage_requires_exact_version_controlled_manifest_bytes(self) -> None:
+        version = "1.0.0"
+        first, _ = self.outputs[version]
+        canonical_root = self.root / "canonical"
+        canonical_root.mkdir()
+        canonical = canonical_root / vdp_artifact.manifest_filename(version)
+        manifest = first / vdp_artifact.manifest_filename(version)
+        canonical.write_bytes(manifest.read_bytes())
+        content_store = self.root / "content-store"
+        with mock.patch.object(
+            vdp_artifact, "CANONICAL_MANIFEST_ROOT", canonical_root
+        ), mock.patch.object(vdp_artifact, "CONTENT_STORE_ROOT", content_store):
+            staged = vdp_artifact.stage(first, version, manifest)
+            self.assertEqual(
+                (staged / canonical.name).read_bytes(), canonical.read_bytes()
+            )
+            canonical.write_bytes(
+                self.outputs["2.0.0"][0]
+                .joinpath(vdp_artifact.manifest_filename("2.0.0"))
+                .read_bytes()
+            )
+            with self.assertRaisesRegex(
+                vdp_artifact.ArtifactError, "version-controlled canonical"
+            ):
+                vdp_artifact.stage(first, version, manifest)
+
     def test_tampered_prepared_bytes_fail_manifest_binding(self) -> None:
         original, _ = self.outputs["1.0.0"]
         copy = self.root / "tampered"

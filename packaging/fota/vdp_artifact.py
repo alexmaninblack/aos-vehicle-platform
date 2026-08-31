@@ -23,6 +23,8 @@ import vdp_family
 
 
 ROOT = Path(__file__).resolve().parents[2]
+CANONICAL_MANIFEST_ROOT = ROOT / "manifests/release-candidates"
+CONTENT_STORE_ROOT = ROOT / ".local/release-candidates/sha256"
 PRODUCT_SOURCE_REVISION = "667afb1512cf43ff27f1ab5327293208bf73045b"
 PRODUCT_SOURCE_TREE = "164f907bf041dbc99df24d2ebe7b0e5d2bbaeab0"
 FACTORY_VERSION = "6.1.1-maninblack.21"
@@ -247,7 +249,9 @@ def _source_payload(version: str) -> dict[str, bytes]:
     return files
 
 
-def _input_records(payload: dict[str, bytes], wheels: list[Path]) -> list[dict[str, object]]:
+def _input_records(
+    payload: dict[str, bytes], wheels: list[Path], dependency_lock: bytes
+) -> list[dict[str, object]]:
     records = [
         {"byteLength": len(content), "path": f"payload/{path}", "sha256": sha256_bytes(content)}
         for path, content in sorted(payload.items())
@@ -259,6 +263,13 @@ def _input_records(payload: dict[str, bytes], wheels: list[Path]) -> list[dict[s
             "sha256": sha256_file(ROOT / path),
         }
         for path in BUILDER_INPUTS
+    )
+    records.append(
+        {
+            "byteLength": len(dependency_lock),
+            "path": "payload/dependency-lock/requirements-arm64.txt",
+            "sha256": sha256_bytes(dependency_lock),
+        }
     )
     records.extend(
         {"byteLength": wheel.stat().st_size, "path": f"wheelhouse/{wheel.name}", "sha256": sha256_file(wheel)}
@@ -301,10 +312,11 @@ def _write_payload(root: Path, version: str, wheels: list[Path]) -> tuple[list[d
     site_packages = root / "python/site-packages"
     site_packages.mkdir(parents=True)
     extract_wheels(wheels, site_packages)
+    dependency_lock = (ROOT / "packaging/fota/requirements-arm64.txt").read_bytes()
     lock = root / "dependency-lock/requirements-arm64.txt"
     lock.parent.mkdir(parents=True)
-    lock.write_bytes((ROOT / "packaging/fota/requirements-arm64.txt").read_bytes())
-    inputs = _input_records(source_payload, wheels)
+    lock.write_bytes(dependency_lock)
+    inputs = _input_records(source_payload, wheels, dependency_lock)
     capability = json.loads(source_payload["config/capability-manifest.json"])
     provenance = {
         "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: Apache-2.0",
@@ -710,6 +722,25 @@ def validate(root: Path, version: str, manifest_path: Path) -> dict[str, object]
         or provenance.get("semanticVersion") != version
     ):
         raise ArtifactError("artifact provenance binding mismatch")
+    dependency_lock = members["dependency-lock/requirements-arm64.txt"][1]
+    accepted_dependency_lock = (
+        ROOT / "packaging/fota/requirements-arm64.txt"
+    ).read_bytes()
+    if dependency_lock != accepted_dependency_lock:
+        raise ArtifactError("embedded ARM64 dependency lock differs from accepted bytes")
+    lock_records = [
+        record
+        for record in provenance.get("buildInputs", [])
+        if isinstance(record, dict)
+        and record.get("path") == "payload/dependency-lock/requirements-arm64.txt"
+    ]
+    expected_lock_record = {
+        "byteLength": len(dependency_lock),
+        "path": "payload/dependency-lock/requirements-arm64.txt",
+        "sha256": sha256_bytes(dependency_lock),
+    }
+    if lock_records != [expected_lock_record]:
+        raise ArtifactError("embedded ARM64 dependency lock provenance is incomplete")
     if sbom.get("spdxVersion") != "SPDX-2.3" or len(sbom.get("packages", [])) != 5:
         raise ArtifactError("artifact SBOM package inventory mismatch")
     expected_manifest = producer_manifest(
@@ -774,8 +805,15 @@ def validate_family(manifests: dict[str, dict[str, object]]) -> None:
 
 def stage(root: Path, version: str, manifest_path: Path) -> Path:
     manifest = validate(root, version, manifest_path)
+    canonical_manifest = CANONICAL_MANIFEST_ROOT / manifest_filename(version)
+    if not canonical_manifest.is_file() or canonical_manifest.is_symlink():
+        raise ArtifactError("version-controlled producer manifest is missing or unsafe")
+    if manifest_path.read_bytes() != canonical_manifest.read_bytes():
+        raise ArtifactError(
+            "producer manifest bytes differ from the version-controlled canonical manifest"
+        )
     digest = manifest["preparedArtifact"]["sha256"]
-    store = ROOT / ".local/release-candidates/sha256" / digest
+    store = CONTENT_STORE_ROOT / digest
     if store.exists() or store.is_symlink():
         if not store.is_dir() or store.is_symlink():
             raise ArtifactError("content-addressed stage target is unsafe")
@@ -793,6 +831,6 @@ def stage(root: Path, version: str, manifest_path: Path) -> Path:
         raise ArtifactError("staging partial target already exists")
     temporary.mkdir()
     shutil.copyfile(root / prepared_filename(version), temporary / prepared_filename(version))
-    shutil.copyfile(manifest_path, temporary / manifest_filename(version))
+    shutil.copyfile(canonical_manifest, temporary / manifest_filename(version))
     os.replace(temporary, store)
     return store

@@ -22,6 +22,10 @@ import vdp_family
 
 
 VERSION = "0.2.0"
+GOLDEN_CANDIDATE_SHA256 = "8a36c0c1a9a2efd8f69927de5c3e78fe7b15d3d858fd849d513724b995907fac"
+GOLDEN_CONFIG_SHA256 = "cb636649e253510cd1c06d8888a0254fc1bd4b7642de79a9601bb9d5979f0d9a"
+GOLDEN_LAYER_SHA256 = "baf1c29c9264b8f2422dc155540c3b22716bb43d5f80c1cfeb3cc9529f0bf3cb"
+GOLDEN_ENVELOPE_SHA256 = "1f634839e5678efa2ec9677c1342c9b4c4b7ede929ff0fd166d25de84103f051"
 COMPONENT_TYPE = "aos-vm-1.0.0-main-qemuarm64-vehicle-data-provider"
 LAYER_NAME = f"provider-{VERSION}-arm64.tar"
 LAYER_PATH = f"vehicle-data-provider/{LAYER_NAME}"
@@ -227,6 +231,19 @@ def validate(root: Path) -> None:
     layer = root / LAYER_PATH
     regular_file(candidate_path, "candidate metadata")
     regular_file(layer, "provider layer")
+    require(
+        sha256(candidate_path) == GOLDEN_CANDIDATE_SHA256,
+        "provider 0.2.0 candidate bytes changed",
+    )
+    require(
+        sha256(root / "config.yaml") == GOLDEN_CONFIG_SHA256,
+        "provider 0.2.0 config bytes changed",
+    )
+    require(sha256(layer) == GOLDEN_LAYER_SHA256, "provider 0.2.0 layer bytes changed")
+    require(
+        sha256(root / "unsigned-envelope.tar.gz") == GOLDEN_ENVELOPE_SHA256,
+        "provider 0.2.0 envelope bytes changed",
+    )
     candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
     require(candidate.get("schemaVersion") == 1, "candidate schema changed")
     require(candidate.get("signingState") == "unsigned", "candidate is not unsigned")
