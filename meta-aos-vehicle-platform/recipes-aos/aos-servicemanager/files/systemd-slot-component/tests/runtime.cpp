@@ -251,6 +251,15 @@ protected:
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root / "bin");
     std::filesystem::create_directories(root / "config");
+    for (const auto &directory : {root, root / "bin", root / "config"}) {
+      std::filesystem::permissions(
+          directory, std::filesystem::perms::owner_all |
+                         std::filesystem::perms::group_read |
+                         std::filesystem::perms::group_exec |
+                         std::filesystem::perms::others_read |
+                         std::filesystem::perms::others_exec,
+          std::filesystem::perm_options::replace);
+    }
     WriteFile(root / "component.json",
               "{\n"
               "  \"schemaVersion\": 1,\n"

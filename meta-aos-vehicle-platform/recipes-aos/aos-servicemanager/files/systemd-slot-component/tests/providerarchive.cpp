@@ -164,7 +164,7 @@ TEST_F(ProviderArchiveTest, ImageManagerRejectsUnsafeArchiveBeforeExtraction) {
   ASSERT_TRUE(handler.Init().IsNone());
 
   const auto err = handler.UnpackLayer(mArchive.c_str(), destination.c_str(),
-                                       cProviderLayerMediaType);
+                                       cLegacyProviderLayerMediaType);
   EXPECT_TRUE(err.Is(ErrorEnum::eInvalidArgument));
   EXPECT_FALSE(std::filesystem::exists(destination));
   EXPECT_FALSE(std::filesystem::exists(mDirectory / "escape"));
@@ -180,7 +180,7 @@ TEST_F(ProviderArchiveTest, ImageManagerExtractsValidatedArchive) {
   ASSERT_TRUE(handler.Init().IsNone());
 
   const auto err = handler.UnpackLayer(mArchive.c_str(), destination.c_str(),
-                                       cProviderLayerMediaType);
+                                       cLegacyProviderLayerMediaType);
   ASSERT_TRUE(err.IsNone());
   EXPECT_TRUE(std::filesystem::is_regular_file(destination /
                                                "bin/vehicle-data-provider"));
