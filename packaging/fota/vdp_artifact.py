@@ -259,6 +259,20 @@ def _source_payload(version: str) -> dict[str, bytes]:
     return files
 
 
+def runtime_component_metadata(version: str) -> dict[str, object]:
+    require_version(version)
+    return {
+        "architecture": "arm64",
+        "component": "vehicle-data-provider",
+        "configuration": "config/provider.json",
+        "entrypoint": "bin/vehicle-data-provider",
+        "os": "linux",
+        "runtimeInterface": 1,
+        "schemaVersion": 1,
+        "version": version,
+    }
+
+
 def _input_records(
     payload: dict[str, bytes], wheels: list[Path], dependency_lock: bytes
 ) -> list[dict[str, object]]:
@@ -315,6 +329,9 @@ def _runtime_packages(wheels: list[Path]) -> list[dict[str, object]]:
 
 def _write_payload(root: Path, version: str, wheels: list[Path]) -> tuple[list[dict[str, object]], dict[str, object]]:
     source_payload = _source_payload(version)
+    source_payload["component.json"] = canonical_json(
+        runtime_component_metadata(version)
+    )
     for name, content in source_payload.items():
         target = root.joinpath(*PurePosixPath(name).parts)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -749,10 +766,7 @@ def validate(root: Path, version: str, manifest_path: Path) -> dict[str, object]
         raise ArtifactError("accepted provider profile bytes changed")
     capability_sha = sha256_bytes(accepted_capability)
     if (
-        component.get("semanticVersion") != version
-        or component.get("architecture") != "arm64"
-        or component.get("componentType") != COMPONENT_TYPE
-        or component.get("capabilityManifestSha256") != capability_sha
+        component != runtime_component_metadata(version)
         or provider.get("capabilityManifestSha256") != capability_sha
         or capability.get("semanticVersion") != version
     ):

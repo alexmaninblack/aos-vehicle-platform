@@ -143,6 +143,21 @@ class VdpArtifactTests(unittest.TestCase):
             self.assertNotIn("prebuild.json", names)
             self.assertNotIn("grpc/_cython/_credentials/roots.pem", names)
 
+    def test_component_metadata_matches_systemd_slot_runtime_contract(self) -> None:
+        for version, (first, _) in self.outputs.items():
+            members = vdp_artifact._member_map(
+                first / vdp_artifact.layer_name(version)
+            )
+            metadata = json.loads(members["component.json"][1])
+            self.assertEqual(
+                metadata,
+                vdp_artifact.runtime_component_metadata(version),
+            )
+            self.assertEqual(metadata["schemaVersion"], 1)
+            self.assertEqual(metadata["component"], "vehicle-data-provider")
+            self.assertEqual(metadata["version"], version)
+            self.assertNotIn("semanticVersion", metadata)
+
     def test_embedded_dependency_lock_is_bound_in_provenance(self) -> None:
         expected = (FOTA / "requirements-arm64.txt").read_bytes()
         for version, (first, _) in self.outputs.items():
