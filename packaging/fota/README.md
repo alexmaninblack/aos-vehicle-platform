@@ -39,7 +39,7 @@ and at least 55 GiB free on the selected output filesystem. The repeatable
 `1.0.14` / `1.0.15` qualification pair is pinned to Platform revision
 `5303787379d8e852e09b3ccab3e87e099c0be5cf` and Factory image
 `6.1.1-maninblack.27` raw SHA-256
-`6d947579865d33860c88e63a4630e88ab95a6941efc3a62468d89deb61faad78`:
+`dbc018cf31dc83accbca82cf26df0b3ca69c66d1135100db8d05552fd2744c56`:
 
 ```text
 AOS_VDP_BUILD_OFFLINE=1 PIP_NO_INDEX=1 \

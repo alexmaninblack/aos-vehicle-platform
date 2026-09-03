@@ -115,6 +115,10 @@ class VdpArtifactTests(unittest.TestCase):
             self.assertNotIn("manifestSha256", manifest)
             self.assertEqual(manifest["source"]["revision"], vdp_artifact.PRODUCT_SOURCE_REVISION)
             self.assertEqual(manifest["compatibility"]["factoryImageVersion"], "6.1.1-maninblack.27")
+            self.assertEqual(
+                manifest["compatibility"]["factoryImageRawSha256"],
+                "dbc018cf31dc83accbca82cf26df0b3ca69c66d1135100db8d05552fd2744c56",
+            )
 
     def test_artifact_contains_only_the_build_selected_release(self) -> None:
         for version, (first, _) in self.outputs.items():
