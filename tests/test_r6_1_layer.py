@@ -42,6 +42,26 @@ class R61LayerTests(unittest.TestCase):
         self.assertIn("server=%s#18053", dnsmasq)
         self.assertIn("${AOS_NODE_GW_IP}", dnsmasq)
 
+    def test_pkcs11_peer_keys_do_not_depend_on_random_token_order(self) -> None:
+        append = validate_r6_1_layer.PKCS11_PROVIDER_APPEND.read_text(
+            encoding="utf-8"
+        )
+        patch = validate_r6_1_layer.PKCS11_PROVIDER_PATCH.read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            f'SRCREV = "{validate_r6_1_layer.PKCS11_PROVIDER_V12}"',
+            append,
+        )
+        self.assertIn('PV = "1.2.0+git"', append)
+        self.assertTrue(
+            patch.startswith(
+                f"From {validate_r6_1_layer.PKCS11_PROVIDER_URI_FIX} "
+            )
+        )
+        self.assertIn("uri[uri_len] = '\\0';", patch)
+
     def test_iam_transform_changes_only_permission_handler_value(self) -> None:
         namespace = runpy.run_path(str(validate_r6_1_layer.IAM_TRANSFORM))
         transform = namespace["transform"]

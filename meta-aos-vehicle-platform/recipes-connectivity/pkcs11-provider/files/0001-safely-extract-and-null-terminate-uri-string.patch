@@ -1,0 +1,63 @@
+From eb157e48066fdb2b5735f6f327ed7ae65c51eb6f Mon Sep 17 00:00:00 2001
+From: Simo Sorce <simo@redhat.com>
+Date: Tue, 4 Aug 2026 08:00:42 -0400
+Subject: [PATCH] Safely extract and null-terminate URI string
+
+SPDX-FileCopyrightText: 2026 maninblack
+SPDX-License-Identifier: Apache-2.0
+
+The obj_uri_get1 function previously passed raw ASN1 string data to
+formatting functions. Because ASN1 strings are not guaranteed to be null-
+terminated, this could lead to out-of-bounds reads.
+
+This update allocates a temporary buffer, explicitly null-terminates the
+copied string before formatting, and adds a safeguard against a null
+obj->uri pointer to ensure memory safety.
+
+Upstream-Status: Backport [eb157e48066fdb2b5735f6f327ed7ae65c51eb6f]
+Signed-off-by: Simo Sorce <simo@redhat.com>
+---
+ src/decoder.c | 26 +++++++++++++++++++++-----
+ 1 file changed, 21 insertions(+), 5 deletions(-)
+
+diff --git a/src/decoder.c b/src/decoder.c
+index f03ae86..72b5263 100644
+--- a/src/decoder.c
++++ b/src/decoder.c
+@@ -52,13 +52,29 @@ static int obj_desc_verify(P11PROV_PK11_URI *obj)
+ 
+ static char *obj_uri_get1(P11PROV_PK11_URI *obj)
+ {
+-    const unsigned char *uri = ASN1_STRING_get0_data(obj->uri);
+-    int uri_len = ASN1_STRING_length(obj->uri);
+-    if (!uri || uri_len <= 0) {
+-        P11PROV_debug("Failed to get URI");
++    unsigned char *uri = NULL;
++    char *ret = NULL;
++
++    if (obj->uri == NULL) {
+         return NULL;
+     }
+-    return p11prov_alloc_sprintf(uri_len, "%*s", uri_len, uri);
++    int uri_len = ASN1_STRING_length(obj->uri);
++    if (uri_len <= 0) {
++        goto done;
++    }
++    uri = OPENSSL_malloc(uri_len + 1);
++    if (uri == NULL) {
++        goto done;
++    }
++    memcpy(uri, ASN1_STRING_get0_data(obj->uri), uri_len);
++    uri[uri_len] = '\0';
++    ret = p11prov_alloc_sprintf(uri_len, "%s", uri);
++done:
++    if (ret == NULL) {
++        P11PROV_debug("Failed to extract URI");
++    }
++    OPENSSL_free(uri);
++    return ret;
+ }
+ 
+ struct desired_data_type_cbdata {
+-- 
+2.39.5

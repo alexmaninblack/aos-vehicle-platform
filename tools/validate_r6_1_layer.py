@@ -48,6 +48,17 @@ VISS_TRANSPORT = (
     / "recipes-aos/aos-servicemanager/files/systemd-slot-component/"
     "pocovisstransport.cpp"
 )
+PKCS11_PROVIDER_APPEND = (
+    LAYER
+    / "recipes-connectivity/pkcs11-provider/pkcs11-provider_%.bbappend"
+)
+PKCS11_PROVIDER_PATCH = (
+    LAYER
+    / "recipes-connectivity/pkcs11-provider/files/"
+    "0001-safely-extract-and-null-terminate-uri-string.patch"
+)
+PKCS11_PROVIDER_V12 = "c7a5c8b62a0ff012b16574f01651254ef7e664ee"
+PKCS11_PROVIDER_URI_FIX = "eb157e48066fdb2b5735f6f327ed7ae65c51eb6f"
 IAM_APPEND = LAYER / "recipes-aos/aos-iamanager/aos-iamanager_git.bbappend"
 IAM_TRANSFORM = (
     LAYER
@@ -200,6 +211,30 @@ def validate_layer() -> None:
     require(
         'BBFILE_PRIORITY_aos-vehicle-platform = "20"' in layer_conf,
         "layer priority changed",
+    )
+
+    pkcs11_append = read(PKCS11_PROVIDER_APPEND)
+    require(
+        f'SRCREV = "{PKCS11_PROVIDER_V12}"' in pkcs11_append,
+        "PKCS#11 provider is not pinned to upstream v1.2.0",
+    )
+    require(
+        'PV = "1.2.0+git"' in pkcs11_append,
+        "PKCS#11 provider package version does not describe v1.2.0",
+    )
+    require(
+        "0001-safely-extract-and-null-terminate-uri-string.patch"
+        in pkcs11_append,
+        "PKCS#11 embedded-URI fix is not selected",
+    )
+    pkcs11_patch = read(PKCS11_PROVIDER_PATCH)
+    require(
+        pkcs11_patch.startswith(f"From {PKCS11_PROVIDER_URI_FIX} "),
+        "PKCS#11 embedded-URI patch provenance changed",
+    )
+    require(
+        "uri[uri_len] = '\\0';" in pkcs11_patch,
+        "PKCS#11 embedded URI is not explicitly terminated",
     )
 
     try:
