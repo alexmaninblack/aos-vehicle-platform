@@ -19,6 +19,10 @@
 namespace aos::sm::imagemanager {
 
 inline constexpr auto cProviderLayerMediaType =
+    "application/vnd.oci.image.layer.v1.tar";
+inline constexpr auto cProviderComponentLayerMediaType =
+    "application/vnd.aos.image.component.full.v1+gzip";
+inline constexpr auto cLegacyProviderLayerMediaType =
     "application/vnd.aos.vehicle-data-provider.layer.v1.tar";
 inline constexpr uint64_t cProviderArchiveMaxPayloadBytes =
     512ULL * 1024ULL * 1024ULL;

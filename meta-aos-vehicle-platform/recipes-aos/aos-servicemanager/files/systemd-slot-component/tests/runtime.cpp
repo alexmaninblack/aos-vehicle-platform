@@ -236,7 +236,7 @@ protected:
                               const std::string &digest) const {
     InstanceInfo instance;
     static_cast<InstanceIdent &>(instance) =
-        InstanceIdent{"vehicle-data-provider", "aos-vm-main", 0,
+        InstanceIdent{runtimeInfo.mRuntimeType, "aos-vm-main", 0,
                       UpdateItemTypeEnum::eComponent};
     instance.mVersion = version.c_str();
     instance.mManifestDigest = digest.c_str();
@@ -288,7 +288,9 @@ protected:
 
   void ExpectPayload(const InstanceInfo &instance,
                      const std::filesystem::path &payload,
-                     size_t layerSize = 256) {
+                     size_t layerSize = 256,
+                     const char *mediaType =
+                         imagemanager::cProviderLayerMediaType) {
     EXPECT_CALL(mItemInfoProvider,
                 GetBlobPath(String(instance.mManifestDigest), _))
         .WillOnce(Invoke([](const String &, String &path) {
@@ -296,16 +298,47 @@ protected:
         }));
     EXPECT_CALL(mOCISpec, LoadImageManifest(_, _))
         .WillOnce(
-            Invoke([layerSize](const String &, oci::ImageManifest &manifest) {
+            Invoke([layerSize, mediaType](const String &,
+                                          oci::ImageManifest &manifest) {
               manifest.mSchemaVersion = oci::cSchemaVersion;
               return manifest.mLayers.EmplaceBack(
-                  imagemanager::cProviderLayerMediaType,
-                  "sha256:provider-layer", layerSize);
+                  mediaType, "sha256:provider-layer", layerSize);
             }));
     EXPECT_CALL(mItemInfoProvider,
                 GetLayerPath(String("sha256:provider-layer"), _))
         .WillOnce(Invoke([payload](const String &, String &path) {
           return path.Assign(payload.c_str());
+        }));
+  }
+
+  void ExpectComponentPayload(const InstanceInfo &instance,
+                              const std::filesystem::path &payload,
+                              size_t layerSize = 256) {
+    const auto archive = payload.parent_path() /
+                         (payload.filename().string() + ".tar.gz");
+    std::filesystem::remove(archive);
+    const auto command =
+        "tar --format=ustar -czf '" + archive.string() + "' -C '" +
+        payload.string() + "' component.json bin config";
+    ASSERT_EQ(std::system(command.c_str()), 0);
+
+    EXPECT_CALL(mItemInfoProvider,
+                GetBlobPath(String(instance.mManifestDigest), _))
+        .WillOnce(Invoke([](const String &, String &path) {
+          return path.Assign("/tmp/provider-manifest.json");
+        }));
+    EXPECT_CALL(mOCISpec, LoadImageManifest(_, _))
+        .WillOnce(Invoke([layerSize](const String &,
+                                    oci::ImageManifest &manifest) {
+          manifest.mSchemaVersion = oci::cSchemaVersion;
+          return manifest.mLayers.EmplaceBack(
+              imagemanager::cProviderComponentLayerMediaType,
+              "sha256:provider-layer", layerSize);
+        }));
+    EXPECT_CALL(mItemInfoProvider,
+                GetBlobPath(String("sha256:provider-layer"), _))
+        .WillOnce(Invoke([archive](const String &, String &path) {
+          return path.Assign(archive.c_str());
         }));
   }
 
@@ -524,6 +557,14 @@ TEST_F(SystemdSlotComponentRuntimeTest, RequiresTheFixedBootstrapContract) {
 }
 
 TEST_F(SystemdSlotComponentRuntimeTest, StartsWithAnEmptyPersistentStore) {
+  InstanceStatus factoryStatus;
+  EXPECT_CALL(mStatusReceiver, OnInstancesStatusesReceived(_))
+      .WillOnce(Invoke([&factoryStatus](const Array<InstanceStatus> &statuses) {
+        EXPECT_EQ(statuses.Size(), 1U);
+        factoryStatus = statuses[0];
+        return ErrorEnum::eNone;
+      }));
+
   auto runtime = StartEmptyRuntime(CreateConfig());
 
   RuntimeInfo info;
@@ -533,6 +574,30 @@ TEST_F(SystemdSlotComponentRuntimeTest, StartsWithAnEmptyPersistentStore) {
   EXPECT_EQ(info.mMaxInstances, 1U);
   EXPECT_TRUE(std::filesystem::is_directory(mWorkingDir / "slots"));
   EXPECT_TRUE(std::filesystem::is_directory(mWorkingDir / "state"));
+  EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "active"));
+  EXPECT_EQ(factoryStatus.mItemID, String(cComponentType));
+  EXPECT_EQ(factoryStatus.mSubjectID, String("aos-vm-main"));
+  EXPECT_EQ(factoryStatus.mVersion, String("0.0.0"));
+  EXPECT_EQ(factoryStatus.mRuntimeID, info.mRuntimeID);
+  EXPECT_EQ(factoryStatus.mState, InstanceStateEnum::eActive);
+  EXPECT_EQ(factoryStatus.mType, UpdateItemTypeEnum::eComponent);
+  EXPECT_TRUE(factoryStatus.mPreinstalled);
+
+  InstanceInfo factoryHandshake;
+  static_cast<InstanceIdent &>(factoryHandshake) =
+      static_cast<const InstanceIdent &>(factoryStatus);
+  factoryHandshake.mVersion = factoryStatus.mVersion;
+  factoryHandshake.mManifestDigest = factoryStatus.mManifestDigest;
+  factoryHandshake.mRuntimeID = factoryStatus.mRuntimeID;
+  factoryHandshake.mPreinstalled = factoryStatus.mPreinstalled;
+  InstanceStatus handshakeStatus;
+  ASSERT_TRUE(runtime->StartInstance(factoryHandshake, handshakeStatus).IsNone());
+  EXPECT_EQ(handshakeStatus.mState, InstanceStateEnum::eActive);
+  EXPECT_TRUE(handshakeStatus.mPreinstalled);
+  EXPECT_FALSE(
+      std::filesystem::exists(mWorkingDir / "state/transaction.json"));
+  EXPECT_FALSE(
+      std::filesystem::exists(mWorkingDir / "state/installed.json"));
   EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "active"));
   EXPECT_TRUE(runtime->Reboot().Is(ErrorEnum::eNotSupported));
 }
@@ -552,7 +617,8 @@ TEST_F(SystemdSlotComponentRuntimeTest,
   EXPECT_CALL(mProfile, StartProvider()).Times(0);
 
   InstanceStatus status;
-  ASSERT_TRUE(runtime->StartInstance(candidate, status).IsNone());
+  const auto startError = runtime->StartInstance(candidate, status);
+  ASSERT_TRUE(startError.IsNone()) << tests::utils::ErrorToStr(startError);
   EXPECT_EQ(status.mState, InstanceStateEnum::eActivating);
   WaitForReads(vehicleState, 2);
   EXPECT_TRUE(
@@ -681,7 +747,7 @@ TEST_F(SystemdSlotComponentRuntimeTest, InstallsFirstReleaseAtomically) {
   ASSERT_TRUE(runtime->GetRuntimeInfo(info).IsNone());
   const auto instance = CreateInstance(info, "0.2.0", "sha256:release020");
   const auto payload = CreatePayload("020", "0.2.0");
-  ExpectPayload(instance, payload);
+  ExpectComponentPayload(instance, payload);
   EXPECT_CALL(mProfile, StopProvider()).Times(0);
 
   {
@@ -1112,6 +1178,18 @@ TEST_F(SystemdSlotComponentRuntimeTest, StopMakesTheComponentUnavailable) {
   WaitForTransactionCompletion();
   EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "active"));
   EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "state/installed.json"));
+}
+
+TEST_F(SystemdSlotComponentRuntimeTest, StopMissingComponentIsIdempotent) {
+  auto runtime = StartEmptyRuntime(CreateConfig());
+  RuntimeInfo info;
+  ASSERT_TRUE(runtime->GetRuntimeInfo(info).IsNone());
+  const auto instance = CreateInstance(info, "0.2.0", "sha256:release020");
+
+  InstanceStatus status;
+  ASSERT_TRUE(runtime->StopInstance(instance, status).IsNone());
+  EXPECT_EQ(status.mState, InstanceStateEnum::eInactive);
+  EXPECT_TRUE(status.mError.IsNone());
 }
 
 class SystemdSlotComponentRecoveryTest

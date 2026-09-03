@@ -17,7 +17,7 @@ index f426891..15bfb99 100644
              return err;
          }
  
-+        if (mediaType == cProviderLayerMediaType) {
++        if (mediaType == cLegacyProviderLayerMediaType) {
 +            if (auto err = ValidateProviderArchive(src.CStr()); !err.IsNone()) {
 +                return AOS_ERROR_WRAP(err);
 +            }
@@ -32,7 +32,7 @@ index f426891..15bfb99 100644
  {
 -    if (mediaType != oci::cMediaTypeLayerTar && mediaType != oci::cMediaTypeLayerTarGZip) {
 +    if (mediaType != oci::cMediaTypeLayerTar && mediaType != oci::cMediaTypeLayerTarGZip
-+        && mediaType != cProviderLayerMediaType) {
++        && mediaType != cLegacyProviderLayerMediaType) {
          return AOS_ERROR_WRAP(Error(ErrorEnum::eNotSupported, "unsupported layer media type"));
      }
 

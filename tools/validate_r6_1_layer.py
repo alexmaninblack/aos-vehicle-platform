@@ -254,12 +254,13 @@ def validate_layer() -> None:
         "Image Manager does not preflight the provider archive",
     )
     require(
-        "cProviderLayerMediaType" in patch,
-        "provider-specific OCI media type is not wired into Image Manager",
+        "cLegacyProviderLayerMediaType" in patch,
+        "legacy provider OCI media type compatibility is not wired into Image Manager",
     )
 
     archive = read(ARCHIVE)
     for token in (
+        "application/vnd.oci.image.layer.v1.tar",
         "application/vnd.aos.vehicle-data-provider.layer.v1.tar",
         "ValidateChecksum",
         "ValidatePath",

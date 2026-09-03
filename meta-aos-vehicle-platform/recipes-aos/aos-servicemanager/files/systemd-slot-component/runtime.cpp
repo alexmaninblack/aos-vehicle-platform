@@ -19,10 +19,12 @@
 #include <utility>
 
 #include <Poco/JSON/Object.h>
+#include <Poco/InflatingStream.h>
 
 #include <core/common/tools/logger.hpp>
 
 #include <common/utils/exception.hpp>
+#include <common/utils/image.hpp>
 #include <common/utils/json.hpp>
 
 #include <sm/launcher/runtimes/utils/utils.hpp>
@@ -45,8 +47,70 @@ constexpr auto cComponentMetadata = "component.json";
 constexpr auto cProviderExecutable = "bin/vehicle-data-provider";
 constexpr auto cProviderConfiguration = "config/provider.json";
 constexpr auto cComponentName = "vehicle-data-provider";
+constexpr auto cFactoryComponentVersion = "0.0.0";
+constexpr auto cFactoryComponentSubject = "aos-vm-main";
 constexpr auto cComponentOS = "linux";
 constexpr auto cRuntimeInterface = 1U;
+
+Error InflateComponentArchive(const std::filesystem::path &source,
+                              const std::filesystem::path &destination,
+                              uint64_t maximumBytes) {
+  try {
+    std::error_code error;
+    const auto status = std::filesystem::symlink_status(source, error);
+    if (error || std::filesystem::is_symlink(status) ||
+        !std::filesystem::is_regular_file(status)) {
+      return AOS_ERROR_WRAP(
+          Error(ErrorEnum::eInvalidArgument,
+                "component layer blob is not a regular file"));
+    }
+
+    std::ifstream input(source, std::ios::binary);
+    std::ofstream output(destination,
+                         std::ios::binary | std::ios::trunc);
+    if (!input.is_open() || !output.is_open()) {
+      return AOS_ERROR_WRAP(
+          Error(ErrorEnum::eFailed, "cannot open component archive"));
+    }
+
+    Poco::InflatingInputStream inflater(
+        input, Poco::InflatingStreamBuf::STREAM_GZIP);
+    auto buffer = std::make_unique<std::array<char, 64 * 1024>>();
+    if (!buffer) {
+      return AOS_ERROR_WRAP(ErrorEnum::eNoMemory);
+    }
+    uint64_t total = 0;
+    while (inflater.good()) {
+      inflater.read(buffer->data(), buffer->size());
+      const auto count = inflater.gcount();
+      if (count <= 0) {
+        break;
+      }
+      const auto bytes = static_cast<uint64_t>(count);
+      if (bytes > maximumBytes - total) {
+        return AOS_ERROR_WRAP(
+            Error(ErrorEnum::eInvalidArgument,
+                  "component archive exceeds its unpacked bound"));
+      }
+      output.write(buffer->data(), count);
+      if (!output.good()) {
+        return AOS_ERROR_WRAP(
+            Error(ErrorEnum::eFailed, "cannot write component archive"));
+      }
+      total += bytes;
+    }
+    output.flush();
+    if (!output.good() || !inflater.eof()) {
+      return AOS_ERROR_WRAP(
+          Error(ErrorEnum::eInvalidArgument,
+                "component gzip archive is truncated"));
+    }
+  } catch (const std::exception &exception) {
+    return AOS_ERROR_WRAP(common::utils::ToAosError(exception));
+  }
+
+  return ErrorEnum::eNone;
+}
 
 Error FromFilesystemError(const std::error_code &error, const char *message) {
   return AOS_ERROR_WRAP(Error(error.value(), message));
@@ -498,6 +562,16 @@ Error SystemdSlotComponentRuntime::StartInstance(const InstanceInfo &instance,
               "a different component transaction is already active"));
   }
 
+  if (!mInstalled.has_value() && instance.mPreinstalled &&
+      instance.mItemID == mRuntimeInfo.mRuntimeType &&
+      instance.mSubjectID == cFactoryComponentSubject &&
+      instance.mVersion == cFactoryComponentVersion &&
+      instance.mManifestDigest.IsEmpty()) {
+    FillStatus(instance, InstanceStateEnum::eActive, ErrorEnum::eNone,
+               status);
+    return ErrorEnum::eNone;
+  }
+
   if (mInstalled.has_value() &&
       mInstalled->mInstance.mManifestDigest == instance.mManifestDigest) {
     FillStatus(*mInstalled, InstanceStateEnum::eActive, ErrorEnum::eNone,
@@ -546,15 +620,23 @@ Error SystemdSlotComponentRuntime::StopInstance(const InstanceIdent &instance,
                                                 InstanceStatus &status) {
   JoinFinishedWorker();
   std::lock_guard lock{mMutex};
-  if (!mStarted || !mInstalled.has_value() ||
-      static_cast<const InstanceIdent &>(mInstalled->mInstance) != instance) {
+  if (!mStarted) {
     FillStatus(instance, InstanceStateEnum::eFailed,
-               Error(ErrorEnum::eNotFound,
-                     "vehicle data provider component is not active"),
+               Error(ErrorEnum::eWrongState,
+                     "vehicle data provider component runtime is not ready"),
                status);
     Notify(status);
     return AOS_ERROR_WRAP(Error(
-        ErrorEnum::eNotFound, "vehicle data provider component is not active"));
+        ErrorEnum::eWrongState,
+        "vehicle data provider component runtime is not ready"));
+  }
+
+  if (!mInstalled.has_value() ||
+      static_cast<const InstanceIdent &>(mInstalled->mInstance) != instance) {
+    FillStatus(instance, InstanceStateEnum::eInactive, ErrorEnum::eNone,
+               status);
+    Notify(status);
+    return ErrorEnum::eNone;
   }
 
   auto existing = std::make_unique<ComponentTransaction>();
@@ -656,6 +738,18 @@ Error SystemdSlotComponentRuntime::Recover() {
       std::string active;
       auto activeError = ReadActive(active);
       if (activeError.Is(ErrorEnum::eNotFound)) {
+        auto factoryComponent = std::make_unique<InstanceInfo>();
+        static_cast<InstanceIdent &>(*factoryComponent) = InstanceIdent{
+            mRuntimeInfo.mRuntimeType, cFactoryComponentSubject, 0,
+            UpdateItemTypeEnum::eComponent};
+        factoryComponent->mVersion = cFactoryComponentVersion;
+        factoryComponent->mRuntimeID = mRuntimeInfo.mRuntimeID;
+        factoryComponent->mPreinstalled = true;
+
+        auto status = std::make_unique<InstanceStatus>();
+        FillStatus(*factoryComponent, InstanceStateEnum::eActive,
+                   ErrorEnum::eNone, *status);
+        Notify(*status);
         return ErrorEnum::eNone;
       }
       return FailClosed(
@@ -846,10 +940,70 @@ Error SystemdSlotComponentRuntime::PrepareCandidate(
   }
 
   StaticString<cFilePathLen> layerPath;
-  if (auto err = mItemInfoProvider->GetLayerPath(manifest->mLayers[0].mDigest,
-                                                 layerPath);
-      !err.IsNone()) {
-    return AOS_ERROR_WRAP(err);
+  std::filesystem::path payloadSource;
+  const auto archivePath = StatePath("component-layer.tar");
+  const auto unpackedPath = StatePath("component-layer");
+  const std::array<std::filesystem::path, 2> temporaryPaths = {
+      archivePath, unpackedPath};
+  auto cleanupTemporaryPaths = DeferRelease(
+      &temporaryPaths, [](const auto *paths) {
+        std::error_code ignored;
+        for (const auto &path : *paths) {
+          std::filesystem::remove_all(path, ignored);
+          ignored.clear();
+        }
+      });
+
+  if (manifest->mLayers[0].mMediaType ==
+      imagemanager::cProviderComponentLayerMediaType) {
+    if (auto err = mItemInfoProvider->GetBlobPath(
+            manifest->mLayers[0].mDigest, layerPath);
+        !err.IsNone()) {
+      return AOS_ERROR_WRAP(err);
+    }
+
+    std::error_code error;
+    std::filesystem::remove_all(archivePath, error);
+    if (error) {
+      return FromFilesystemError(error,
+                                 "cannot clear component archive");
+    }
+    std::filesystem::remove_all(unpackedPath, error);
+    if (error) {
+      return FromFilesystemError(error,
+                                 "cannot clear unpacked component layer");
+    }
+
+    constexpr auto maximumHeaderBytes =
+        (imagemanager::cProviderArchiveMaxEntries + 2ULL) * 512ULL;
+    if (auto err = InflateComponentArchive(
+            layerPath.CStr(), archivePath,
+            mConfig.mMaxPayloadBytes + maximumHeaderBytes);
+        !err.IsNone()) {
+      return AOS_ERROR_WRAP(err);
+    }
+    if (auto err = imagemanager::ValidateProviderArchive(archivePath);
+        !err.IsNone()) {
+      return AOS_ERROR_WRAP(err);
+    }
+    if (auto err = EnsureDirectory(
+            unpackedPath, std::filesystem::perms::owner_all);
+        !err.IsNone()) {
+      return AOS_ERROR_WRAP(err);
+    }
+    if (auto err = common::utils::UnpackTarImage(
+            archivePath.string(), unpackedPath.string());
+        !err.IsNone()) {
+      return AOS_ERROR_WRAP(err);
+    }
+    payloadSource = unpackedPath;
+  } else {
+    if (auto err = mItemInfoProvider->GetLayerPath(
+            manifest->mLayers[0].mDigest, layerPath);
+        !err.IsNone()) {
+      return AOS_ERROR_WRAP(err);
+    }
+    payloadSource = layerPath.CStr();
   }
 
   candidate.mInstance = instance;
@@ -879,7 +1033,7 @@ Error SystemdSlotComponentRuntime::PrepareCandidate(
                                "cannot clear component staging");
   }
 
-  if (auto err = ValidateAndCopyPayload(layerPath.CStr(), staging, instance);
+  if (auto err = ValidateAndCopyPayload(payloadSource, staging, instance);
       !err.IsNone()) {
     return AOS_ERROR_WRAP(err);
   }
@@ -911,7 +1065,9 @@ Error SystemdSlotComponentRuntime::ValidateManifest(
   if (manifest.mSchemaVersion != oci::cSchemaVersion ||
       manifest.mLayers.Size() != 1 || manifest.mLayers[0].mSize == 0 ||
       manifest.mLayers[0].mSize > mConfig.mMaxPayloadBytes ||
-      manifest.mLayers[0].mMediaType != imagemanager::cProviderLayerMediaType) {
+      (manifest.mLayers[0].mMediaType != imagemanager::cProviderLayerMediaType &&
+       manifest.mLayers[0].mMediaType !=
+           imagemanager::cProviderComponentLayerMediaType)) {
     return AOS_ERROR_WRAP(
         Error(ErrorEnum::eInvalidArgument, "invalid provider OCI manifest"));
   }
