@@ -27,6 +27,7 @@ struct Viss31MtlsConfig {
   std::filesystem::path mCertificateCredential;
   std::filesystem::path mPrivateKeyCredential;
   std::filesystem::path mBindingCredential;
+  bool mServerAuthenticatedTestOnly{};
 };
 
 /** A coherent VISS GET response, before policy interpretation. */
@@ -79,7 +80,8 @@ public:
 
 private:
   Error ValidateCredential(const std::filesystem::path &path) const;
-  Error ValidateBinding() const;
+  Error ValidateCredentialAbsent(const std::filesystem::path &path) const;
+  Error ValidateBinding(bool &serverAuthenticatedTestOnly) const;
 
   Viss31MtlsConfig mConfig;
   Viss31MtlsTransportItf *mTransport{};

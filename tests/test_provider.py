@@ -257,6 +257,26 @@ class ProviderTests(unittest.TestCase):
         self.assertIn(b"READY=1", notification)
         self.assertIn(b"KUKSA authenticated", notification)
 
+    def test_data_readiness_notification_is_redacted_and_separate(self) -> None:
+        notifier = mock.MagicMock()
+        notifier.__enter__.return_value = notifier
+        view = runtime.ReadinessView(
+            process_health="HEALTHY",
+            data_readiness="NOT_READY",
+            source_state="AUTHENTICATION_FAILED",
+            reason="SOURCE_IDENTITY_MISMATCH",
+        )
+        with mock.patch.object(runtime.socket, "socket", return_value=notifier):
+            runtime.notify_readiness(view, {"NOTIFY_SOCKET": "/run/systemd/notify"})
+
+        notification = notifier.sendall.call_args.args[0]
+        self.assertNotIn(b"READY=1", notification)
+        self.assertEqual(
+            notification,
+            b"STATUS=VDP data NOT_READY; source AUTHENTICATION_FAILED; "
+            b"reason SOURCE_IDENTITY_MISMATCH\n",
+        )
+
     def test_sighup_requests_unavailability_in_the_main_process(self) -> None:
         handlers = {}
 

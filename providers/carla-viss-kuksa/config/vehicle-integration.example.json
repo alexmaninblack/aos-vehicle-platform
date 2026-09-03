@@ -1,8 +1,15 @@
 {
   "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: Apache-2.0",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "viss": {
     "uri": "wss://10.0.0.1:6443",
     "tlsServerName": "127.0.0.1"
+  },
+  "selectedSource": {
+    "unitId": "<unit-uuid>",
+    "nodeId": "<main-node-uuid>",
+    "clientCertificateSha256": "<64-lowercase-hex-der-sha256>",
+    "assignmentGeneration": 1,
+    "role": "SELECTED_PLATFORM_UNIT"
   }
 }

@@ -5,6 +5,7 @@
 
 #include "vissvehiclestate.hpp"
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <chrono>
@@ -16,6 +17,7 @@
 #include <arpa/inet.h>
 
 #include <Poco/Dynamic/Var.h>
+#include <Poco/JSON/Array.h>
 #include <Poco/JSON/Object.h>
 #include <Poco/JSON/Parser.h>
 #include <Poco/Net/Context.h>
@@ -49,16 +51,35 @@ std::string Stringify(const Poco::JSON::Object::Ptr &object) {
   return output.str();
 }
 
-Error Exchange(Poco::Net::WebSocket &socket, const std::string &path,
-               size_t requestIndex, std::string &value,
-               std::string &sourceTimestamp) {
+Error ExchangeSnapshot(Poco::Net::WebSocket &socket,
+                       const std::array<const char *, 10> &paths,
+                       Viss31Snapshot &snapshot,
+                       std::string &sourceTimestamp) {
   auto request = Poco::makeShared<Poco::JSON::Object>(
       Poco::JSON_PRESERVE_KEY_ORDER);
-  const auto requestID = "platform-update-runtime-" +
-                         std::to_string(requestIndex);
+  constexpr auto requestID = "platform-update-runtime-snapshot";
   request->set("action", "get");
-  request->set("path", path);
+  request->set("path", "Vehicle");
   request->set("requestId", requestID);
+
+  auto selectedPaths = Poco::makeShared<Poco::JSON::Array>();
+  constexpr std::string_view vehiclePrefix = "Vehicle.";
+  for (const auto *path : paths) {
+    const std::string_view fullPath{path};
+    if (fullPath.size() < vehiclePrefix.size() ||
+        fullPath.compare(0, vehiclePrefix.size(), vehiclePrefix) != 0) {
+      return AOS_ERROR_WRAP(Error(ErrorEnum::eInvalidArgument,
+                                  "invalid VISS snapshot path"));
+    }
+    selectedPaths->add(
+        std::string{fullPath.substr(vehiclePrefix.size())});
+  }
+  auto pathFilter = Poco::makeShared<Poco::JSON::Object>(
+      Poco::JSON_PRESERVE_KEY_ORDER);
+  pathFilter->set("variant", "paths");
+  pathFilter->set("parameter", selectedPaths);
+  request->set("filter", pathFilter);
+
   const auto requestText = Stringify(request);
   socket.sendFrame(requestText.data(), static_cast<int>(requestText.size()),
                    Poco::Net::WebSocket::FRAME_TEXT);
@@ -83,19 +104,36 @@ Error Exchange(Poco::Net::WebSocket &socket, const std::string &path,
       return AOS_ERROR_WRAP(
           Error(ErrorEnum::eInvalidArgument, "mismatched VISS response"));
     }
-    const auto data =
-        response->get("data").extract<Poco::JSON::Object::Ptr>();
-    if (data->getValue<std::string>("path") != path) {
+    const auto data = response->get("data").extract<Poco::JSON::Array::Ptr>();
+    if (data->size() != paths.size()) {
       return AOS_ERROR_WRAP(
-          Error(ErrorEnum::eInvalidArgument, "mismatched VISS path"));
+          Error(ErrorEnum::eInvalidArgument, "incomplete VISS snapshot"));
     }
-    const auto datapoint =
-        data->get("dp").extract<Poco::JSON::Object::Ptr>();
-    value = datapoint->get("value").convert<std::string>();
-    sourceTimestamp = datapoint->getValue<std::string>("ts");
-    if (sourceTimestamp.empty()) {
-      return AOS_ERROR_WRAP(Error(
-          ErrorEnum::eInvalidArgument, "VISS source timestamp is missing"));
+
+    snapshot.mValues.clear();
+    for (size_t index = 0; index < data->size(); ++index) {
+      const auto item = data->getObject(static_cast<unsigned>(index));
+      const auto path = item->getValue<std::string>("path");
+      const auto expected = std::find_if(
+          paths.begin(), paths.end(), [&path](const auto *candidate) {
+            return path == candidate;
+          });
+      if (expected == paths.end() ||
+          snapshot.mValues.find(path) != snapshot.mValues.end()) {
+        return AOS_ERROR_WRAP(
+            Error(ErrorEnum::eInvalidArgument, "mismatched VISS path"));
+      }
+      const auto datapoint = item->getObject("dp");
+      const auto timestamp = datapoint->getValue<std::string>("ts");
+      if (timestamp.empty() ||
+          (!sourceTimestamp.empty() && timestamp != sourceTimestamp)) {
+        return AOS_ERROR_WRAP(Error(
+            ErrorEnum::eInvalidArgument,
+            "VISS facts crossed a Gateway source timestamp boundary"));
+      }
+      sourceTimestamp = timestamp;
+      snapshot.mValues.emplace(
+          path, datapoint->get("value").convert<std::string>());
     }
   } catch (const std::exception &exception) {
     return AOS_ERROR_WRAP(common::utils::ToAosError(
@@ -215,9 +253,15 @@ Error PocoViss31MtlsTransport::ReadSnapshot(
     }
 
     Poco::Net::initializeSSL();
+    const auto privateKey = config.mServerAuthenticatedTestOnly
+                                ? std::string{}
+                                : config.mPrivateKeyCredential.string();
+    const auto certificate = config.mServerAuthenticatedTestOnly
+                                 ? std::string{}
+                                 : config.mCertificateCredential.string();
     auto context = new Poco::Net::Context(
-        Poco::Net::Context::CLIENT_USE, config.mPrivateKeyCredential.string(),
-        config.mCertificateCredential.string(), config.mCACredential.string(),
+        Poco::Net::Context::CLIENT_USE, privateKey, certificate,
+        config.mCACredential.string(),
         Poco::Net::Context::VERIFY_STRICT, 4, false,
         "HIGH:!aNULL:!eNULL:!MD5:!RC4");
     Poco::Net::SecureStreamSocket secureSocket(context);
@@ -241,54 +285,13 @@ Error PocoViss31MtlsTransport::ReadSnapshot(
           "Gateway did not negotiate the pinned VISSv3 subprotocol"));
     }
 
-    snapshot.mValues.clear();
-    std::string firstFrame;
     std::string sourceTimestamp;
     if (auto err = BoundReceive(socket, deadline); !err.IsNone()) {
       return AOS_ERROR_WRAP(err);
     }
-    if (auto err =
-            Exchange(socket, paths[0], 0, firstFrame, sourceTimestamp);
+    if (auto err = ExchangeSnapshot(socket, paths, snapshot, sourceTimestamp);
         !err.IsNone()) {
       return AOS_ERROR_WRAP(err);
-    }
-    snapshot.mValues.emplace(paths[0], firstFrame);
-    for (size_t index = 1; index < paths.size(); ++index) {
-      if (mCanceled) {
-        return AOS_ERROR_WRAP(
-            Error(ErrorEnum::eWrongState, "VISS read canceled"));
-      }
-      std::string value;
-      std::string currentTimestamp;
-      if (auto err = BoundReceive(socket, deadline); !err.IsNone()) {
-        return AOS_ERROR_WRAP(err);
-      }
-      if (auto err = Exchange(socket, paths[index], index, value,
-                              currentTimestamp);
-          !err.IsNone()) {
-        return AOS_ERROR_WRAP(err);
-      }
-      if (currentTimestamp != sourceTimestamp) {
-        return AOS_ERROR_WRAP(Error(
-            ErrorEnum::eInvalidArgument,
-            "VISS facts crossed a Gateway source timestamp boundary"));
-      }
-      snapshot.mValues.emplace(paths[index], std::move(value));
-    }
-    std::string finalFrame;
-    std::string finalTimestamp;
-    if (auto err = BoundReceive(socket, deadline); !err.IsNone()) {
-      return AOS_ERROR_WRAP(err);
-    }
-    if (auto err = Exchange(socket, paths[0], paths.size(), finalFrame,
-                            finalTimestamp);
-        !err.IsNone()) {
-      return AOS_ERROR_WRAP(err);
-    }
-    if (firstFrame != finalFrame || finalTimestamp != sourceTimestamp) {
-      return AOS_ERROR_WRAP(Error(
-          ErrorEnum::eInvalidArgument,
-          "VISS facts crossed a Gateway frame boundary"));
     }
 
     std::chrono::system_clock::time_point sourceWallClock;
@@ -306,7 +309,12 @@ Error PocoViss31MtlsTransport::ReadSnapshot(
       return AOS_ERROR_WRAP(
           Error(ErrorEnum::eFailed, "VISS coherent snapshot timed out"));
     }
-    socket.shutdown();
+    // The Gateway currently closes a peer connection on a received close
+    // frame without completing the WebSocket close handshake. Waiting for
+    // that handshake here consumes the entire read timeout and makes the
+    // otherwise coherent snapshot stale before the Safe Stop evaluator sees
+    // it. The response is already complete, so close the transport directly.
+    socket.close();
   } catch (const std::exception &exception) {
     return AOS_ERROR_WRAP(common::utils::ToAosError(exception));
   }

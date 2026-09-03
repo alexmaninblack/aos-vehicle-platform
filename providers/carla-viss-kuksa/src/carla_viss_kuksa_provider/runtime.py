@@ -19,6 +19,7 @@ import ssl
 import sys
 import threading
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -33,6 +34,7 @@ from .bridge import (
     subscription_request,
 )
 from .manifest import load_manifest
+from .readiness import ReadinessTracker, ReadinessView, SourceIdentity
 
 try:
     from . import vdp_release_profile as ACTIVE_RELEASE_PROFILE
@@ -51,6 +53,14 @@ KUKSA_TLS_SERVER_NAME = "127.0.0.1"
 EXTERNAL_CONFIGURATION_ENV = "AOS_VEHICLE_DATA_PROVIDER_CONFIGURATION"
 VISS_CA_ENV = "AOS_VEHICLE_DATA_PROVIDER_VISS_CA"
 CREDENTIAL_DIRECTORY_ENV = "CREDENTIALS_DIRECTORY"
+VISS_SERVER_CA_CREDENTIAL = "viss-server-ca.pem"
+VISS_CLIENT_CERTIFICATE_CREDENTIAL = "viss-client-cert.pem"
+VISS_CLIENT_KEY_CREDENTIAL = "viss-client-key.pem"
+VISS_SELECTED_SOURCE_CREDENTIAL = "viss-selected-source.json"
+VISS_SERVER_AUTH_TEST_ONLY_PROFILE = "LTVP_VISS_SERVER_AUTH_TEST_ONLY"
+VISS_SERVER_AUTH_TEST_ONLY_URI = "wss://10.0.0.1:6443"
+VISS_SERVER_AUTH_TEST_ONLY_SERVER_NAME = "127.0.0.1"
+VISS_SERVER_AUTH_TEST_ONLY_PATH_SET = "VDP_V1"
 EXPECTED_RUNTIME = {
     "grpcio": "1.75.0",
     "kuksa_client": "0.5.0",
@@ -79,6 +89,15 @@ class VissConfiguration:
     client_certificate: Path | None = None
     client_key: Path | None = None
     source_identity: tuple[str, str, str, int] | None = None
+    server_authenticated_test_only: bool = False
+
+
+@dataclass(frozen=True)
+class TestOnlySourceIdentity:
+    unit_id: str
+    node_id: str
+    assignment_generation: int
+    path_set: str
 
 
 @dataclass(frozen=True)
@@ -110,7 +129,6 @@ class KuksaSink:
     def publish(self, values: Mapping[str, SignalValue | None]) -> None:
         from kuksa_client.grpc import DataEntry, Datapoint, EntryUpdate, Field
 
-        client = self._connect()
         updates = []
         for signal_spec in self._signals:
             item = values[signal_spec.path]
@@ -125,19 +143,30 @@ class KuksaSink:
                 )
             )
         try:
+            client = self._connect()
             client.set(updates, try_v2=False, timeout=2.0)
-        except Exception:
+        except ProviderCredentialUnavailable:
             self.close()
             raise
+        except Exception as error:
+            self.close()
+            raise KuksaUnavailable("KUKSA publication is unavailable") from error
 
     def _connect(self):
         if self._client is not None:
             return self._client
         from kuksa_client.grpc import VSSClient
 
-        token = self._configuration.token.read_text(encoding="utf-8").strip()
+        try:
+            token = self._configuration.token.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeError) as error:
+            raise ProviderCredentialUnavailable(
+                "KUKSA Provider credential is unavailable"
+            ) from error
         if not token or "\n" in token:
-            raise RuntimeError("KUKSA credential must contain exactly one token")
+            raise ProviderCredentialUnavailable(
+                "KUKSA Provider credential is unavailable"
+            )
         client = VSSClient(
             self._configuration.host,
             self._configuration.port,
@@ -156,12 +185,23 @@ class KuksaSink:
             self._client = None
 
 
+class KuksaUnavailable(RuntimeError):
+    """Raised when the fixed trusted Provider publication path is unavailable."""
+
+
+class ProviderCredentialUnavailable(RuntimeError):
+    """Raised when the fixed trusted Provider credential cannot be consumed."""
+
+
 def run(
     configuration: Configuration,
     stop: threading.Event,
     unavailable_requested: threading.Event,
+    *,
+    connect_factory=None,
 ) -> int:
-    from websockets.sync.client import connect
+    if connect_factory is None:
+        from websockets.sync.client import connect as connect_factory
 
     sink = KuksaSink(configuration.kuksa, configuration.payload.signals)
     bridge = BridgeState(
@@ -171,6 +211,16 @@ def run(
         configuration.payload.signals,
         require_complete_frames=configuration.payload.semantic_version is not None,
     )
+    readiness = _readiness_tracker(configuration)
+    last_readiness_view: ReadinessView | None = None
+
+    def emit_readiness() -> None:
+        nonlocal last_readiness_view
+        if readiness is None or readiness.view == last_readiness_view:
+            return
+        last_readiness_view = readiness.view
+        notify_readiness(last_readiness_view)
+
     tls_context = ssl.create_default_context(cafile=str(configuration.viss.ca))
     tls_context.minimum_version = ssl.TLSVersion.TLSv1_2
     if configuration.viss.client_certificate is not None:
@@ -191,20 +241,41 @@ def run(
     def apply_unavailable_request() -> None:
         if unavailable_requested.is_set():
             bridge.mark_unavailable()
+            if readiness is not None:
+                readiness.disconnected()
+                emit_readiness()
             unavailable_requested.clear()
             LOG.info("Explicit unavailability request completed")
 
     try:
         # KUKSA authentication and fail-safe unavailability are the readiness
         # boundary. CARLA may remain absent without failing component health.
-        bridge.mark_unavailable()
+        emit_readiness()
+        try:
+            bridge.mark_unavailable()
+        except Exception as error:
+            if readiness is not None:
+                readiness.dependencies(
+                    provider_credential_ready=not isinstance(
+                        error, ProviderCredentialUnavailable
+                    ),
+                    kuksa_ready=False,
+                    viss_mtls_ready=False,
+                    source=None,
+                )
+                emit_readiness()
+            raise
         unavailable_requested.clear()
         notify_ready()
-        LOG.info("Provider is ready; CARLA availability is not required")
+        LOG.info("Provider process is healthy; vehicle data is not ready")
         while not stop.is_set():
             apply_unavailable_request()
+            viss_authenticated = False
+            if readiness is not None:
+                readiness.authenticating()
+                emit_readiness()
             try:
-                with connect(
+                with connect_factory(
                     configuration.viss.uri,
                     ssl=tls_context,
                     server_hostname=configuration.viss.tls_server_name,
@@ -222,6 +293,15 @@ def run(
                     subscription_id = parse_subscribe_response(
                         websocket.recv(timeout=5), request_id
                     )
+                    viss_authenticated = True
+                    if readiness is not None:
+                        readiness.dependencies(
+                            provider_credential_ready=True,
+                            kuksa_ready=True,
+                            viss_mtls_ready=True,
+                            source=_selected_source_identity(configuration),
+                        )
+                        emit_readiness()
                     LOG.info("Connected to the verified CARLA VISS endpoint")
                     reconnect_delay = (
                         configuration.payload.reconnect_initial_ms / 1000.0
@@ -232,11 +312,19 @@ def run(
                             message = websocket.recv(timeout=0.1)
                         except TimeoutError:
                             if bridge.tick():
+                                if readiness is not None:
+                                    readiness.stale()
+                                    emit_readiness()
                                 LOG.warning(
                                     "CARLA telemetry became stale; KUKSA values are unavailable"
                                 )
                             continue
                         snapshot = bridge.handle_message(message, subscription_id)
+                        if readiness is not None:
+                            became_ready = readiness.observe(snapshot)
+                            emit_readiness()
+                            if became_ready:
+                                LOG.info("Selected vehicle data is ready")
                         if snapshot.invalid_paths:
                             LOG.warning(
                                 "Invalid CARLA values were marked unavailable: %s",
@@ -251,6 +339,31 @@ def run(
                 except Exception as stale_error:
                     LOG.error("Could not mark KUKSA values unavailable: %s", stale_error)
                 sink.close()
+                if readiness is not None:
+                    if isinstance(
+                        error, (KuksaUnavailable, ProviderCredentialUnavailable)
+                    ):
+                        readiness.dependencies(
+                            provider_credential_ready=not isinstance(
+                                error, ProviderCredentialUnavailable
+                            ),
+                            kuksa_ready=False,
+                            viss_mtls_ready=viss_authenticated,
+                            source=(
+                                _selected_source_identity(configuration)
+                                if viss_authenticated
+                                else None
+                            ),
+                        )
+                    elif viss_authenticated:
+                        readiness.disconnected()
+                    elif configuration.viss.server_authenticated_test_only:
+                        # This bounded mode verifies the server only. Never
+                        # expose the strict-mTLS failure label for it.
+                        readiness.disconnected()
+                    else:
+                        readiness.authentication_failed()
+                    emit_readiness()
                 if stop.is_set():
                     break
                 LOG.warning(
@@ -271,6 +384,9 @@ def run(
             bridge.mark_unavailable()
         except Exception as error:
             LOG.error("Could not clear KUKSA values during shutdown: %s", error)
+        if readiness is not None:
+            readiness.disconnected()
+            emit_readiness()
         sink.close()
     return 0
 
@@ -454,23 +570,85 @@ def notify_ready(environment: Mapping[str, str] | None = None) -> None:
         notifier.sendall(b"READY=1\nSTATUS=KUKSA authenticated; values unavailable\n")
 
 
+def notify_readiness(
+    view: ReadinessView,
+    environment: Mapping[str, str] | None = None,
+) -> None:
+    environment = os.environ if environment is None else environment
+    address = environment.get("NOTIFY_SOCKET")
+    if not address:
+        return
+    if address.startswith("@"):
+        address = "\0" + address[1:]
+    message = (
+        f"STATUS=VDP data {view.data_readiness}; "
+        f"source {view.source_state}; reason {view.reason}\n"
+    ).encode("ascii")
+    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as notifier:
+        notifier.connect(address)
+        notifier.sendall(message)
+
+
+def _readiness_tracker(configuration: Configuration) -> ReadinessTracker | None:
+    if configuration.payload.semantic_version is None:
+        return None
+    tracker = ReadinessTracker(_selected_source_identity(configuration))
+    tracker.manifest_validated()
+    return tracker
+
+
+def _selected_source_identity(
+    configuration: Configuration,
+) -> SourceIdentity | TestOnlySourceIdentity:
+    source = configuration.viss.source_identity
+    if source is None:
+        raise ValueError("selected source identity is unavailable")
+    if configuration.viss.server_authenticated_test_only:
+        unit_id, node_id, path_set, generation = source
+        return TestOnlySourceIdentity(unit_id, node_id, generation, path_set)
+    return SourceIdentity(*source)
+
+
 def _load_viss_configuration(
     environment: Mapping[str, str],
     require_mutual_tls: bool = False,
 ) -> VissConfiguration:
-    configuration_path = _absolute_environment_path(
-        environment, EXTERNAL_CONFIGURATION_ENV
-    )
+    credential_directory = None
+    if require_mutual_tls:
+        credential_directory = _credential_directory(environment)
+        configuration_path = (
+            credential_directory / VISS_SELECTED_SOURCE_CREDENTIAL
+        )
+    else:
+        configuration_path = _absolute_environment_path(
+            environment, EXTERNAL_CONFIGURATION_ENV
+        )
     raw = _read_object(configuration_path, "vehicle integration configuration")
-    expected_schema = 2 if require_mutual_tls else 1
+    server_authenticated_test_only = bool(
+        require_mutual_tls
+        and (
+            raw.get("schemaVersion") == 3
+            or "profile" in raw
+        )
+    )
+    expected_schema = (
+        3
+        if server_authenticated_test_only
+        else (2 if require_mutual_tls else 1)
+    )
     required_keys = {"schemaVersion", "viss"}
     if require_mutual_tls:
         required_keys.add("selectedSource")
+    if server_authenticated_test_only:
+        required_keys.add("profile")
     _require_keys(raw, required_keys, {"$comment"}, "vehicle integration configuration")
     if raw["schemaVersion"] != expected_schema:
         raise ValueError(
             f"vehicle integration configuration schemaVersion must be {expected_schema}"
         )
+    if server_authenticated_test_only:
+        if raw["profile"] != VISS_SERVER_AUTH_TEST_ONLY_PROFILE:
+            raise ValueError("vehicle integration TEST_ONLY profile is incompatible")
     viss = raw["viss"]
     if not isinstance(viss, dict):
         raise ValueError("vehicle integration VISS configuration must be an object")
@@ -483,7 +661,17 @@ def _load_viss_configuration(
     uri = _string(viss, "uri")
     if not uri.startswith("wss://"):
         raise ValueError("VISS URI must use wss://")
-    ca = _absolute_environment_path(environment, VISS_CA_ENV)
+    tls_server_name = _string(viss, "tlsServerName")
+    if server_authenticated_test_only and (
+        uri != VISS_SERVER_AUTH_TEST_ONLY_URI
+        or tls_server_name != VISS_SERVER_AUTH_TEST_ONLY_SERVER_NAME
+    ):
+        raise ValueError("vehicle integration TEST_ONLY VISS route is incompatible")
+    ca = (
+        credential_directory / VISS_SERVER_CA_CREDENTIAL
+        if credential_directory is not None
+        else _absolute_environment_path(environment, VISS_CA_ENV)
+    )
     _require_regular_file(ca, "VISS trust anchor")
     client_certificate = None
     client_key = None
@@ -492,54 +680,88 @@ def _load_viss_configuration(
         selected_source = raw["selectedSource"]
         if not isinstance(selected_source, dict):
             raise ValueError("selected source configuration must be an object")
-        _require_keys(
-            selected_source,
-            {
-                "unitId",
-                "nodeId",
-                "clientCertificateSha256",
-                "assignmentGeneration",
-                "role",
-            },
-            set(),
-            "selected source configuration",
-        )
-        role = _string(selected_source, "role")
-        fingerprint = _string(selected_source, "clientCertificateSha256")
         generation = _integer(selected_source, "assignmentGeneration", 1, 2**63 - 1)
-        if role != "SELECTED_PLATFORM_UNIT" or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None:
-            raise ValueError("selected source identity is incompatible")
-        credential_directory = _absolute_environment_path(
-            environment, CREDENTIAL_DIRECTORY_ENV
-        )
-        client_certificate = credential_directory / "viss-client-cert.pem"
-        client_key = credential_directory / "viss-client-key.pem"
-        _require_regular_file(client_certificate, "VISS client certificate")
-        _require_regular_file(client_key, "VISS client key")
-        if _certificate_sha256(client_certificate) != fingerprint:
-            raise ValueError("selected source certificate fingerprint is incompatible")
-        source_identity = (
-            _string(selected_source, "unitId"),
-            _string(selected_source, "nodeId"),
-            fingerprint,
-            generation,
-        )
+        if server_authenticated_test_only:
+            _require_keys(
+                selected_source,
+                {"unitId", "nodeId", "assignmentGeneration", "pathSet"},
+                set(),
+                "selected source configuration",
+            )
+            unit_id = _canonical_uuid_string(selected_source, "unitId")
+            node_id = _canonical_uuid_string(selected_source, "nodeId")
+            path_set = _string(selected_source, "pathSet")
+            if path_set != VISS_SERVER_AUTH_TEST_ONLY_PATH_SET:
+                raise ValueError("selected source TEST_ONLY path set is incompatible")
+            assert credential_directory is not None
+            for forbidden_name in (
+                VISS_CLIENT_CERTIFICATE_CREDENTIAL,
+                VISS_CLIENT_KEY_CREDENTIAL,
+            ):
+                forbidden = credential_directory / forbidden_name
+                if forbidden.exists() or forbidden.is_symlink():
+                    raise ValueError(
+                        "mixed strict and TEST_ONLY VISS material is forbidden"
+                    )
+            source_identity = (unit_id, node_id, path_set, generation)
+        else:
+            _require_keys(
+                selected_source,
+                {
+                    "unitId",
+                    "nodeId",
+                    "clientCertificateSha256",
+                    "assignmentGeneration",
+                    "role",
+                },
+                set(),
+                "selected source configuration",
+            )
+            role = _string(selected_source, "role")
+            fingerprint = _string(selected_source, "clientCertificateSha256")
+            if (
+                role != "SELECTED_PLATFORM_UNIT"
+                or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None
+            ):
+                raise ValueError("selected source identity is incompatible")
+            assert credential_directory is not None
+            client_certificate = (
+                credential_directory / VISS_CLIENT_CERTIFICATE_CREDENTIAL
+            )
+            client_key = credential_directory / VISS_CLIENT_KEY_CREDENTIAL
+            _require_regular_file(client_certificate, "VISS client certificate")
+            _require_regular_file(client_key, "VISS client key")
+            if _certificate_sha256(client_certificate) != fingerprint:
+                raise ValueError(
+                    "selected source certificate fingerprint is incompatible"
+                )
+            identity = SourceIdentity(
+                _string(selected_source, "unitId"),
+                _string(selected_source, "nodeId"),
+                fingerprint,
+                generation,
+                role,
+            )
+            source_identity = (
+                identity.unit_id,
+                identity.node_id,
+                identity.client_certificate_sha256,
+                identity.assignment_generation,
+            )
     return VissConfiguration(
         uri=uri,
         ca=ca,
-        tls_server_name=_string(viss, "tlsServerName"),
+        tls_server_name=tls_server_name,
         client_certificate=client_certificate,
         client_key=client_key,
         source_identity=source_identity,
+        server_authenticated_test_only=server_authenticated_test_only,
     )
 
 
 def _load_kuksa_configuration(environment: Mapping[str, str]) -> KuksaConfiguration:
-    credential_directory = _absolute_environment_path(
-        environment, CREDENTIAL_DIRECTORY_ENV
-    )
-    if not credential_directory.is_dir() or credential_directory.is_symlink():
-        raise ValueError("systemd credential directory is unavailable")
+    credential_directory = _credential_directory(environment)
+
     token = credential_directory / "kuksa-token"
     ca = credential_directory / "kuksa-ca"
     _require_regular_file(token, "KUKSA credential")
@@ -551,6 +773,15 @@ def _load_kuksa_configuration(environment: Mapping[str, str]) -> KuksaConfigurat
         tls_server_name=KUKSA_TLS_SERVER_NAME,
         token=token,
     )
+
+
+def _credential_directory(environment: Mapping[str, str]) -> Path:
+    credential_directory = _absolute_environment_path(
+        environment, CREDENTIAL_DIRECTORY_ENV
+    )
+    if not credential_directory.is_dir() or credential_directory.is_symlink():
+        raise ValueError("systemd credential directory is unavailable")
+    return credential_directory
 
 
 def _load_legacy_configuration(raw: dict[str, object]) -> Configuration:
@@ -639,6 +870,16 @@ def _string(container: dict[str, object], key: str) -> str:
     value = container.get(key)
     if not isinstance(value, str) or not value:
         raise ValueError(f"{key} must be a non-empty string")
+    return value
+
+
+def _canonical_uuid_string(container: dict[str, object], key: str) -> str:
+    value = _string(container, key)
+    try:
+        if str(uuid.UUID(value)) != value:
+            raise ValueError
+    except ValueError as error:
+        raise ValueError(f"{key} must be a canonical UUID") from error
     return value
 
 

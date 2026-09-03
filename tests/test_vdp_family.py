@@ -12,8 +12,10 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,6 +50,10 @@ import vdp_family  # noqa: E402
 NOW = dt.datetime(2026, 8, 28, 12, 0, 0, tzinfo=dt.timezone.utc)
 REQUEST_ID = "123e4567-e89b-42d3-a456-426614174000"
 PRODUCER_EPOCH = "123e4567-e89b-42d3-a456-426614174001"
+UNIT_ID = "123e4567-e89b-42d3-a456-426614174010"
+OTHER_UNIT_ID = "123e4567-e89b-42d3-a456-426614174011"
+NODE_ID = "123e4567-e89b-42d3-a456-426614174020"
+OTHER_NODE_ID = "123e4567-e89b-42d3-a456-426614174021"
 
 
 def viss_event(signals, timestamp: str = "2026-08-28T12:00:00.000Z") -> str:
@@ -127,6 +133,41 @@ class FakeSink:
 
     def publish(self, values) -> None:
         self.publications.append(dict(values))
+
+    def close(self) -> None:
+        pass
+
+
+class FakeWebSocket:
+    subprotocol = "VISSv3"
+
+    def __init__(self, stop: threading.Event) -> None:
+        self._stop = stop
+        self._receive_count = 0
+        self.sent = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args) -> None:
+        pass
+
+    def send(self, message: str) -> None:
+        self.sent.append(message)
+
+    def recv(self, timeout: float) -> str:
+        del timeout
+        self._receive_count += 1
+        if self._receive_count == 1:
+            return json.dumps(
+                {
+                    "action": "subscribe",
+                    "requestId": "carla-kuksa-provider-1",
+                    "subscriptionId": "7",
+                }
+            )
+        self._stop.set()
+        return viss_event(v1.SIGNALS)
 
 
 class FakeViss:
@@ -263,16 +304,16 @@ class VdpSignalQualityTests(unittest.TestCase):
 
 class VdpReadinessTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.expected = SourceIdentity("unit-a", "node-a", "a" * 64, 7)
+        self.expected = SourceIdentity(UNIT_ID, NODE_ID, "a" * 64, 7)
         self.tracker = ReadinessTracker(self.expected)
         self.tracker.manifest_validated()
 
     def test_wrong_source_and_dependency_loss_are_redacted_and_fail_closed(self) -> None:
         wrong_sources = (
-            SourceIdentity("unit-b", "node-a", "a" * 64, 7),
-            SourceIdentity("unit-a", "node-b", "a" * 64, 7),
-            SourceIdentity("unit-a", "node-a", "b" * 64, 7),
-            SourceIdentity("unit-a", "node-a", "a" * 64, 8),
+            SourceIdentity(OTHER_UNIT_ID, NODE_ID, "a" * 64, 7),
+            SourceIdentity(UNIT_ID, OTHER_NODE_ID, "a" * 64, 7),
+            SourceIdentity(UNIT_ID, NODE_ID, "b" * 64, 7),
+            SourceIdentity(UNIT_ID, NODE_ID, "a" * 64, 8),
         )
         for wrong in wrong_sources:
             self.tracker.dependencies(
@@ -309,6 +350,18 @@ class VdpReadinessTests(unittest.TestCase):
         )
         self.assertEqual(self.tracker.view.reason, "KUKSA_UNAVAILABLE")
 
+    def test_source_identity_requires_canonical_uuid_and_integer_generation(self) -> None:
+        for unit_id, node_id, generation in (
+            ("unit-a", NODE_ID, 1),
+            (UNIT_ID.upper(), NODE_ID, 1),
+            (UNIT_ID, "node-a", 1),
+            (UNIT_ID, NODE_ID, True),
+            (UNIT_ID, NODE_ID, 0),
+        ):
+            with self.subTest(unit_id=unit_id, node_id=node_id, generation=generation):
+                with self.assertRaisesRegex(ValueError, "SOURCE_IDENTITY_MISMATCH"):
+                    SourceIdentity(unit_id, node_id, "a" * 64, generation)
+
     def test_manifest_mismatch_and_recovery_are_fail_closed(self) -> None:
         self.tracker.manifest_invalid("CONTRACT_ID_MISMATCH")
         self.assertEqual(self.tracker.view.reason, "CONTRACT_ID_MISMATCH")
@@ -327,7 +380,11 @@ class VdpReadinessTests(unittest.TestCase):
         complete = parse_snapshot(viss_event(v1.SIGNALS), "7", v1.SIGNALS)
         self.assertTrue(self.tracker.observe(complete))
         self.assertEqual(self.tracker.view.data_readiness, "READY")
+        self.assertEqual(self.tracker.view.source_state, "LIVE")
+        self.tracker.stale()
+        self.assertEqual(self.tracker.view.source_state, "STALE")
         self.tracker.disconnected()
+        self.assertEqual(self.tracker.view.source_state, "DISCONNECTED")
         self.assertEqual(self.tracker.view.reason, "TELEMETRY_DISCONNECTED")
         self.assertFalse(self.tracker.observe(complete))
         self.assertEqual(self.tracker.view.reason, "TELEMETRY_STALE")
@@ -337,19 +394,19 @@ class VdpReadinessTests(unittest.TestCase):
             root = Path(directory)
             credentials = root / "credentials"
             credentials.mkdir()
-            certificate = credentials / "viss-client-cert.pem"
+            certificate = credentials / runtime.VISS_CLIENT_CERTIFICATE_CREDENTIAL
             certificate.write_text(
                 "-----BEGIN CERTIFICATE-----\n"
                 "dGVzdCBzZWxlY3RlZC11bml0IGNlcnRpZmljYXRl\n"
                 "-----END CERTIFICATE-----\n"
             )
-            (credentials / "viss-client-key.pem").write_text("test key")
-            ca = root / "viss-ca.pem"
+            (credentials / runtime.VISS_CLIENT_KEY_CREDENTIAL).write_text("test key")
+            ca = credentials / runtime.VISS_SERVER_CA_CREDENTIAL
             ca.write_text("test CA")
             fingerprint = hashlib.sha256(
                 b"test selected-unit certificate"
             ).hexdigest()
-            integration = root / "vehicle.json"
+            integration = credentials / runtime.VISS_SELECTED_SOURCE_CREDENTIAL
             integration.write_text(
                 json.dumps(
                     {
@@ -359,8 +416,8 @@ class VdpReadinessTests(unittest.TestCase):
                             "tlsServerName": "127.0.0.1",
                         },
                         "selectedSource": {
-                            "unitId": "unit-a",
-                            "nodeId": "node-a",
+                            "unitId": UNIT_ID,
+                            "nodeId": NODE_ID,
                             "clientCertificateSha256": fingerprint,
                             "assignmentGeneration": 7,
                             "role": "SELECTED_PLATFORM_UNIT",
@@ -369,8 +426,6 @@ class VdpReadinessTests(unittest.TestCase):
                 )
             )
             environment = {
-                runtime.EXTERNAL_CONFIGURATION_ENV: str(integration),
-                runtime.VISS_CA_ENV: str(ca),
                 runtime.CREDENTIAL_DIRECTORY_ENV: str(credentials),
             }
             configuration = runtime._load_viss_configuration(
@@ -384,7 +439,7 @@ class VdpReadinessTests(unittest.TestCase):
                     ROOT / "providers/carla-viss-kuksa/releases"
                 ).glob("*/*.json")
             )
-            self.assertNotIn("unit-a", payload_text)
+            self.assertNotIn(UNIT_ID, payload_text)
             integration_data = json.loads(integration.read_text())
             integration_data["selectedSource"]["clientCertificateSha256"] = "b" * 64
             integration.write_text(json.dumps(integration_data))
@@ -392,6 +447,318 @@ class VdpReadinessTests(unittest.TestCase):
                 runtime._load_viss_configuration(
                     environment, require_mutual_tls=True
                 )
+
+    def test_release_metadata_and_selected_source_use_separate_inputs(self) -> None:
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory)
+            credentials = root / "credentials"
+            credentials.mkdir()
+            certificate = credentials / runtime.VISS_CLIENT_CERTIFICATE_CREDENTIAL
+            certificate.write_text(
+                "-----BEGIN CERTIFICATE-----\n"
+                "dGVzdCBzZWxlY3RlZC11bml0IGNlcnRpZmljYXRl\n"
+                "-----END CERTIFICATE-----\n"
+            )
+            (credentials / runtime.VISS_CLIENT_KEY_CREDENTIAL).write_text("test key")
+            (credentials / "kuksa-token").write_text("test token")
+            (credentials / "kuksa-ca").write_text("test KUKSA CA")
+            ca = credentials / runtime.VISS_SERVER_CA_CREDENTIAL
+            ca.write_text("test VISS CA")
+            fingerprint = hashlib.sha256(
+                b"test selected-unit certificate"
+            ).hexdigest()
+            selected_source = credentials / runtime.VISS_SELECTED_SOURCE_CREDENTIAL
+            selected_source.write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 2,
+                        "viss": {
+                            "uri": "wss://10.0.0.1:6443",
+                            "tlsServerName": "127.0.0.1",
+                        },
+                        "selectedSource": {
+                            "unitId": UNIT_ID,
+                            "nodeId": NODE_ID,
+                            "clientCertificateSha256": fingerprint,
+                            "assignmentGeneration": 7,
+                            "role": "SELECTED_PLATFORM_UNIT",
+                        },
+                    }
+                )
+            )
+            override_source = root / "caller-selected-source.json"
+            override_source.write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 2,
+                        "viss": {
+                            "uri": "wss://wrong-source.invalid:6443",
+                            "tlsServerName": "wrong-source.invalid",
+                        },
+                        "selectedSource": {
+                            "unitId": OTHER_UNIT_ID,
+                            "nodeId": OTHER_NODE_ID,
+                            "clientCertificateSha256": "b" * 64,
+                            "assignmentGeneration": 99,
+                            "role": "SELECTED_PLATFORM_UNIT",
+                        },
+                    }
+                )
+            )
+            override_ca = root / "caller-selected-ca.pem"
+            override_ca.write_text("wrong trust anchor")
+            release = ROOT / "providers/carla-viss-kuksa/releases/1.0.0/provider.json"
+            environment = {
+                runtime.EXTERNAL_CONFIGURATION_ENV: str(override_source),
+                runtime.VISS_CA_ENV: str(override_ca),
+                runtime.CREDENTIAL_DIRECTORY_ENV: str(credentials),
+            }
+
+            with mock.patch.object(runtime, "ACTIVE_RELEASE_PROFILE", v1):
+                configuration = runtime.load_configuration(release, environment)
+
+            self.assertEqual(configuration.payload.semantic_version, "1.0.0")
+            self.assertEqual(
+                configuration.viss.source_identity,
+                (UNIT_ID, NODE_ID, fingerprint, 7),
+            )
+            self.assertEqual(configuration.viss.ca, ca)
+            self.assertEqual(configuration.viss.uri, "wss://10.0.0.1:6443")
+
+            fixed_inputs = (
+                ca,
+                certificate,
+                credentials / runtime.VISS_CLIENT_KEY_CREDENTIAL,
+                selected_source,
+            )
+            for path in fixed_inputs:
+                content = path.read_bytes()
+                with self.subTest(missing=path.name):
+                    path.unlink()
+                    with self.assertRaisesRegex(ValueError, "unavailable"):
+                        with mock.patch.object(runtime, "ACTIVE_RELEASE_PROFILE", v1):
+                            runtime.load_configuration(release, environment)
+                    path.write_bytes(content)
+
+            for path in fixed_inputs:
+                content = path.read_bytes()
+                outside = root / f"outside-{path.name}"
+                outside.write_bytes(content)
+                with self.subTest(symlink=path.name):
+                    path.unlink()
+                    path.symlink_to(outside)
+                    with self.assertRaisesRegex(ValueError, "unavailable"):
+                        with mock.patch.object(runtime, "ACTIVE_RELEASE_PROFILE", v1):
+                            runtime.load_configuration(release, environment)
+                    path.unlink()
+                    path.write_bytes(content)
+
+            legacy_name = credentials / "selected-source.json"
+            legacy_name.write_bytes(selected_source.read_bytes())
+            selected_source.unlink()
+            with self.assertRaisesRegex(ValueError, "unavailable"):
+                with mock.patch.object(runtime, "ACTIVE_RELEASE_PROFILE", v1):
+                    runtime.load_configuration(release, environment)
+
+    def test_test_only_server_authenticated_source_is_closed_and_keyless(self) -> None:
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            credentials = Path(directory) / "credentials"
+            credentials.mkdir()
+            ca = credentials / runtime.VISS_SERVER_CA_CREDENTIAL
+            ca.write_text("test VISS CA")
+            selected_source = credentials / runtime.VISS_SELECTED_SOURCE_CREDENTIAL
+
+            def write_source(**changes) -> None:
+                value = {
+                    "schemaVersion": 3,
+                    "profile": runtime.VISS_SERVER_AUTH_TEST_ONLY_PROFILE,
+                    "viss": {
+                        "uri": runtime.VISS_SERVER_AUTH_TEST_ONLY_URI,
+                        "tlsServerName": runtime.VISS_SERVER_AUTH_TEST_ONLY_SERVER_NAME,
+                    },
+                    "selectedSource": {
+                        "unitId": UNIT_ID,
+                        "nodeId": NODE_ID,
+                        "assignmentGeneration": 7,
+                        "pathSet": runtime.VISS_SERVER_AUTH_TEST_ONLY_PATH_SET,
+                    },
+                }
+                for key, replacement in changes.items():
+                    if key.startswith("viss_"):
+                        value["viss"][key.removeprefix("viss_")] = replacement
+                    elif key.startswith("source_"):
+                        value["selectedSource"][
+                            key.removeprefix("source_")
+                        ] = replacement
+                    else:
+                        value[key] = replacement
+                selected_source.write_text(json.dumps(value))
+
+            write_source()
+            environment = {runtime.CREDENTIAL_DIRECTORY_ENV: str(credentials)}
+            configuration = runtime._load_viss_configuration(
+                environment, require_mutual_tls=True
+            )
+            self.assertTrue(configuration.server_authenticated_test_only)
+            self.assertEqual(configuration.ca, ca)
+            self.assertIsNone(configuration.client_certificate)
+            self.assertIsNone(configuration.client_key)
+            self.assertEqual(
+                configuration.source_identity,
+                (UNIT_ID, NODE_ID, runtime.VISS_SERVER_AUTH_TEST_ONLY_PATH_SET, 7),
+            )
+            self.assertEqual(
+                runtime._selected_source_identity(
+                    runtime.Configuration(
+                        runtime.PayloadConfiguration(50, 250, 500, 10_000),
+                        configuration,
+                        runtime.KuksaConfiguration(
+                            "127.0.0.1",
+                            55555,
+                            Path("/test/ca"),
+                            "127.0.0.1",
+                            Path("/test/token"),
+                        ),
+                    )
+                ),
+                runtime.TestOnlySourceIdentity(
+                    UNIT_ID,
+                    NODE_ID,
+                    7,
+                    runtime.VISS_SERVER_AUTH_TEST_ONLY_PATH_SET,
+                ),
+            )
+
+            invalid_cases = (
+                {"profile": "UNKNOWN"},
+                {"viss_uri": "wss://10.0.0.2:6443"},
+                {"viss_tlsServerName": "10.0.0.1"},
+                {"source_unitId": "not-a-uuid"},
+                {"source_nodeId": OTHER_NODE_ID.upper()},
+                {"source_assignmentGeneration": 0},
+                {"source_pathSet": "VDP_V2"},
+                {"unexpected": True},
+                {"source_unexpected": True},
+            )
+            for changes in invalid_cases:
+                with self.subTest(changes=changes):
+                    write_source(**changes)
+                    with self.assertRaises(ValueError):
+                        runtime._load_viss_configuration(
+                            environment, require_mutual_tls=True
+                        )
+
+            write_source()
+            forbidden = credentials / runtime.VISS_CLIENT_KEY_CREDENTIAL
+            forbidden.write_text("forbidden key")
+            with self.assertRaisesRegex(ValueError, "mixed strict and TEST_ONLY"):
+                runtime._load_viss_configuration(
+                    environment, require_mutual_tls=True
+                )
+            forbidden.unlink()
+            forbidden.symlink_to(Path(directory) / "missing-private-key")
+            with self.assertRaisesRegex(ValueError, "mixed strict and TEST_ONLY"):
+                runtime._load_viss_configuration(
+                    environment, require_mutual_tls=True
+                )
+
+    def test_test_only_transport_does_not_load_a_client_certificate(self) -> None:
+        stop = threading.Event()
+        stop.set()
+        unavailable = threading.Event()
+        configuration = runtime.Configuration(
+            runtime.PayloadConfiguration(50, 250, 500, 10_000),
+            runtime.VissConfiguration(
+                runtime.VISS_SERVER_AUTH_TEST_ONLY_URI,
+                Path("/test/viss-ca.pem"),
+                runtime.VISS_SERVER_AUTH_TEST_ONLY_SERVER_NAME,
+                source_identity=(
+                    UNIT_ID,
+                    NODE_ID,
+                    runtime.VISS_SERVER_AUTH_TEST_ONLY_PATH_SET,
+                    7,
+                ),
+                server_authenticated_test_only=True,
+            ),
+            runtime.KuksaConfiguration(
+                "127.0.0.1",
+                55555,
+                Path("/test/kuksa-ca.pem"),
+                "127.0.0.1",
+                Path("/test/kuksa-token"),
+            ),
+        )
+        tls_context = mock.MagicMock()
+        with mock.patch.object(
+            runtime, "KuksaSink", return_value=FakeSink()
+        ), mock.patch.object(
+            runtime.ssl, "create_default_context", return_value=tls_context
+        ):
+            runtime.run(
+                configuration,
+                stop,
+                unavailable,
+                connect_factory=mock.Mock(),
+            )
+        tls_context.load_cert_chain.assert_not_called()
+
+    def test_runtime_reports_live_only_after_executed_paths_and_fresh_frame(self) -> None:
+        stop = threading.Event()
+        unavailable = threading.Event()
+        sink = FakeSink()
+        fingerprint = "a" * 64
+        configuration = runtime.Configuration(
+            runtime.PayloadConfiguration(
+                subscription_period_ms=50,
+                freshness_timeout_ms=250,
+                reconnect_initial_ms=500,
+                reconnect_max_ms=10_000,
+                semantic_version="1.0.0",
+                signals=v1.SIGNALS,
+            ),
+            runtime.VissConfiguration(
+                uri="wss://10.0.0.1:6443",
+                ca=Path("/test/viss-ca.pem"),
+                tls_server_name="127.0.0.1",
+                client_certificate=Path("/test/viss-client-cert.pem"),
+                client_key=Path("/test/viss-client-key.pem"),
+                source_identity=(UNIT_ID, NODE_ID, fingerprint, 7),
+            ),
+            runtime.KuksaConfiguration(
+                host="127.0.0.1",
+                port=55555,
+                ca=Path("/test/kuksa-ca.pem"),
+                tls_server_name="127.0.0.1",
+                token=Path("/test/kuksa-token"),
+            ),
+        )
+        tls_context = mock.MagicMock()
+        views = []
+
+        with mock.patch.object(runtime, "KuksaSink", return_value=sink), mock.patch.object(
+            runtime.ssl, "create_default_context", return_value=tls_context
+        ), mock.patch.object(runtime, "notify_ready"), mock.patch.object(
+            runtime, "notify_readiness", side_effect=views.append
+        ):
+            result = runtime.run(
+                configuration,
+                stop,
+                unavailable,
+                connect_factory=lambda _uri, **_kwargs: FakeWebSocket(stop),
+            )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            [view.source_state for view in views[:4]],
+            ["STARTING", "AUTHENTICATING", "DISCONNECTED", "LIVE"],
+        )
+        self.assertEqual(views[3].data_readiness, "READY")
+        self.assertEqual(views[3].reason, "NONE")
+        self.assertEqual(views[-1].source_state, "DISCONNECTED")
+        self.assertEqual(views[-1].data_readiness, "NOT_READY")
+        self.assertTrue(all(value is None for value in sink.publications[0].values()))
+        self.assertTrue(all(value is not None for value in sink.publications[1].values()))
+        self.assertTrue(all(value is None for value in sink.publications[-1].values()))
 
 
 class VdpAdvisoryTests(unittest.TestCase):

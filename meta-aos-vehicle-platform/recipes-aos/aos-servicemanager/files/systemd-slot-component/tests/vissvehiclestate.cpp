@@ -17,11 +17,12 @@ namespace {
 
 class FakeVissTransport final : public Viss31MtlsTransportItf {
 public:
-  Error ReadSnapshot(const Viss31MtlsConfig &,
+  Error ReadSnapshot(const Viss31MtlsConfig &config,
                      const std::array<const char *, 10> &,
                      Viss31Snapshot &snapshot,
                      std::chrono::milliseconds) override {
     ++mReads;
+    mLastConfig = config;
     snapshot = mSnapshot;
     return mError;
   }
@@ -30,6 +31,7 @@ public:
 
   Viss31Snapshot mSnapshot;
   Error mError;
+  Viss31MtlsConfig mLastConfig;
   uint64_t mReads{};
   bool mCanceled{};
 };
@@ -55,6 +57,17 @@ Viss31MtlsConfig CreateConfig(const std::filesystem::path &directory) {
   Write(config.mPrivateKeyCredential, "test-key");
   Write(config.mBindingCredential,
         R"({"schemaVersion":1,"unitId":"unit-1","nodeId":"node-1","role":"PLATFORM_UPDATE_RUNTIME","clientCertificateSha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","assignmentGeneration":1})");
+  return config;
+}
+
+Viss31MtlsConfig CreateTestOnlyConfig(
+    const std::filesystem::path &directory) {
+  auto config = CreateConfig(directory);
+  config.mExpectedNodeID = "123e4567e89b42d3a456426614174020";
+  std::filesystem::remove(config.mCertificateCredential);
+  std::filesystem::remove(config.mPrivateKeyCredential);
+  Write(config.mBindingCredential,
+        R"({"schemaVersion":2,"profile":"LTVP_VISS_SERVER_AUTH_TEST_ONLY","unitId":"123e4567-e89b-42d3-a456-426614174010","nodeId":"123e4567e89b42d3a456426614174020","assignmentGeneration":7,"endpoint":"wss://10.0.0.1:6443","tlsServerName":"127.0.0.1","pathSet":"PLATFORM_FOTA_SAFE_STOP_1_1_1"})");
   return config;
 }
 
@@ -96,6 +109,7 @@ TEST(Viss31VehicleStateProviderTest,
   EXPECT_EQ(frame.mAcquiredAt, acquired);
   EXPECT_EQ(frame.mActiveMode, "SAFE_STOP");
   EXPECT_EQ(frame.mBrakePercent, 100.0);
+  EXPECT_FALSE(transport.mLastConfig.mServerAuthenticatedTestOnly);
 
   provider.Cancel();
   EXPECT_TRUE(transport.mCanceled);
@@ -143,6 +157,70 @@ TEST(Viss31VehicleStateProviderTest,
   VehicleStateFrame frame;
   EXPECT_TRUE(provider.ReadFrame(frame, std::chrono::milliseconds{250})
                   .Is(ErrorEnum::eNotFound));
+  EXPECT_EQ(transport.mReads, 0U);
+  std::filesystem::remove_all(directory);
+}
+
+TEST(Viss31VehicleStateProviderTest,
+     AcceptsOnlyClosedKeylessServerAuthenticatedTestOnlyBinding) {
+  const auto directory = std::filesystem::temp_directory_path() /
+                         ("viss-state-provider-test-only-" +
+                          std::to_string(getpid()));
+  std::filesystem::remove_all(directory);
+  std::filesystem::create_directories(directory);
+  auto config = CreateTestOnlyConfig(directory);
+  const auto now = std::chrono::steady_clock::now();
+  FakeVissTransport transport;
+  FillSafeSnapshot(transport.mSnapshot, now, now);
+  Viss31MtlsVehicleStateProvider provider(&transport);
+  ASSERT_TRUE(provider.Init(config).IsNone());
+
+  VehicleStateFrame frame;
+  ASSERT_TRUE(provider.ReadFrame(frame, std::chrono::milliseconds{250})
+                  .IsNone());
+  EXPECT_TRUE(transport.mLastConfig.mServerAuthenticatedTestOnly);
+  EXPECT_EQ(transport.mReads, 1U);
+
+  Write(config.mPrivateKeyCredential, "forbidden-private-key");
+  EXPECT_TRUE(provider.ReadFrame(frame, std::chrono::milliseconds{250})
+                  .Is(ErrorEnum::eInvalidArgument));
+  EXPECT_EQ(transport.mReads, 1U);
+  std::filesystem::remove(config.mPrivateKeyCredential);
+  std::filesystem::create_symlink(directory / "missing-key",
+                                  config.mPrivateKeyCredential);
+  EXPECT_TRUE(provider.ReadFrame(frame, std::chrono::milliseconds{250})
+                  .Is(ErrorEnum::eInvalidArgument));
+  EXPECT_EQ(transport.mReads, 1U);
+  std::filesystem::remove_all(directory);
+}
+
+TEST(Viss31VehicleStateProviderTest,
+     RejectsNonExactServerAuthenticatedTestOnlyBindingsBeforeTransport) {
+  const auto directory = std::filesystem::temp_directory_path() /
+                         ("viss-state-provider-test-only-invalid-" +
+                          std::to_string(getpid()));
+  std::filesystem::remove_all(directory);
+  std::filesystem::create_directories(directory);
+  auto config = CreateTestOnlyConfig(directory);
+  FakeVissTransport transport;
+  Viss31MtlsVehicleStateProvider provider(&transport);
+  ASSERT_TRUE(provider.Init(config).IsNone());
+  VehicleStateFrame frame;
+
+  const std::array<std::string, 7> invalidBindings = {
+      R"({"schemaVersion":2,"profile":"UNKNOWN","unitId":"123e4567-e89b-42d3-a456-426614174010","nodeId":"123e4567e89b42d3a456426614174020","assignmentGeneration":7,"endpoint":"wss://10.0.0.1:6443","tlsServerName":"127.0.0.1","pathSet":"PLATFORM_FOTA_SAFE_STOP_1_1_1"})",
+      R"({"schemaVersion":2,"profile":"LTVP_VISS_SERVER_AUTH_TEST_ONLY","unitId":"123e4567-e89b-42d3-a456-426614174010","nodeId":"123e4567e89b42d3a456426614174021","assignmentGeneration":7,"endpoint":"wss://10.0.0.1:6443","tlsServerName":"127.0.0.1","pathSet":"PLATFORM_FOTA_SAFE_STOP_1_1_1"})",
+      R"({"schemaVersion":2,"profile":"LTVP_VISS_SERVER_AUTH_TEST_ONLY","unitId":"123e4567-e89b-42d3-a456-426614174010","nodeId":"123e4567e89b42d3a456426614174020","assignmentGeneration":0,"endpoint":"wss://10.0.0.1:6443","tlsServerName":"127.0.0.1","pathSet":"PLATFORM_FOTA_SAFE_STOP_1_1_1"})",
+      R"({"schemaVersion":2,"profile":"LTVP_VISS_SERVER_AUTH_TEST_ONLY","unitId":"123e4567-e89b-42d3-a456-426614174010","nodeId":"123e4567e89b42d3a456426614174020","assignmentGeneration":7,"endpoint":"wss://10.0.0.2:6443","tlsServerName":"127.0.0.1","pathSet":"PLATFORM_FOTA_SAFE_STOP_1_1_1"})",
+      R"({"schemaVersion":2,"profile":"LTVP_VISS_SERVER_AUTH_TEST_ONLY","unitId":"123e4567-e89b-42d3-a456-426614174010","nodeId":"123e4567e89b42d3a456426614174020","assignmentGeneration":7,"endpoint":"wss://10.0.0.1:6443","tlsServerName":"127.0.0.1","pathSet":"PLATFORM_FOTA_SAFE_STOP_1_1_1","extra":true})",
+      R"({"schemaVersion":2,"profile":"LTVP_VISS_SERVER_AUTH_TEST_ONLY","unitId":"123e4567-e89b-42d3-a456-426614174010","nodeId":"123e4567e89b42d3a456426614174020","assignmentGeneration":"7","endpoint":"wss://10.0.0.1:6443","tlsServerName":"127.0.0.1","pathSet":"PLATFORM_FOTA_SAFE_STOP_1_1_1"})",
+      R"({"schemaVersion":2,"profile":"LTVP_VISS_SERVER_AUTH_TEST_ONLY","unitId":"123e4567-e89b-42d3-a456-426614174010","nodeId":"123e4567e89b42d3a456426614174020","assignmentGeneration":7,"endpoint":"wss://10.0.0.1:6443","tlsServerName":"127.0.0.1"})",
+  };
+  for (const auto &binding : invalidBindings) {
+    Write(config.mBindingCredential, binding);
+    EXPECT_TRUE(provider.ReadFrame(frame, std::chrono::milliseconds{250})
+                    .Is(ErrorEnum::eInvalidArgument));
+  }
   EXPECT_EQ(transport.mReads, 0U);
   std::filesystem::remove_all(directory);
 }
