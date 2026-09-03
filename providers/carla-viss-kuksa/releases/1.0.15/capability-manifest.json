@@ -1,0 +1,37 @@
+{
+  "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: Apache-2.0",
+  "advisoryEndpoints": [],
+  "capabilities": [
+    "INBOUND_BASE_DYNAMICS"
+  ],
+  "componentId": "vehicle-data-platform",
+  "componentType": "aos-vm-1.0.0-main-qemuarm64-vehicle-data-provider",
+  "contracts": {
+    "vdpCompatibility": {
+      "contractId": "aosedge-demo-vdp-compatibility",
+      "contractVersion": "1.0.1",
+      "sha256": "8e58e18e9d99a13409af6813e573cbe1c690e439ad746224426801f6b080c871"
+    },
+    "vehicleHardware": {
+      "profileVersion": "1.0.0",
+      "sha256": "ac0ba26464219482dcb41e56ebbc1538489e13bd6c84725dbc124e59514cb7e5"
+    },
+    "vissTrustTelemetry": {
+      "contractId": "aosedge-demo-viss-trust-telemetry-profile",
+      "contractVersion": "1.1.0",
+      "sha256": "4a1a2bd804c3a49f707b5e640632bd8a0357901f59e4615c340622b043d4c12c"
+    }
+  },
+  "readPaths": [
+    "Vehicle.Speed",
+    "Vehicle.Acceleration.Longitudinal",
+    "Vehicle.Acceleration.Lateral",
+    "Vehicle.Acceleration.Vertical",
+    "Vehicle.Chassis.Accelerator.PedalPosition",
+    "Vehicle.Chassis.Brake.PedalPosition",
+    "Vehicle.Chassis.Axle.Row1.SteeringAngle"
+  ],
+  "runtimeInterface": 1,
+  "schemaVersion": 1,
+  "semanticVersion": "1.0.15"
+}

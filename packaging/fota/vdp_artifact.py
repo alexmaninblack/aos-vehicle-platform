@@ -30,7 +30,9 @@ PRODUCT_SOURCE_TREE = "164f907bf041dbc99df24d2ebe7b0e5d2bbaeab0"
 FACTORY_VERSION = "6.1.1-maninblack.21"
 FACTORY_RAW_SHA256 = "80e0c0dc4f7f9c51a25d3461047e2e3d85bf540059c7052af3944ce8650e19e1"
 COMPONENT_TYPE = "aos-vm-1.0.0-main-qemuarm64-vehicle-data-provider"
-MEDIA_TYPE = "application/vnd.aos.vehicle-data-provider.layer.v1.tar"
+LEGACY_MEDIA_TYPE = "application/vnd.aos.vehicle-data-provider.layer.v1.tar"
+COMPONENT_MEDIA_TYPE = "application/vnd.aos.image.component.full.v1+gzip"
+DEPLOYMENT_BUNDLE_VERSIONS = {"1.0.14", "1.0.15"}
 MINIMUM_FREE_BYTES = 55 * 1024**3
 WHEELHOUSE_ENVIRONMENT = "AOS_VDP_BUILD_OFFLINE"
 WHEEL_DIGESTS = {
@@ -138,7 +140,15 @@ def manifest_filename(version: str) -> str:
 
 def layer_name(version: str) -> str:
     require_version(version)
-    return f"vdp-{version}-arm64.tar"
+    suffix = "tar.gz" if version in DEPLOYMENT_BUNDLE_VERSIONS else "tar"
+    return f"vdp-{version}-arm64.{suffix}"
+
+
+def layer_media_type(version: str) -> str:
+    require_version(version)
+    if version in DEPLOYMENT_BUNDLE_VERSIONS:
+        return COMPONENT_MEDIA_TYPE
+    return LEGACY_MEDIA_TYPE
 
 
 def layer_path(version: str) -> str:
@@ -369,48 +379,72 @@ def _write_payload(root: Path, version: str, wheels: list[Path]) -> tuple[list[d
     return inputs, capability
 
 
+def _populate_ustar(archive: tarfile.TarFile, root: Path) -> None:
+    paths = sorted(
+        root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()
+    )
+    for path in paths:
+        relative = path.relative_to(root).as_posix()
+        info = tarfile.TarInfo(relative + ("/" if path.is_dir() else ""))
+        info.uid = info.gid = info.mtime = 0
+        info.uname = info.gname = "root"
+        if path.is_dir():
+            info.type = tarfile.DIRTYPE
+            info.mode = 0o755
+            archive.addfile(info)
+        else:
+            info.type = tarfile.REGTYPE
+            info.mode = (
+                0o755 if relative == "bin/vehicle-data-provider" else 0o644
+            )
+            info.size = path.stat().st_size
+            with path.open("rb") as stream:
+                archive.addfile(info, stream)
+
+
 def _create_ustar(root: Path, output: Path) -> None:
+    if output.name.endswith(".tar.gz"):
+        buffer = io.BytesIO()
+        with tarfile.open(
+            fileobj=buffer, mode="w", format=tarfile.USTAR_FORMAT
+        ) as archive:
+            _populate_ustar(archive, root)
+        with output.open("wb") as raw:
+            with gzip.GzipFile(fileobj=raw, mode="wb", filename="", mtime=0) as compressed:
+                compressed.write(buffer.getvalue())
+        return
+
     with tarfile.open(output, "w", format=tarfile.USTAR_FORMAT) as archive:
-        for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
-            relative = path.relative_to(root).as_posix()
-            info = tarfile.TarInfo(relative + ("/" if path.is_dir() else ""))
-            info.uid = info.gid = info.mtime = 0
-            info.uname = info.gname = "root"
-            if path.is_dir():
-                info.type = tarfile.DIRTYPE
-                info.mode = 0o755
-                archive.addfile(info)
-            else:
-                info.type = tarfile.REGTYPE
-                info.mode = 0o755 if relative == "bin/vehicle-data-provider" else 0o644
-                info.size = path.stat().st_size
-                with path.open("rb") as stream:
-                    archive.addfile(info, stream)
+        _populate_ustar(archive, root)
 
 
 def envelope_configuration(version: str) -> dict[str, object]:
-    return {
-        "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: Apache-2.0",
-        "items": [
+    item: dict[str, object] = {
+        "identity": {
+            "codename": COMPONENT_TYPE,
+            "description": f"AosEdge Vehicle Data Platform {version}",
+            "title": "Vehicle Data Platform",
+            "type": "component",
+        },
+        "images": [
             {
-                "identity": {
-                    "codename": COMPONENT_TYPE,
-                    "description": f"AosEdge Vehicle Data Platform {version}",
-                    "title": "Vehicle Data Platform",
-                    "type": "component",
-                },
-                "images": [
-                    {
-                        "archInfo": {"architecture": "arm64"},
-                        "mediaType": MEDIA_TYPE,
-                        "osInfo": {"os": "linux"},
-                        "path": layer_name(version),
-                    }
-                ],
-                "sourceFolder": "vehicle-data-platform",
-                "version": version,
+                "archInfo": {"architecture": "arm64"},
+                "mediaType": layer_media_type(version),
+                "osInfo": {"os": "linux"},
+                "path": layer_name(version),
             }
         ],
+        "sourceFolder": "vehicle-data-platform",
+        "version": version,
+    }
+    if version in DEPLOYMENT_BUNDLE_VERSIONS:
+        item["configuration"] = {
+            "runtimes": [{"codename": COMPONENT_TYPE, "type": "runtime"}]
+        }
+
+    return {
+        "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: Apache-2.0",
+        "items": [item],
         "publisher": {"author": "maninblack"},
         "schemaVersion": 2,
     }
@@ -434,7 +468,13 @@ def _create_envelope(version: str, layer: Path, output: Path) -> bytes:
 
 
 def _contract_delta(version: str, capability: dict[str, object]) -> dict[str, object]:
-    predecessor = {"1.0.0": None, "2.0.0": "1.0.0", "3.0.0": "2.0.0"}[version]
+    predecessor = {
+        "1.0.0": None,
+        "1.0.14": "1.0.0",
+        "1.0.15": "1.0.14",
+        "2.0.0": "1.0.15",
+        "3.0.0": "2.0.0",
+    }[version]
     prior_paths: set[str] = set()
     prior_capabilities: set[str] = set()
     if predecessor is not None:
@@ -444,12 +484,17 @@ def _contract_delta(version: str, capability: dict[str, object]) -> dict[str, ob
         )
         prior_paths = set(prior["readPaths"])
         prior_capabilities = set(prior["capabilities"])
+    added_capabilities = sorted(set(capability["capabilities"]) - prior_capabilities)
+    added_paths = sorted(set(capability["readPaths"]) - prior_paths)
     return {
-        "addedCapabilities": sorted(set(capability["capabilities"]) - prior_capabilities),
-        "addedReadPaths": sorted(set(capability["readPaths"]) - prior_paths),
+        "addedCapabilities": added_capabilities,
+        "addedReadPaths": added_paths,
         "advisoryEndpointIds": sorted(item["id"] for item in capability["advisoryEndpoints"]),
         "predecessor": predecessor,
-        "strictAdditiveSuperset": predecessor is not None,
+        "strictAdditiveSuperset": bool(added_capabilities or added_paths),
+        "versionOnlySuccessor": (
+            predecessor is not None and not added_capabilities and not added_paths
+        ),
     }
 
 
@@ -523,7 +568,7 @@ def producer_manifest(
         "transport": {
             "layer": {
                 "byteLength": layer.stat().st_size,
-                "mediaType": MEDIA_TYPE,
+                "mediaType": layer_media_type(version),
                 "path": layer_path(version),
                 "sha256": sha256_file(layer),
             }
@@ -572,7 +617,7 @@ def build(output: Path, version: str, wheelhouse: Path) -> None:
         os.replace(candidate, output)
 
 
-def _member_map(path: Path, mode: str = "r:") -> dict[str, tuple[tarfile.TarInfo, bytes]]:
+def _member_map(path: Path, mode: str = "r:*") -> dict[str, tuple[tarfile.TarInfo, bytes]]:
     observed: dict[str, tuple[tarfile.TarInfo, bytes]] = {}
     with tarfile.open(path, mode) as archive:
         for member in archive:
@@ -793,10 +838,13 @@ def validate_family(manifests: dict[str, dict[str, object]]) -> None:
         version: set(manifest["functionalOutputs"]["kuksaPublishedPaths"])
         for version, manifest in manifests.items()
     }
-    if not paths["1.0.0"] < paths["2.0.0"] < paths["3.0.0"]:
+    if not paths["1.0.0"] == paths["1.0.14"] == paths["1.0.15"]:
+        raise ArtifactError("VDP v1 patch releases changed functional paths")
+    if not paths["1.0.15"] < paths["2.0.0"] < paths["3.0.0"]:
         raise ArtifactError("VDP read-path family is not a strict additive superset")
-    if manifests["1.0.0"]["functionalOutputs"]["advisoryEndpoints"]:
-        raise ArtifactError("VDP v1 exposes an advisory endpoint")
+    for version in ("1.0.0", "1.0.14", "1.0.15"):
+        if manifests[version]["functionalOutputs"]["advisoryEndpoints"]:
+            raise ArtifactError("VDP v1 exposes an advisory endpoint")
     if manifests["2.0.0"]["functionalOutputs"]["advisoryEndpoints"]:
         raise ArtifactError("VDP v2 exposes an advisory endpoint")
     if len(manifests["3.0.0"]["functionalOutputs"]["advisoryEndpoints"]) != 2:

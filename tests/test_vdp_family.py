@@ -1011,7 +1011,19 @@ class VdpSourcePrebuildTests(unittest.TestCase):
                     )
                 }
                 self.assertEqual(len(release_modules), 1)
-        self.assertEqual(len(digests), 3)
+        self.assertEqual(len(digests), len(vdp_family.VERSIONS))
+
+    def test_v1_patch_releases_change_only_version_owned_profile_fields(self) -> None:
+        releases = {}
+        for version in ("1.0.14", "1.0.15"):
+            root = ROOT / "providers/carla-viss-kuksa/releases" / version
+            capability = json.loads((root / "capability-manifest.json").read_text())
+            provider = json.loads((root / "provider.json").read_text())
+            self.assertEqual(capability.pop("semanticVersion"), version)
+            self.assertEqual(provider.pop("semanticVersion"), version)
+            provider.pop("capabilityManifestSha256")
+            releases[version] = (capability, provider)
+        self.assertEqual(releases["1.0.14"], releases["1.0.15"])
 
     def test_source_prebuild_directory_round_trip_and_tamper_rejection(self) -> None:
         with tempfile.TemporaryDirectory(dir="/tmp") as directory:

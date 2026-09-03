@@ -1,0 +1,15 @@
+{
+  "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: Apache-2.0",
+  "capabilityManifest": "capability-manifest.json",
+  "capabilityManifestSha256": "a67c7a1e137943e025da49ced2bd8abb6106a18cd2500675ce30bacde0633f55",
+  "provider": "carla-viss-kuksa",
+  "runtimeInterface": 1,
+  "schemaVersion": 3,
+  "semanticVersion": "1.0.14",
+  "timing": {
+    "freshnessTimeoutMs": 250,
+    "reconnectInitialMs": 500,
+    "reconnectMaxMs": 10000,
+    "subscriptionPeriodMs": 50
+  }
+}
