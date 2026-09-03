@@ -15,11 +15,12 @@ from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[2]
 COMPONENT_TYPE = "aos-vm-1.0.0-main-qemuarm64-vehicle-data-provider"
-VERSIONS = ("1.0.0", "1.0.14", "1.0.15", "2.0.0", "3.0.0")
+VERSIONS = ("1.0.0", "1.0.14", "1.0.15", "1.0.16", "2.0.0", "3.0.0")
 PROFILE_MODULE = {
     "1.0.0": "v1.py",
     "1.0.14": "v1_0_14.py",
     "1.0.15": "v1_0_15.py",
+    "1.0.16": "v1_0_16.py",
     "2.0.0": "v2.py",
     "3.0.0": "v3.py",
 }

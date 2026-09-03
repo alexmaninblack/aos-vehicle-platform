@@ -32,7 +32,7 @@ FACTORY_RAW_SHA256 = "dbc018cf31dc83accbca82cf26df0b3ca69c66d1135100db8d05552fd2
 COMPONENT_TYPE = "aos-vm-1.0.0-main-qemuarm64-vehicle-data-provider"
 LEGACY_MEDIA_TYPE = "application/vnd.aos.vehicle-data-provider.layer.v1.tar"
 COMPONENT_MEDIA_TYPE = "application/vnd.aos.image.component.full.v1+gzip"
-DEPLOYMENT_BUNDLE_VERSIONS = {"1.0.14", "1.0.15"}
+DEPLOYMENT_BUNDLE_VERSIONS = {"1.0.14", "1.0.15", "1.0.16"}
 MINIMUM_FREE_BYTES = 55 * 1024**3
 WHEELHOUSE_ENVIRONMENT = "AOS_VDP_BUILD_OFFLINE"
 WHEEL_DIGESTS = {
@@ -489,7 +489,8 @@ def _contract_delta(version: str, capability: dict[str, object]) -> dict[str, ob
         "1.0.0": None,
         "1.0.14": "1.0.0",
         "1.0.15": "1.0.14",
-        "2.0.0": "1.0.15",
+        "1.0.16": "1.0.15",
+        "2.0.0": "1.0.16",
         "3.0.0": "2.0.0",
     }[version]
     prior_paths: set[str] = set()
@@ -852,11 +853,11 @@ def validate_family(manifests: dict[str, dict[str, object]]) -> None:
         version: set(manifest["functionalOutputs"]["kuksaPublishedPaths"])
         for version, manifest in manifests.items()
     }
-    if not paths["1.0.0"] == paths["1.0.14"] == paths["1.0.15"]:
+    if not paths["1.0.0"] == paths["1.0.14"] == paths["1.0.15"] == paths["1.0.16"]:
         raise ArtifactError("VDP v1 patch releases changed functional paths")
-    if not paths["1.0.15"] < paths["2.0.0"] < paths["3.0.0"]:
+    if not paths["1.0.16"] < paths["2.0.0"] < paths["3.0.0"]:
         raise ArtifactError("VDP read-path family is not a strict additive superset")
-    for version in ("1.0.0", "1.0.14", "1.0.15"):
+    for version in ("1.0.0", "1.0.14", "1.0.15", "1.0.16"):
         if manifests[version]["functionalOutputs"]["advisoryEndpoints"]:
             raise ArtifactError("VDP v1 exposes an advisory endpoint")
     if manifests["2.0.0"]["functionalOutputs"]["advisoryEndpoints"]:

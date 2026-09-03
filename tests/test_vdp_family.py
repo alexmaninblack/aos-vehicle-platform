@@ -1015,7 +1015,7 @@ class VdpSourcePrebuildTests(unittest.TestCase):
 
     def test_v1_patch_releases_change_only_version_owned_profile_fields(self) -> None:
         releases = {}
-        for version in ("1.0.14", "1.0.15"):
+        for version in ("1.0.14", "1.0.15", "1.0.16"):
             root = ROOT / "providers/carla-viss-kuksa/releases" / version
             capability = json.loads((root / "capability-manifest.json").read_text())
             provider = json.loads((root / "provider.json").read_text())
@@ -1024,6 +1024,7 @@ class VdpSourcePrebuildTests(unittest.TestCase):
             provider.pop("capabilityManifestSha256")
             releases[version] = (capability, provider)
         self.assertEqual(releases["1.0.14"], releases["1.0.15"])
+        self.assertEqual(releases["1.0.15"], releases["1.0.16"])
 
     def test_source_prebuild_directory_round_trip_and_tamper_rejection(self) -> None:
         with tempfile.TemporaryDirectory(dir="/tmp") as directory:

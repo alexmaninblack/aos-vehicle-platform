@@ -261,7 +261,7 @@ class VdpArtifactTests(unittest.TestCase):
             vdp_artifact.validate_family(manifests)
 
     def test_repeatable_demo_updates_use_one_full_gzip_component_layer(self) -> None:
-        for version in ("1.0.14", "1.0.15"):
+        for version in ("1.0.14", "1.0.15", "1.0.16"):
             first, _ = self.outputs[version]
             layer = first / vdp_artifact.layer_name(version)
             self.assertEqual(
@@ -291,7 +291,7 @@ class VdpArtifactTests(unittest.TestCase):
 
     def test_version_controlled_producer_manifests_are_canonical_and_complete(self) -> None:
         manifests = {}
-        for version in ("1.0.0", "1.0.14", "1.0.15", "2.0.0", "3.0.0"):
+        for version in ("1.0.0", "1.0.14", "1.0.15", "1.0.16", "2.0.0", "3.0.0"):
             path = (
                 ROOT / "manifests/release-candidates"
                 / vdp_artifact.manifest_filename(version)
