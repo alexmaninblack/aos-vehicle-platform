@@ -25,6 +25,23 @@ class R61LayerTests(unittest.TestCase):
         )
         self.assertEqual(validate_r6_1_layer.COMPONENT_TYPE, "vehicle-data-provider")
 
+    def test_factory_qemu_network_uses_the_fixed_dns_bridge(self) -> None:
+        network = (
+            validate_r6_1_layer.LAYER
+            / "recipes-extended/netconfig/netconfig.bbappend"
+        ).read_text(encoding="utf-8")
+        dnsmasq = (
+            validate_r6_1_layer.LAYER
+            / "recipes-support/dnsmasq/dnsmasq_%.bbappend"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("do_install:append:qemuarm64()", network)
+        self.assertIn("DNS=${AOS_DNS_IP}", network)
+        self.assertNotIn("DNS=${AOS_NODE_GW_IP}", network)
+        self.assertIn("do_install:append:qemuarm64()", dnsmasq)
+        self.assertIn("server=%s#18053", dnsmasq)
+        self.assertIn("${AOS_NODE_GW_IP}", dnsmasq)
+
     def test_iam_transform_changes_only_permission_handler_value(self) -> None:
         namespace = runpy.run_path(str(validate_r6_1_layer.IAM_TRANSFORM))
         transform = namespace["transform"]
