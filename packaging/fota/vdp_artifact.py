@@ -25,8 +25,8 @@ import vdp_family
 ROOT = Path(__file__).resolve().parents[2]
 CANONICAL_MANIFEST_ROOT = ROOT / "manifests/release-candidates"
 CONTENT_STORE_ROOT = ROOT / ".local/release-candidates/sha256"
-PRODUCT_SOURCE_REVISION = "5303787379d8e852e09b3ccab3e87e099c0be5cf"
-PRODUCT_SOURCE_TREE = "0d51108b7b68661e971583db85c79256a26a628b"
+PRODUCT_SOURCE_REVISION = "37f3e7a78c1aeb9f428f2d3ce9dcc77922604fc4"
+PRODUCT_SOURCE_TREE = "a34fb45fbc93463a31a977fb582dd11f9e343f4c"
 FACTORY_VERSION = "6.1.1-maninblack.27"
 FACTORY_RAW_SHA256 = "dbc018cf31dc83accbca82cf26df0b3ca69c66d1135100db8d05552fd2744c56"
 COMPONENT_TYPE = "aos-vm-1.0.0-main-qemuarm64-vehicle-data-provider"

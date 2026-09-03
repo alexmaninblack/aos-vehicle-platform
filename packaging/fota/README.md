@@ -34,10 +34,10 @@ are intentionally absent from this repository workflow.
 The authorized offline path prepares one immutable unsigned `linux/arm64`
 Component FOTA candidate for each accepted VDP release. It requires the exact
 five-file ARM64 wheelhouse, an explicit offline guard, a clean worktree that
-contains accepted source revision `5303787379d8e852e09b3ccab3e87e099c0be5cf`,
+contains accepted source revision `37f3e7a78c1aeb9f428f2d3ce9dcc77922604fc4`,
 and at least 55 GiB free on the selected output filesystem. The repeatable
 `1.0.15` / `1.0.16` qualification pair is pinned to Platform revision
-`5303787379d8e852e09b3ccab3e87e099c0be5cf` and Factory image
+`37f3e7a78c1aeb9f428f2d3ce9dcc77922604fc4` and Factory image
 `6.1.1-maninblack.27` raw SHA-256
 `dbc018cf31dc83accbca82cf26df0b3ca69c66d1135100db8d05552fd2744c56`:
 
