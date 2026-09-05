@@ -1,0 +1,53 @@
+diff --git a/src/cm/smcontroller/tests/smcontroller.cpp b/src/cm/smcontroller/tests/smcontroller.cpp
+index 9984a1c..3c2de3c 100644
+--- a/src/cm/smcontroller/tests/smcontroller.cpp
++++ b/src/cm/smcontroller/tests/smcontroller.cpp
+@@ -221,6 +221,48 @@ TEST_F(SMControllerTest, UpdateNodeConfig)
+     EXPECT_TRUE(err.IsNone()) << err.Message();
+ }
+ 
++TEST_F(SMControllerTest, ConcurrentCloudStatusAndNodeConfigWrites)
++{
++    SMClientStub client;
++    ASSERT_TRUE(client.Init(cMainNodeID).IsNone());
++    ASSERT_TRUE(client.Start(mConfig.mCMServerURL).IsNone());
++    ASSERT_TRUE(mSMInfoReceiver.WaitSMInfo(cMainNodeID).IsNone());
++    ASSERT_TRUE(client.WaitCloudConnection().IsNone());
++
++    // Exercise the two real server-side writers on the same gRPC stream.
++    // Each synchronous request must receive its response while OnConnect
++    // independently sends asynchronous Cloud status notifications.
++    std::atomic<bool> ready {false};
++    std::atomic<bool> start {false};
++    std::atomic<unsigned> failures {0};
++    std::thread cloudWriter([&] {
++        ready = true;
++        while (!start.load()) {
++            std::this_thread::yield();
++        }
++        for (unsigned i = 0; i < 5000; ++i) {
++            mCloudConnection.TriggerConnect();
++            std::this_thread::yield();
++        }
++    });
++    while (!ready.load()) {
++        std::this_thread::yield();
++    }
++    start = true;
++    for (unsigned i = 0; i < 1000; ++i) {
++        NodeConfigStatus status;
++        if (!mSMController.GetNodeConfigStatus(cMainNodeID, status).IsNone()) {
++            ++failures;
++            break;
++        }
++    }
++    cloudWriter.join();
++    EXPECT_EQ(failures.load(), 0U);
++    EXPECT_TRUE(client.WaitCloudConnection().IsNone());
++    EXPECT_TRUE(client.Stop().IsNone());
++    EXPECT_TRUE(mSMInfoReceiver.WaitDisconnect(cMainNodeID).IsNone());
++}
++
+ TEST_F(SMControllerTest, GetNodeConfigStatus)
+ {
+     // 1) Start client
