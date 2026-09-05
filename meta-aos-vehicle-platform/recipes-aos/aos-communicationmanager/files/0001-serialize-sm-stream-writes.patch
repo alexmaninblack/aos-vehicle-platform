@@ -1,5 +1,8 @@
 Subject: [PATCH] smcontroller: serialize writes to the shared gRPC stream
 
+SPDX-FileCopyrightText: 2026 maninblack (backport packaging)
+SPDX-License-Identifier: Apache-2.0
+
 Upstream-Status: Backport [https://github.com/AosEdge/aos_core_cpp/commit/6e0b1980e71ea6ee9979292a8aa336574d317f09]
 
 Backport unchanged onto aos_core_cpp 9eecb80c4994937b5c8cbe0464970f81e8ad4c2d.
@@ -118,4 +121,3 @@ index af5ec92..c119681 100644
      std::chrono::seconds                         mTimeout {5};
      std::vector<SyncMessage<Response>*>          mMessages;
      std::vector<ResponseHandler>                 mResponseHandlers;
-

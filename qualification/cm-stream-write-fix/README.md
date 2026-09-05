@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 maninblack -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # CM shared gRPC write lock — targeted qualification
 
 Date: 2026-09-05. Factory source baseline: `72c0224ba65537bed41a6ca12a7bf3a9c07da194`.

@@ -1,3 +1,6 @@
+SPDX-FileCopyrightText: 2026 maninblack
+SPDX-License-Identifier: Apache-2.0
+
 diff --git a/src/cm/smcontroller/tests/smcontroller.cpp b/src/cm/smcontroller/tests/smcontroller.cpp
 index 9984a1c..3c2de3c 100644
 --- a/src/cm/smcontroller/tests/smcontroller.cpp
