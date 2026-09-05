@@ -6,7 +6,9 @@ SRC_URI += "file://vdp_vss_schema.py"
 
 # Compose the public data model at build time, before packaging/QA. No guest
 # startup transformation, runtime bind mount, credential or policy change.
-python do_install:append() {
+do_install[postfuncs] += "vdp_schema_install"
+
+python vdp_schema_install() {
     import importlib.util
     from pathlib import Path
 

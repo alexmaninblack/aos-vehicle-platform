@@ -75,7 +75,9 @@ class VdpSchemaTests(unittest.TestCase):
     def test_recipe_changes_packaged_schema_not_runtime_or_test_schema(self):
         recipe = SOURCE.parents[1] / "vss_5.0.bbappend"
         text = recipe.read_text()
-        self.assertIn("python do_install:append()", text)
+        self.assertIn('do_install[postfuncs] += "vdp_schema_install"', text)
+        self.assertIn("python vdp_schema_install()", text)
+        self.assertNotIn("python do_install:append", text)
         self.assertIn('"vss/vss.json"', text)
         for forbidden in ("vss-test.json", "ExecStart", "LoadCredential", "BindReadOnlyPaths", "setenforce"):
             self.assertNotIn(forbidden, text)
