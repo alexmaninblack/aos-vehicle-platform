@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <thread>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -1195,10 +1196,102 @@ TEST_F(SystemdSlotComponentRuntimeTest, StopMakesTheComponentUnavailable) {
   EXPECT_CALL(mProfile, StopProvider()).Times(1);
   InstanceStatus stopped;
   ASSERT_TRUE(runtime->StopInstance(instance, stopped).IsNone());
-  EXPECT_EQ(stopped.mState, InstanceStateEnum::eActivating);
-  WaitForTransactionCompletion();
+  EXPECT_EQ(stopped.mState, InstanceStateEnum::eInactive);
+  EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "state/transaction.json"));
   EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "active"));
   EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "state/installed.json"));
+  EXPECT_TRUE(std::filesystem::exists(mWorkingDir / "state/stopped.json"));
+}
+
+class SystemdSlotComponentStopStartTest
+    : public SystemdSlotComponentRuntimeTest,
+      public WithParamInterface<std::tuple<bool, bool>> {};
+
+TEST_P(SystemdSlotComponentStopStartTest,
+       NativeCompletionBarrierPreservesRollbackAcrossRestart) {
+  const auto [restart, failHealth] = GetParam();
+  auto runtime = StartEmptyRuntime(CreateConfig());
+  RuntimeInfo info;
+  ASSERT_TRUE(runtime->GetRuntimeInfo(info).IsNone());
+  const auto previous = CreateInstance(info, "0.2.0", "sha256:stop-start-old");
+  ExpectPayload(previous, CreatePayload("stop-start-old", "0.2.0"));
+  InstanceStatus status;
+  ASSERT_TRUE(runtime->StartInstance(previous, status).IsNone());
+  WaitForTransactionCompletion();
+  ASSERT_TRUE(runtime->Stop().IsNone());
+  runtime.reset();
+
+  ScriptedVehicleStateProvider source;
+  source.SetUnsafeRange(1);
+  runtime = StartRuntime(CreateConfig(), source);
+  auto stop = std::async(std::launch::async, [&]() {
+    return runtime->StopInstance(previous, status);
+  });
+  WaitForReads(source, 2);
+  EXPECT_EQ(stop.wait_for(std::chrono::milliseconds{5}),
+            std::future_status::timeout);
+  // Status remains available: the completion barrier must not own mMutex.
+  ASSERT_TRUE(runtime->GetRuntimeInfo(info).IsNone());
+  EXPECT_TRUE(std::filesystem::exists(mWorkingDir / "active"));
+  source.SetUnsafeRange(0);
+  ASSERT_EQ(stop.wait_for(std::chrono::seconds{2}), std::future_status::ready);
+  ASSERT_TRUE(stop.get().IsNone());
+  EXPECT_EQ(status.mState, InstanceStateEnum::eInactive);
+  EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "active"));
+  EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "state/transaction.json"));
+
+  if (restart) {
+    ASSERT_TRUE(runtime->Stop().IsNone());
+    runtime.reset();
+    EXPECT_CALL(mProfile, StartProvider()).Times(0);
+    runtime = StartEmptyRuntime(CreateConfig());
+    EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "active"));
+    Mock::VerifyAndClearExpectations(&mProfile);
+  }
+
+  const auto candidate = CreateInstance(info, "0.3.0", "sha256:stop-start-new");
+  ExpectPayload(candidate, CreatePayload("stop-start-new", "0.3.0"));
+  if (failHealth) {
+    EXPECT_CALL(mProfile, CheckHealth())
+        .WillOnce(Return(ErrorEnum::eFailed))
+        .WillOnce(Return(ErrorEnum::eNone));
+  }
+  // No wait/retry between successful native StopInstance and StartInstance.
+  ASSERT_TRUE(runtime->StartInstance(candidate, status).IsNone());
+  WaitForTransactionCompletion();
+  EXPECT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
+            std::filesystem::path(failHealth ? "slots/a" : "slots/b"));
+  EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "state/stopped.json"));
+  ASSERT_TRUE(runtime->Stop().IsNone());
+}
+
+INSTANTIATE_TEST_SUITE_P(NativeStopStart, SystemdSlotComponentStopStartTest,
+                        Combine(Bool(), Bool()));
+
+TEST_F(SystemdSlotComponentRuntimeTest, StopCancellationNeverReturnsSuccess) {
+  auto runtime = StartEmptyRuntime(CreateConfig());
+  RuntimeInfo info;
+  ASSERT_TRUE(runtime->GetRuntimeInfo(info).IsNone());
+  const auto previous = CreateInstance(info, "0.2.0", "sha256:stop-cancel");
+  ExpectPayload(previous, CreatePayload("stop-cancel", "0.2.0"));
+  InstanceStatus status;
+  ASSERT_TRUE(runtime->StartInstance(previous, status).IsNone());
+  WaitForTransactionCompletion();
+  ASSERT_TRUE(runtime->Stop().IsNone());
+  runtime.reset();
+  ScriptedVehicleStateProvider source;
+  source.SetUnsafeRange(1);
+  runtime = StartRuntime(CreateConfig(), source);
+  auto stop = std::async(std::launch::async, [&]() {
+    return runtime->StopInstance(previous, status);
+  });
+  WaitForReads(source, 2);
+  ASSERT_TRUE(runtime->Stop().IsNone());
+  ASSERT_EQ(stop.wait_for(std::chrono::seconds{2}), std::future_status::ready);
+  EXPECT_FALSE(stop.get().IsNone());
+  EXPECT_EQ(status.mState, InstanceStateEnum::eFailed);
+  EXPECT_TRUE(std::filesystem::exists(mWorkingDir / "active"));
+  EXPECT_TRUE(std::filesystem::exists(mWorkingDir / "state/installed.json"));
 }
 
 TEST_F(SystemdSlotComponentRuntimeTest, StopMissingComponentIsIdempotent) {

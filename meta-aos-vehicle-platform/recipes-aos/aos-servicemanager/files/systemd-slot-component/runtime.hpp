@@ -126,6 +126,7 @@ private:
   Error LaunchWorker(std::unique_ptr<ComponentTransaction> transaction);
   void RunTransaction(std::unique_ptr<ComponentTransaction> transaction);
   Error CancelAndJoinWorker();
+  Error WaitForStopCompletion();
   void JoinFinishedWorker();
 
   Error SaveRelease(const std::filesystem::path &path,
@@ -155,6 +156,7 @@ private:
   std::filesystem::path SlotPath(const std::string &slot) const;
 
   mutable std::mutex mMutex;
+  std::mutex mInstanceOperationMutex;
   SystemdSlotComponentConfig mConfig;
   RuntimeInfo mRuntimeInfo;
   StaticString<cIDLen> mNodeID;
@@ -172,7 +174,9 @@ private:
   std::condition_variable mWorkerCondition;
   std::atomic_bool mCancelWorker{};
   bool mWorkerDone{true};
+  Error mWorkerError;
   std::optional<ComponentRelease> mInstalled;
+  std::optional<ComponentRelease> mStopped;
   bool mStarted{};
 };
 
