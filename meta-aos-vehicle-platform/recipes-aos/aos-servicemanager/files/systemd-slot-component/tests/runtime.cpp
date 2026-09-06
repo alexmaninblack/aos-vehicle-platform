@@ -653,6 +653,90 @@ TEST_F(SystemdSlotComponentRuntimeTest, StartsWithAnEmptyPersistentStore) {
 }
 
 TEST_F(SystemdSlotComponentRuntimeTest,
+       FactoryPlaceholderDoesNotConflictWithResumedFirstInstall) {
+  ScriptedVehicleStateProvider unavailable;
+  unavailable.SetUnsafeRange(1);
+  auto runtime = StartRuntime(CreateConfig(), unavailable);
+  RuntimeInfo info;
+  ASSERT_TRUE(runtime->GetRuntimeInfo(info).IsNone());
+  const auto candidate = CreateInstance(info, "7.0.0", "sha256:factory-wait");
+  ExpectPayload(candidate, CreatePayload("factory-wait", "7.0.0"));
+  InstanceStatus status;
+  ASSERT_TRUE(runtime->StartInstance(candidate, status).IsNone());
+  WaitForReads(unavailable, 2);
+  ASSERT_TRUE(runtime->Stop().IsNone());
+  runtime.reset();
+
+  ScriptedVehicleStateProvider resumed;
+  resumed.SetUnsafeRange(1);
+  runtime = StartRuntime(CreateConfig(), resumed);
+  WaitForReads(resumed, 2);
+  auto factory = CreateInstance(info, "0.0.0", "");
+  factory.mPreinstalled = true;
+  ASSERT_TRUE(runtime->StartInstance(factory, status).IsNone());
+  EXPECT_EQ(status.mState, InstanceStateEnum::eActive);
+  EXPECT_TRUE(status.mPreinstalled);
+  EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "active"));
+  ASSERT_TRUE(runtime->StartInstance(candidate, status).IsNone());
+  EXPECT_EQ(status.mState, InstanceStateEnum::eActivating);
+
+  const auto competing = CreateInstance(info, "8.0.0", "sha256:competing");
+  EXPECT_TRUE(runtime->StartInstance(competing, status).Is(ErrorEnum::eWrongState));
+  EXPECT_EQ(status.mState, InstanceStateEnum::eFailed);
+  EXPECT_EQ(status.mVersion, String("8.0.0"));
+  EXPECT_FALSE(status.mError.IsNone());
+  // A terminal error for a different request does not cancel the first one.
+  ASSERT_TRUE(runtime->StartInstance(candidate, status).IsNone());
+  EXPECT_EQ(status.mState, InstanceStateEnum::eActivating);
+
+  std::atomic_bool retired{};
+  EXPECT_CALL(mStatusReceiver, OnInstancesStatusesReceived(_))
+      .WillRepeatedly(Invoke([&retired](const Array<InstanceStatus> &statuses) {
+        for (const auto &item : statuses) {
+          if (item.mPreinstalled && item.mVersion == String("0.0.0") &&
+              item.mState == InstanceStateEnum::eInactive) {
+            retired = true;
+          }
+        }
+        return ErrorEnum::eNone;
+      }));
+  resumed.SetUnsafeRange(0);
+  WaitForTransactionCompletion();
+  ASSERT_TRUE(runtime->Stop().IsNone());
+  EXPECT_TRUE(retired);
+  EXPECT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
+            std::filesystem::path("slots/a"));
+}
+
+TEST_F(SystemdSlotComponentRuntimeTest,
+       FactoryPlaceholderIsInactiveAfterInstalledRecovery) {
+  auto runtime = StartEmptyRuntime(CreateConfig());
+  RuntimeInfo info;
+  ASSERT_TRUE(runtime->GetRuntimeInfo(info).IsNone());
+  const auto candidate = CreateInstance(info, "8.0.0", "sha256:factory-installed");
+  ExpectPayload(candidate, CreatePayload("factory-installed", "8.0.0"));
+  InstanceStatus status;
+  ASSERT_TRUE(runtime->StartInstance(candidate, status).IsNone());
+  WaitForTransactionCompletion();
+  ASSERT_TRUE(runtime->Stop().IsNone());
+  runtime.reset();
+
+  runtime = StartEmptyRuntime(CreateConfig());
+  auto factory = CreateInstance(info, "0.0.0", "");
+  factory.mPreinstalled = true;
+  ASSERT_TRUE(runtime->StartInstance(factory, status).IsNone());
+  EXPECT_EQ(status.mState, InstanceStateEnum::eInactive);
+  EXPECT_TRUE(status.mPreinstalled);
+  EXPECT_TRUE(status.mError.IsNone());
+  ASSERT_TRUE(runtime->StartInstance(candidate, status).IsNone());
+  EXPECT_EQ(status.mState, InstanceStateEnum::eActive);
+  EXPECT_EQ(status.mVersion, String("8.0.0"));
+  EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "state/transaction.json"));
+  EXPECT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
+            std::filesystem::path("slots/a"));
+}
+
+TEST_F(SystemdSlotComponentRuntimeTest,
        WaitingIsNonDestructiveAndCandidateRetriesAreDeterministic) {
   ScriptedVehicleStateProvider vehicleState;
   vehicleState.SetFixedFrame(true);

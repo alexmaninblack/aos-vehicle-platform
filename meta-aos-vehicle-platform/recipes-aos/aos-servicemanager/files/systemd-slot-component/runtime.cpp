@@ -543,17 +543,42 @@ Error SystemdSlotComponentRuntime::StartInstance(const InstanceInfo &instance,
   std::lock_guard operationLock{mInstanceOperationMutex};
   JoinFinishedWorker();
   std::lock_guard lock{mMutex};
+  const auto reject = [this, &instance, &status](const Error &cause) {
+    FillStatus(instance, InstanceStateEnum::eFailed, cause, status);
+    if (mStatusReceiver != nullptr) {
+      Notify(status);
+    }
+    return AOS_ERROR_WRAP(cause);
+  };
   if (!mStarted || instance.mRuntimeID != mRuntimeInfo.mRuntimeID ||
       instance.mType != UpdateItemTypeEnum::eComponent ||
       instance.mInstance != 0) {
-    return AOS_ERROR_WRAP(
+    return reject(
         Error(ErrorEnum::eWrongState, "component runtime is not ready"));
+  }
+
+  // Factory 0.0.0 represents the empty slot, not an install request. In
+  // particular, restoring it must not compete with a resumed first install.
+  if (instance.mPreinstalled &&
+      instance.mItemID == mRuntimeInfo.mRuntimeType &&
+      instance.mSubjectID == cFactoryComponentSubject &&
+      instance.mVersion == cFactoryComponentVersion &&
+      instance.mManifestDigest.IsEmpty()) {
+    mFactoryPlaceholderPresent = true;
+    const auto replaced = mInstalled.has_value() || mStopped.has_value();
+    FillStatus(instance, replaced ? InstanceStateEnum::eInactive
+                                 : InstanceStateEnum::eActive,
+               ErrorEnum::eNone, status);
+    if (replaced) {
+      RetireFactoryPlaceholder();
+    }
+    return ErrorEnum::eNone;
   }
 
   auto existing = std::make_unique<ComponentTransaction>();
   if (auto err = LoadTransaction(*existing); !err.Is(ErrorEnum::eNotFound)) {
     if (!err.IsNone()) {
-      return AOS_ERROR_WRAP(err);
+      return reject(err);
     }
     if (existing->mOperation ==
             ComponentTransactionOperation::eInstallOrReplace &&
@@ -563,19 +588,9 @@ Error SystemdSlotComponentRuntime::StartInstance(const InstanceInfo &instance,
                  ErrorEnum::eNone, status);
       return ErrorEnum::eNone;
     }
-    return AOS_ERROR_WRAP(
+    return reject(
         Error(ErrorEnum::eWrongState,
               "a different component transaction is already active"));
-  }
-
-  if (!mInstalled.has_value() && instance.mPreinstalled &&
-      instance.mItemID == mRuntimeInfo.mRuntimeType &&
-      instance.mSubjectID == cFactoryComponentSubject &&
-      instance.mVersion == cFactoryComponentVersion &&
-      instance.mManifestDigest.IsEmpty()) {
-    FillStatus(instance, InstanceStateEnum::eActive, ErrorEnum::eNone,
-               status);
-    return ErrorEnum::eNone;
   }
 
   if (mInstalled.has_value() &&
@@ -798,6 +813,7 @@ Error SystemdSlotComponentRuntime::Recover() {
         auto status = std::make_unique<InstanceStatus>();
         FillStatus(*factoryComponent, InstanceStateEnum::eActive,
                    ErrorEnum::eNone, *status);
+        mFactoryPlaceholderPresent = true;
         Notify(*status);
         return ErrorEnum::eNone;
       }
@@ -1667,6 +1683,7 @@ Error SystemdSlotComponentRuntime::ActivateGuarded(
   FillStatus(transaction.mCandidate, InstanceStateEnum::eActive,
              ErrorEnum::eNone, *active);
   Notify(*active);
+  RetireFactoryPlaceholder();
   return ErrorEnum::eNone;
 }
 
@@ -2178,6 +2195,24 @@ void SystemdSlotComponentRuntime::Notify(const InstanceStatus &status) const {
       !err.IsNone()) {
     LOG_WRN() << "Cannot publish component status" << Log::Field(err);
   }
+}
+
+void SystemdSlotComponentRuntime::RetireFactoryPlaceholder() {
+  if (!mFactoryPlaceholderPresent) {
+    return;
+  }
+  auto factory = std::make_unique<InstanceInfo>();
+  static_cast<InstanceIdent &>(*factory) = InstanceIdent{
+      mRuntimeInfo.mRuntimeType, cFactoryComponentSubject, 0,
+      UpdateItemTypeEnum::eComponent};
+  factory->mVersion = cFactoryComponentVersion;
+  factory->mRuntimeID = mRuntimeInfo.mRuntimeID;
+  factory->mPreinstalled = true;
+  auto inactive = std::make_unique<InstanceStatus>();
+  FillStatus(*factory, InstanceStateEnum::eInactive, ErrorEnum::eNone,
+             *inactive);
+  Notify(*inactive);
+  mFactoryPlaceholderPresent = false;
 }
 
 std::filesystem::path

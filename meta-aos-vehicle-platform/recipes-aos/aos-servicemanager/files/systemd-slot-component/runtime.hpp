@@ -152,6 +152,7 @@ private:
   void FillStatus(const InstanceIdent &instance, InstanceStateEnum state,
                   const Error &error, InstanceStatus &status) const;
   void Notify(const InstanceStatus &status) const;
+  void RetireFactoryPlaceholder();
   std::filesystem::path StatePath(const std::string &name) const;
   std::filesystem::path SlotPath(const std::string &slot) const;
 
@@ -178,6 +179,7 @@ private:
   std::optional<ComponentRelease> mInstalled;
   std::optional<ComponentRelease> mStopped;
   bool mStarted{};
+  bool mFactoryPlaceholderPresent{};
 };
 
 } // namespace aos::sm::launcher
