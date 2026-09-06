@@ -5,6 +5,8 @@
 
 #include "config.hpp"
 
+#include <fstream>
+
 #include <common/utils/exception.hpp>
 #include <common/utils/filesystem.hpp>
 #include <common/utils/json.hpp>
@@ -33,6 +35,7 @@ constexpr auto cCredentialDirectory = "/run/credentials/aos-sm.service/";
 
 Error ParseConfig(const RuntimeConfig &config,
                   SystemdSlotComponentConfig &result) {
+  bool demoLocalInputs = false;
   try {
     const auto object =
         common::utils::CaseInsensitiveObjectWrapper(config.mConfig);
@@ -60,6 +63,7 @@ Error ParseConfig(const RuntimeConfig &config,
         "safeStopCancelTimeoutSeconds", 0);
     result.mSafeStopFreshnessProfile = object.GetValue<std::string>(
         "safeStopFreshnessProfile", "standard");
+    demoLocalInputs = object.GetValue<bool>("demoLocalSourceInputs", false);
     result.mVehicleState.mEndpoint =
         object.GetValue<std::string>("vehicleStateEndpoint", "");
     result.mVehicleState.mServerName =
@@ -110,6 +114,37 @@ Error ParseConfig(const RuntimeConfig &config,
               "invalid systemd slot component configuration"));
   }
 
+  if (demoLocalInputs) {
+    // Factory-owned opt-in to public local-demo inputs, inside the existing
+    // runtime data mount. No credentials are copied into the immutable image.
+    const auto inputs = result.mWorkingDir / "demo-inputs";
+    result.mSafeStopFreshnessProfile = "standard";
+    result.mVehicleState.mCACredential = inputs / "viss-update-ca";
+    result.mVehicleState.mBindingCredential = inputs / "viss-update-binding";
+    std::error_code error;
+    const auto role = std::filesystem::symlink_status(inputs / "role", error);
+    if (error && error != std::errc::no_such_file_or_directory) {
+      return Error(ErrorEnum::eInvalidArgument, "demo role is unavailable");
+    }
+    if (!error && std::filesystem::exists(role)) {
+      if (!std::filesystem::is_regular_file(role) ||
+          (role.permissions() & (std::filesystem::perms::group_write |
+                                 std::filesystem::perms::others_write)) !=
+              std::filesystem::perms::none) {
+        return Error(ErrorEnum::eInvalidArgument, "unsafe demo role file");
+      }
+      if (std::filesystem::file_size(inputs / "role", error) > 16 || error) {
+        return Error(ErrorEnum::eInvalidArgument, "invalid demo role size");
+      }
+      std::ifstream stream(inputs / "role");
+      const std::string value((std::istreambuf_iterator<char>(stream)), {});
+      if (value != "test\n" && value != "production\n") {
+        return Error(ErrorEnum::eInvalidArgument, "invalid demo role");
+      }
+      result.mSafeStopFreshnessProfile =
+          value == "test\n" ? "demo-5s" : "standard";
+    }
+  }
   return ErrorEnum::eNone;
 }
 

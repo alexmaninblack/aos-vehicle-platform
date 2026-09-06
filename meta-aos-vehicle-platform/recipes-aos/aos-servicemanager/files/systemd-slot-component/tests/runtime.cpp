@@ -578,6 +578,34 @@ TEST_F(SystemdSlotComponentRuntimeTest, AcceptsOnlyExplicitDemoFreshnessProfile)
   EXPECT_TRUE(ParseConfig(config, parsed).Is(ErrorEnum::eInvalidArgument));
 }
 
+TEST_F(SystemdSlotComponentRuntimeTest, FactoryDemoInputsRespectPersistentRole) {
+  auto config = CreateConfig();
+  SystemdSlotComponentConfig parsed;
+  ASSERT_TRUE(ParseConfig(config, parsed).IsNone());
+  EXPECT_EQ(parsed.mVehicleState.mCACredential,
+            "/run/credentials/aos-sm.service/viss-update-ca");
+  config.mConfig->set("demoLocalSourceInputs", true);
+  config.mConfig->set("safeStopFreshnessProfile", "demo-5s");
+  ASSERT_TRUE(ParseConfig(config, parsed).IsNone());
+  EXPECT_EQ(parsed.mSafeStopFreshnessProfile, "standard");
+  const auto inputs = mWorkingDir / "demo-inputs";
+  const auto mode = std::filesystem::perms::owner_read |
+                    std::filesystem::perms::owner_write;
+  EXPECT_EQ(parsed.mVehicleState.mCACredential, inputs / "viss-update-ca");
+  EXPECT_EQ(parsed.mVehicleState.mBindingCredential, inputs / "viss-update-binding");
+  WriteFile(inputs / "role", "test\n", mode);
+  ASSERT_TRUE(ParseConfig(config, parsed).IsNone());
+  EXPECT_EQ(parsed.mSafeStopFreshnessProfile, "demo-5s");
+  WriteFile(inputs / "role", "production\n", mode);
+  ASSERT_TRUE(ParseConfig(config, parsed).IsNone());
+  EXPECT_EQ(parsed.mSafeStopFreshnessProfile, "standard");
+  WriteFile(inputs / "role", "unknown\n", mode);
+  EXPECT_TRUE(ParseConfig(config, parsed).Is(ErrorEnum::eInvalidArgument));
+  std::filesystem::remove(inputs / "role");
+  std::filesystem::create_symlink("viss-update-binding", inputs / "role");
+  EXPECT_TRUE(ParseConfig(config, parsed).Is(ErrorEnum::eInvalidArgument));
+}
+
 TEST_F(SystemdSlotComponentRuntimeTest, StartsWithAnEmptyPersistentStore) {
   InstanceStatus factoryStatus;
   EXPECT_CALL(mStatusReceiver, OnInstancesStatusesReceived(_))
