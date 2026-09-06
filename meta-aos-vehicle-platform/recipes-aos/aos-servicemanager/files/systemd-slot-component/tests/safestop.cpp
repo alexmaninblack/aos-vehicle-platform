@@ -112,4 +112,64 @@ TEST(SafeStopEvaluatorTest, RejectsModeResetGenerationAndMotionFailures) {
             SafeStopReason::eContradictoryEvidence);
 }
 
+TEST(SafeStopEvaluatorTest, DemoAgeAllowanceIsExplicitAndBoundedAtBothGates) {
+  const auto now = std::chrono::steady_clock::now();
+  auto window = SafeWindow(now);
+  for (auto &frame : window) {
+    frame.mSourceObservedAt = frame.mAcquiredAt - std::chrono::milliseconds{2016};
+  }
+  const SafeStopEvaluator demo{SafeStopEvaluator::FreshnessProfile::eDemo5Seconds};
+  EXPECT_FALSE(SafeStopEvaluator{}.Evaluate(window, now).mReady);
+  EXPECT_TRUE(demo.Evaluate(window, now).mReady);
+  for (auto &frame : window) {
+    frame.mSourceObservedAt = frame.mAcquiredAt - std::chrono::milliseconds{5000};
+  }
+  EXPECT_TRUE(demo.Evaluate(window, now).mReady);
+  EXPECT_FALSE(demo.Evaluate(window, now + std::chrono::milliseconds{1}).mReady);
+  window.front().mSourceObservedAt -= std::chrono::milliseconds{1};
+  EXPECT_FALSE(demo.Evaluate(window, now).mReady);
+}
+
+TEST(SafeStopEvaluatorTest, DemoAgeAllowancePreservesOtherGates) {
+  const auto now = std::chrono::steady_clock::now();
+  const SafeStopEvaluator demo{SafeStopEvaluator::FreshnessProfile::eDemo5Seconds};
+  const auto original = SafeWindow(now);
+  auto window = original;
+  window.back().mActiveMode = "AUTOPILOT";
+  EXPECT_FALSE(demo.Evaluate(window, now).mReady);
+  window = original;
+  window.back().mTransitionState = "TRANSITIONING";
+  EXPECT_FALSE(demo.Evaluate(window, now).mReady);
+  window = original;
+  window.back().mSpeedKmh = 1;
+  EXPECT_FALSE(demo.Evaluate(window, now).mReady);
+  window = original;
+  window.back().mBrakePercent = 94;
+  EXPECT_FALSE(demo.Evaluate(window, now).mReady);
+  window = original;
+  window.back().mAcceleratorPercent = 1;
+  EXPECT_FALSE(demo.Evaluate(window, now).mReady);
+  window = original;
+  window.back().mResetInProgress = true;
+  EXPECT_FALSE(demo.Evaluate(window, now).mReady);
+  window = original;
+  window.back().mResetDiscontinuity = true;
+  EXPECT_FALSE(demo.Evaluate(window, now).mReady);
+  window = original;
+  window.back().mFrameID = window.front().mFrameID;
+  EXPECT_FALSE(demo.Evaluate(window, now).mReady);
+  window = original;
+  window.back().mControlGeneration = 100;
+  EXPECT_FALSE(demo.Evaluate(window, now).mReady);
+  window = original;
+  window.back().mSpeedKmh.reset();
+  EXPECT_FALSE(demo.Evaluate(window, now).mReady);
+  window = original;
+  window.back().mSourceObservedAt = now + std::chrono::milliseconds{1};
+  EXPECT_FALSE(demo.Evaluate(window, now).mReady);
+  window = original;
+  window.pop_back();
+  EXPECT_FALSE(demo.Evaluate(window, now).mReady);
+}
+
 } // namespace aos::sm::launcher

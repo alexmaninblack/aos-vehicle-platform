@@ -565,6 +565,18 @@ TEST_F(SystemdSlotComponentRuntimeTest, RequiresTheFixedBootstrapContract) {
       << tests::utils::ErrorToStr(err);
 }
 
+TEST_F(SystemdSlotComponentRuntimeTest, AcceptsOnlyExplicitDemoFreshnessProfile) {
+  auto config = CreateConfig();
+  SystemdSlotComponentConfig parsed;
+  ASSERT_TRUE(ParseConfig(config, parsed).IsNone());
+  EXPECT_EQ(parsed.mSafeStopFreshnessProfile, "standard");
+  config.mConfig->set("safeStopFreshnessProfile", "demo-5s");
+  ASSERT_TRUE(ParseConfig(config, parsed).IsNone());
+  EXPECT_EQ(parsed.mSafeStopFreshnessProfile, "demo-5s");
+  config.mConfig->set("safeStopFreshnessProfile", "unlimited");
+  EXPECT_TRUE(ParseConfig(config, parsed).Is(ErrorEnum::eInvalidArgument));
+}
+
 TEST_F(SystemdSlotComponentRuntimeTest, StartsWithAnEmptyPersistentStore) {
   InstanceStatus factoryStatus;
   EXPECT_CALL(mStatusReceiver, OnInstancesStatusesReceived(_))

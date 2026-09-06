@@ -51,7 +51,7 @@ SafeStopEvaluation SafeStopEvaluator::Evaluate(
     if (frame.mSourceObservedAt > frame.mAcquiredAt) {
       return {false, SafeStopReason::eContradictoryEvidence};
     }
-    if (frame.mAcquiredAt - frame.mSourceObservedAt > cMaximumSourceAge) {
+    if (frame.mAcquiredAt - frame.mSourceObservedAt > mMaximumSourceAge) {
       return {false, SafeStopReason::eStaleEvidence};
     }
     if (previousAcquisition.has_value() &&
@@ -89,7 +89,7 @@ SafeStopEvaluation SafeStopEvaluator::Evaluate(
   // stability evidence even though their source timestamps are now older.
   const auto &latest = window.back();
   if (latest.mSourceObservedAt > now ||
-      now - latest.mSourceObservedAt > cMaximumSourceAge) {
+      now - latest.mSourceObservedAt > mMaximumSourceAge) {
     return {false, SafeStopReason::eStaleEvidence};
   }
 

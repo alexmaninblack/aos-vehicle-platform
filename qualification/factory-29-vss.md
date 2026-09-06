@@ -36,3 +36,21 @@ v2 and v3 actual process plus complete-frame publication; Safe Stop; restart
 and absence of temporary schema overrides. READY is provider-reported and is
 not an independent KUKSA consumer read. Full v3 advisory and mTLS remain
 deferred as explicitly agreed by the operator.
+
+## Subsequent Test-only SM proof (not part of the Factory artifact)
+
+On 2026-09-06 the operator authorized an explicit `demo-5s` Safe Stop freshness
+profile for the local CARLA Test demonstration. The setting
+`safeStopFreshnessProfile` defaults to `standard` (250 ms), accepts only
+`standard` or `demo-5s`, and changes only source-age checks to 5000 ms in the
+latter profile. All other evaluator gates and transport read timeouts stay
+unchanged. Future timestamps are still rejected. This admits genuinely delayed
+samples too and is not the unchanged Safe Stop profile 1.1.1 qualification.
+
+The isolated source delta was compiled offline with the existing pinned SM
+recipe: 1716 tasks, 1708 reused; 61 runtime-suite tests, 59 passed and the two
+explicit real-provider qualification cases skipped. The exported ARM64 SM
+SHA-256 is f0e8c3806c95befc880276f7ca1a05de82a9d866abe9bb665ba3ba868aaedde2.
+The Builder was stopped after export. This delta is not in the immutable .29
+image; live Test results and the accepted exception are recorded in the
+Solution qualification and Platform FOTA Safe Stop contract documentation.

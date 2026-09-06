@@ -65,15 +65,24 @@ struct SafeStopEvaluation {
 /** Pure Platform FOTA Safe Stop Profile 1.1.1 / D4-028 evaluator. */
 class SafeStopEvaluator final {
 public:
+  enum class FreshnessProfile { eStandard, eDemo5Seconds };
   static constexpr size_t cRequiredFrames = 12;
   static constexpr auto cMaximumSourceAge = std::chrono::milliseconds{250};
   static constexpr double cMaximumSpeedKmh = 0.3;
   static constexpr double cMaximumAcceleratorPercent = 0.5;
   static constexpr double cMinimumBrakePercent = 95.0;
 
+  explicit SafeStopEvaluator(FreshnessProfile profile = FreshnessProfile::eStandard)
+      : mMaximumSourceAge(profile == FreshnessProfile::eDemo5Seconds
+                              ? std::chrono::milliseconds{5000}
+                              : cMaximumSourceAge) {}
+
   SafeStopEvaluation
   Evaluate(const std::vector<VehicleStateFrame> &window,
            std::chrono::steady_clock::time_point now) const;
+
+private:
+  std::chrono::milliseconds mMaximumSourceAge;
 };
 
 /** Exact read allowlist for the PLATFORM_UPDATE_RUNTIME VISS role. */

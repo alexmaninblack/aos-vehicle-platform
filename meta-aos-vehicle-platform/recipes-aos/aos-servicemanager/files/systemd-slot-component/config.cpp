@@ -58,6 +58,8 @@ Error ParseConfig(const RuntimeConfig &config,
         "safeStopReadTimeoutMilliseconds", 0);
     result.mSafeStopCancelTimeoutSeconds = object.GetValue<uint32_t>(
         "safeStopCancelTimeoutSeconds", 0);
+    result.mSafeStopFreshnessProfile = object.GetValue<std::string>(
+        "safeStopFreshnessProfile", "standard");
     result.mVehicleState.mEndpoint =
         object.GetValue<std::string>("vehicleStateEndpoint", "");
     result.mVehicleState.mServerName =
@@ -90,6 +92,8 @@ Error ParseConfig(const RuntimeConfig &config,
       result.mSafeStopReadTimeoutMilliseconds !=
           cSafeStopReadTimeoutMilliseconds ||
       result.mSafeStopCancelTimeoutSeconds != cSafeStopCancelTimeoutSeconds ||
+      (result.mSafeStopFreshnessProfile != "standard" &&
+       result.mSafeStopFreshnessProfile != "demo-5s") ||
       result.mVehicleState.mEndpoint != cVehicleStateEndpoint ||
       result.mVehicleState.mServerName != cVehicleStateServerName ||
       result.mVehicleState.mRole != cVehicleStateRole ||

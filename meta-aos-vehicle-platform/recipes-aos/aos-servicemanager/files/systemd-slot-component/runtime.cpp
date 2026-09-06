@@ -447,6 +447,10 @@ Error SystemdSlotComponentRuntime::Init(
   if (auto err = ParseConfig(config, mConfig); !err.IsNone()) {
     return AOS_ERROR_WRAP(err);
   }
+  mSafeStopEvaluator = SafeStopEvaluator{
+      mConfig.mSafeStopFreshnessProfile == "demo-5s"
+          ? SafeStopEvaluator::FreshnessProfile::eDemo5Seconds
+          : SafeStopEvaluator::FreshnessProfile::eStandard};
 
   auto nodeInfo = std::make_unique<NodeInfo>();
   if (auto err = currentNodeInfoProvider.GetCurrentNodeInfo(*nodeInfo);

@@ -31,6 +31,7 @@ struct SystemdSlotComponentConfig {
   uint32_t mSafeStopWaitSeconds{};
   uint32_t mSafeStopReadTimeoutMilliseconds{};
   uint32_t mSafeStopCancelTimeoutSeconds{};
+  std::string mSafeStopFreshnessProfile;
   Viss31MtlsConfig mVehicleState;
 };
 
