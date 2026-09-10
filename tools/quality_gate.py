@@ -19,6 +19,14 @@ STRUCTURED_SPDX_OWNERS = {
     "meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/files/resources.cfg":
         "meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/"
         "aos-servicemanager_git.bbappend",
+    "meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/files/resources-demo-services.cfg":
+        "docs/service-runtime-inputs.md",
+}
+STRUCTURED_RESOURCE_NAMES = {
+    "meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/files/resources.cfg":
+        ["kuksa", "kuksa-auth-client"],
+    "meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/files/resources-demo-services.cfg":
+        ["brake-runtime-inputs", "tire-runtime-inputs"],
 }
 BINARY_SUFFIXES = {
     ".7z", ".bin", ".cer", ".crt", ".der", ".dmg", ".img", ".iso",
@@ -72,7 +80,7 @@ def check_spdx(files: list[Path]) -> list[str]:
                 else None
             )
             if (
-                resource_names == ["kuksa", "kuksa-auth-client"]
+                resource_names == STRUCTURED_RESOURCE_NAMES[relative]
                 and copyright_tag in owner
                 and license_tag in owner
             ):

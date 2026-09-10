@@ -70,6 +70,7 @@ Read:
 - [provider design and qualification](docs/aos2-provider-design.md);
 - [Service Manager runtime decision](docs/decisions/0001-service-manager-component-runtime.md);
 - [contract compatibility](docs/contract-compatibility.md);
+- [opt-in Test service public-input resources](docs/service-runtime-inputs.md);
 - [provider FOTA packaging](packaging/fota/README.md).
 
 ## Repository Layout
