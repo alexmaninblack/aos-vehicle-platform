@@ -445,6 +445,50 @@ protected:
     ASSERT_GE(provider.Reads(), minimum);
   }
 
+  void QueuePreviousForRestart(bool remove, bool stoppedPrevious = false) {
+    ScriptedVehicleStateProvider unsafe;
+    unsafe.SetUnsafeRange(1);
+    auto runtime = StartEmptyRuntime(CreateConfig());
+    RuntimeInfo info;
+    ASSERT_TRUE(runtime->GetRuntimeInfo(info).IsNone());
+    const auto previous = CreateInstance(info, "0.2.0", "sha256:queued-previous");
+    ExpectPayload(previous, CreatePayload("queued-previous", "0.2.0"));
+    InstanceStatus status;
+    ASSERT_TRUE(runtime->StartInstance(previous, status).IsNone());
+    WaitForTransactionCompletion();
+    if (stoppedPrevious) {
+      ASSERT_FALSE(remove);
+      ASSERT_TRUE(runtime->StopInstance(previous, status).IsNone());
+    }
+    ASSERT_TRUE(runtime->Stop().IsNone());
+    runtime.reset();
+
+    runtime = StartRuntime(CreateConfig(), unsafe);
+    if (remove) {
+      auto stop = std::async(std::launch::async, [&]() {
+        return runtime->StopInstance(previous, status);
+      });
+      WaitForReads(unsafe, 2);
+      ASSERT_TRUE(runtime->Stop().IsNone());
+      ASSERT_EQ(stop.wait_for(std::chrono::seconds{2}), std::future_status::ready);
+      EXPECT_FALSE(stop.get().IsNone());
+    } else {
+      const auto candidate = CreateInstance(info, "0.3.0", "sha256:queued-candidate");
+      ExpectPayload(candidate, CreatePayload("queued-candidate", "0.3.0"));
+      ASSERT_TRUE(runtime->StartInstance(candidate, status).IsNone());
+      WaitForReads(unsafe, 2);
+      ASSERT_TRUE(runtime->Stop().IsNone());
+    }
+    runtime.reset();
+    ASSERT_TRUE(std::filesystem::exists(mWorkingDir / "state/transaction.json"));
+  }
+
+  std::string StateText(const char *name) const {
+    std::ifstream stream(mWorkingDir / "state" / name);
+    EXPECT_TRUE(stream.is_open());
+    return std::string(std::istreambuf_iterator<char>(stream), {});
+  }
+
   NiceMock<iamclient::CurrentNodeInfoProviderMock> mNodeInfoProvider;
   NiceMock<imagemanager::ItemInfoProviderMock> mItemInfoProvider;
   NiceMock<oci::OCISpecMock> mOCISpec;
@@ -884,6 +928,140 @@ TEST_F(SystemdSlotComponentRuntimeTest,
   WaitForTransactionCompletion();
   EXPECT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
             std::filesystem::path("slots/a"));
+}
+
+class SystemdSlotComponentWaitingRecoveryTest
+    : public SystemdSlotComponentRuntimeTest,
+      public WithParamInterface<bool> {};
+
+TEST_P(SystemdSlotComponentWaitingRecoveryTest,
+       ColdBootStartsInactiveCommittedPrevious) {
+  QueuePreviousForRestart(GetParam());
+  const auto installed = StateText("installed.json");
+  const auto transaction = StateText("transaction.json");
+  EXPECT_CALL(mProfile, MarkUnavailable()).Times(0);
+  EXPECT_CALL(mProfile, StopProvider()).Times(0);
+  {
+    InSequence sequence;
+    EXPECT_CALL(mProfile, CheckHealth()).WillOnce(Return(ErrorEnum::eFailed));
+    EXPECT_CALL(mProfile, StartProvider()).WillOnce(Return(ErrorEnum::eNone));
+    EXPECT_CALL(mProfile, CheckHealth()).WillOnce(Return(ErrorEnum::eNone));
+  }
+  ScriptedVehicleStateProvider unsafe;
+  unsafe.SetUnsafeRange(1);
+  auto recovered = StartRuntime(CreateConfig(), unsafe);
+  WaitForReads(unsafe, 2);
+  EXPECT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
+            std::filesystem::path("slots/a"));
+  EXPECT_EQ(StateText("installed.json"), installed);
+  EXPECT_EQ(StateText("transaction.json"), transaction);
+  ASSERT_TRUE(recovered->Stop().IsNone());
+}
+
+TEST_P(SystemdSlotComponentWaitingRecoveryTest,
+       HealthyPreviousDoesNotRestart) {
+  QueuePreviousForRestart(GetParam());
+  const auto transaction = StateText("transaction.json");
+  EXPECT_CALL(mProfile, MarkUnavailable()).Times(0);
+  EXPECT_CALL(mProfile, StopProvider()).Times(0);
+  EXPECT_CALL(mProfile, StartProvider()).Times(0);
+  EXPECT_CALL(mProfile, CheckHealth()).WillOnce(Return(ErrorEnum::eNone));
+  ScriptedVehicleStateProvider unsafe;
+  unsafe.SetUnsafeRange(1);
+  auto recovered = StartRuntime(CreateConfig(), unsafe);
+  WaitForReads(unsafe, 2);
+  EXPECT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
+            std::filesystem::path("slots/a"));
+  EXPECT_EQ(StateText("transaction.json"), transaction);
+  ASSERT_TRUE(recovered->Stop().IsNone());
+}
+
+TEST_P(SystemdSlotComponentWaitingRecoveryTest,
+       StartFailurePreservesWaitingState) {
+  QueuePreviousForRestart(GetParam());
+  const auto installed = StateText("installed.json");
+  const auto transaction = StateText("transaction.json");
+  EXPECT_CALL(mProfile, MarkUnavailable()).Times(0);
+  EXPECT_CALL(mProfile, StopProvider()).Times(0);
+  {
+    InSequence sequence;
+    EXPECT_CALL(mProfile, CheckHealth()).WillOnce(Return(ErrorEnum::eFailed));
+    EXPECT_CALL(mProfile, StartProvider()).WillOnce(Return(ErrorEnum::eFailed));
+  }
+  ScriptedVehicleStateProvider unsafe;
+  unsafe.SetUnsafeRange(1);
+  SystemdSlotComponentRuntime recovered(&mProfile, &unsafe);
+  ASSERT_TRUE(Init(recovered, CreateConfig()).IsNone());
+  EXPECT_FALSE(recovered.Start().IsNone());
+  EXPECT_EQ(unsafe.Reads(), 0U);
+  EXPECT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
+            std::filesystem::path("slots/a"));
+  EXPECT_EQ(StateText("installed.json"), installed);
+  EXPECT_EQ(StateText("transaction.json"), transaction);
+}
+
+TEST_P(SystemdSlotComponentWaitingRecoveryTest,
+       HealthRecheckFailurePreservesWaitingState) {
+  QueuePreviousForRestart(GetParam());
+  const auto installed = StateText("installed.json");
+  const auto transaction = StateText("transaction.json");
+  EXPECT_CALL(mProfile, MarkUnavailable()).Times(0);
+  EXPECT_CALL(mProfile, StopProvider()).Times(0);
+  {
+    InSequence sequence;
+    EXPECT_CALL(mProfile, CheckHealth()).WillOnce(Return(ErrorEnum::eFailed));
+    EXPECT_CALL(mProfile, StartProvider()).WillOnce(Return(ErrorEnum::eNone));
+    EXPECT_CALL(mProfile, CheckHealth()).WillOnce(Return(ErrorEnum::eFailed));
+  }
+  ScriptedVehicleStateProvider unsafe;
+  unsafe.SetUnsafeRange(1);
+  SystemdSlotComponentRuntime recovered(&mProfile, &unsafe);
+  ASSERT_TRUE(Init(recovered, CreateConfig()).IsNone());
+  EXPECT_FALSE(recovered.Start().IsNone());
+  EXPECT_EQ(unsafe.Reads(), 0U);
+  EXPECT_EQ(std::filesystem::read_symlink(mWorkingDir / "active"),
+            std::filesystem::path("slots/a"));
+  EXPECT_EQ(StateText("installed.json"), installed);
+  EXPECT_EQ(StateText("transaction.json"), transaction);
+}
+
+TEST_P(SystemdSlotComponentWaitingRecoveryTest, MissingActiveIsNotRecreated) {
+  QueuePreviousForRestart(GetParam());
+  const auto installed = StateText("installed.json");
+  const auto transaction = StateText("transaction.json");
+  std::filesystem::remove(mWorkingDir / "active");
+  EXPECT_CALL(mProfile, StartProvider()).Times(0);
+  EXPECT_CALL(mProfile, CheckHealth()).Times(0);
+  ScriptedVehicleStateProvider unsafe;
+  SystemdSlotComponentRuntime recovered(&mProfile, &unsafe);
+  ASSERT_TRUE(Init(recovered, CreateConfig()).IsNone());
+  EXPECT_FALSE(recovered.Start().IsNone());
+  EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "active"));
+  EXPECT_EQ(StateText("installed.json"), installed);
+  EXPECT_EQ(StateText("transaction.json"), transaction);
+}
+
+INSTANTIATE_TEST_SUITE_P(QueuedRemoveAndReplace,
+                        SystemdSlotComponentWaitingRecoveryTest, Bool());
+
+TEST_F(SystemdSlotComponentRuntimeTest,
+       IntentionallyStoppedPreviousRemainsStopped) {
+  QueuePreviousForRestart(false, true);
+  const auto stopped = StateText("stopped.json");
+  const auto transaction = StateText("transaction.json");
+  EXPECT_CALL(mProfile, MarkUnavailable()).Times(0);
+  EXPECT_CALL(mProfile, StopProvider()).Times(0);
+  EXPECT_CALL(mProfile, StartProvider()).Times(0);
+  EXPECT_CALL(mProfile, CheckHealth()).Times(0);
+  ScriptedVehicleStateProvider unsafe;
+  unsafe.SetUnsafeRange(1);
+  auto recovered = StartRuntime(CreateConfig(), unsafe);
+  WaitForReads(unsafe, 2);
+  EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "active"));
+  EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "state/installed.json"));
+  EXPECT_EQ(StateText("stopped.json"), stopped);
+  EXPECT_EQ(StateText("transaction.json"), transaction);
+  ASSERT_TRUE(recovered->Stop().IsNone());
 }
 
 TEST_F(SystemdSlotComponentRuntimeTest, InstallsFirstReleaseAtomically) {

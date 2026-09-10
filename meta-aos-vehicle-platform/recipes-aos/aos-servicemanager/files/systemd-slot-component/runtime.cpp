@@ -889,7 +889,15 @@ Error SystemdSlotComponentRuntime::Recover() {
             "waiting transaction lost its healthy active release"));
       }
       if (auto err = mProfile->CheckHealth(); !err.IsNone()) {
-        return FailClosed(err);
+        // A queued update does not change boot ownership of the committed
+        // provider. Restore it before resuming the wait, just as on a normal
+        // installed boot; transient start failures must retain this intent.
+        if (auto startError = mProfile->StartProvider(); !startError.IsNone()) {
+          return AOS_ERROR_WRAP(startError);
+        }
+        if (auto healthError = mProfile->CheckHealth(); !healthError.IsNone()) {
+          return AOS_ERROR_WRAP(healthError);
+        }
       }
       mInstalled = *installed;
       auto activeStatus = std::make_unique<InstanceStatus>();
