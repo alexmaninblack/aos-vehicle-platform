@@ -25,6 +25,7 @@ constexpr auto cDefaultStartTimeoutSeconds = 30U;
 constexpr auto cDefaultStopTimeoutSeconds = 15U;
 constexpr auto cSafeStopWaitSeconds = 480U;
 constexpr auto cSafeStopReadTimeoutMilliseconds = 250U;
+constexpr auto cDemoSafeStopReadTimeoutMilliseconds = 1000U;
 constexpr auto cSafeStopCancelTimeoutSeconds = 2U;
 constexpr auto cVehicleStateRole = "PLATFORM_UPDATE_RUNTIME";
 constexpr auto cVehicleStateEndpoint = "wss://10.0.0.1:6443";
@@ -144,6 +145,12 @@ Error ParseConfig(const RuntimeConfig &config,
       result.mSafeStopFreshnessProfile =
           value == "test\n" ? "demo-5s" : "standard";
     }
+  }
+  // Keep the immutable bootstrap contract at 250 ms. Only the effective
+  // local-demo profile, after persistent role selection, relaxes the read.
+  if (result.mSafeStopFreshnessProfile == "demo-5s") {
+    result.mSafeStopReadTimeoutMilliseconds =
+        cDemoSafeStopReadTimeoutMilliseconds;
   }
   return ErrorEnum::eNone;
 }

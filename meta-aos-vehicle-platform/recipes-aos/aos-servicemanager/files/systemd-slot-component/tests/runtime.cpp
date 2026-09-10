@@ -571,9 +571,17 @@ TEST_F(SystemdSlotComponentRuntimeTest, AcceptsOnlyExplicitDemoFreshnessProfile)
   SystemdSlotComponentConfig parsed;
   ASSERT_TRUE(ParseConfig(config, parsed).IsNone());
   EXPECT_EQ(parsed.mSafeStopFreshnessProfile, "standard");
+  EXPECT_EQ(parsed.mSafeStopReadTimeoutMilliseconds, 250U);
   config.mConfig->set("safeStopFreshnessProfile", "demo-5s");
   ASSERT_TRUE(ParseConfig(config, parsed).IsNone());
   EXPECT_EQ(parsed.mSafeStopFreshnessProfile, "demo-5s");
+  EXPECT_EQ(parsed.mSafeStopReadTimeoutMilliseconds, 1000U);
+  EXPECT_EQ(config.mConfig->getValue<uint32_t>("safeStopReadTimeoutMilliseconds"), 250U);
+  ASSERT_TRUE(ParseConfig(config, parsed).IsNone());
+  EXPECT_EQ(parsed.mSafeStopReadTimeoutMilliseconds, 1000U);
+  config.mConfig->set("safeStopReadTimeoutMilliseconds", 1000);
+  EXPECT_TRUE(ParseConfig(config, parsed).Is(ErrorEnum::eInvalidArgument));
+  config.mConfig->set("safeStopReadTimeoutMilliseconds", 250);
   config.mConfig->set("safeStopFreshnessProfile", "unlimited");
   EXPECT_TRUE(ParseConfig(config, parsed).Is(ErrorEnum::eInvalidArgument));
 }
@@ -588,6 +596,7 @@ TEST_F(SystemdSlotComponentRuntimeTest, FactoryDemoInputsRespectPersistentRole) 
   config.mConfig->set("safeStopFreshnessProfile", "demo-5s");
   ASSERT_TRUE(ParseConfig(config, parsed).IsNone());
   EXPECT_EQ(parsed.mSafeStopFreshnessProfile, "standard");
+  EXPECT_EQ(parsed.mSafeStopReadTimeoutMilliseconds, 250U);
   const auto inputs = mWorkingDir / "demo-inputs";
   const auto mode = std::filesystem::perms::owner_read |
                     std::filesystem::perms::owner_write;
@@ -596,9 +605,11 @@ TEST_F(SystemdSlotComponentRuntimeTest, FactoryDemoInputsRespectPersistentRole) 
   WriteFile(inputs / "role", "test\n", mode);
   ASSERT_TRUE(ParseConfig(config, parsed).IsNone());
   EXPECT_EQ(parsed.mSafeStopFreshnessProfile, "demo-5s");
+  EXPECT_EQ(parsed.mSafeStopReadTimeoutMilliseconds, 1000U);
   WriteFile(inputs / "role", "production\n", mode);
   ASSERT_TRUE(ParseConfig(config, parsed).IsNone());
   EXPECT_EQ(parsed.mSafeStopFreshnessProfile, "standard");
+  EXPECT_EQ(parsed.mSafeStopReadTimeoutMilliseconds, 250U);
   WriteFile(inputs / "role", "unknown\n", mode);
   EXPECT_TRUE(ParseConfig(config, parsed).Is(ErrorEnum::eInvalidArgument));
   std::filesystem::remove(inputs / "role");

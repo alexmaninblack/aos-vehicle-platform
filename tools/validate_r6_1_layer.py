@@ -369,8 +369,10 @@ def validate_layer() -> None:
     for token in (
         '"SAFE_STOP"',
         '"STABLE"',
-        "frame.mAcquiredAt - frame.mSourceObservedAt > cMaximumSourceAge",
-        "now - latest.mSourceObservedAt > cMaximumSourceAge",
+        "frame.mAcquiredAt - frame.mSourceObservedAt > mMaximumSourceAge",
+        "now - latest.mSourceObservedAt > mMaximumSourceAge",
+        "frame.mSourceObservedAt - frame.mAcquiredAt > mMaximumFutureSkew",
+        "latest.mSourceObservedAt - now > mMaximumFutureSkew",
         "buffered history is never reinterpreted as current state",
         "eRepeatedOrOutOfOrderFrame",
         "eContradictoryEvidence",

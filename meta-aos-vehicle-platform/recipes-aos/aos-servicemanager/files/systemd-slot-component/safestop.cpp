@@ -48,7 +48,7 @@ SafeStopEvaluation SafeStopEvaluator::Evaluate(
     }
     // Historical frames prove consecutive stability. Freshness is admitted at
     // acquisition; buffered history is never reinterpreted as current state.
-    if (frame.mSourceObservedAt > frame.mAcquiredAt) {
+    if (frame.mSourceObservedAt - frame.mAcquiredAt > mMaximumFutureSkew) {
       return {false, SafeStopReason::eContradictoryEvidence};
     }
     if (frame.mAcquiredAt - frame.mSourceObservedAt > mMaximumSourceAge) {
@@ -88,7 +88,7 @@ SafeStopEvaluation SafeStopEvaluator::Evaluate(
   // Recheck it at every destructive boundary; old window members remain
   // stability evidence even though their source timestamps are now older.
   const auto &latest = window.back();
-  if (latest.mSourceObservedAt > now ||
+  if (latest.mSourceObservedAt - now > mMaximumFutureSkew ||
       now - latest.mSourceObservedAt > mMaximumSourceAge) {
     return {false, SafeStopReason::eStaleEvidence};
   }

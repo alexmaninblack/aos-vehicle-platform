@@ -75,7 +75,10 @@ public:
   explicit SafeStopEvaluator(FreshnessProfile profile = FreshnessProfile::eStandard)
       : mMaximumSourceAge(profile == FreshnessProfile::eDemo5Seconds
                               ? std::chrono::milliseconds{5000}
-                              : cMaximumSourceAge) {}
+                              : cMaximumSourceAge),
+        mMaximumFutureSkew(profile == FreshnessProfile::eDemo5Seconds
+                              ? std::chrono::milliseconds{5000}
+                              : std::chrono::milliseconds{0}) {}
 
   SafeStopEvaluation
   Evaluate(const std::vector<VehicleStateFrame> &window,
@@ -83,6 +86,7 @@ public:
 
 private:
   std::chrono::milliseconds mMaximumSourceAge;
+  std::chrono::milliseconds mMaximumFutureSkew;
 };
 
 /** Exact read allowlist for the PLATFORM_UPDATE_RUNTIME VISS role. */

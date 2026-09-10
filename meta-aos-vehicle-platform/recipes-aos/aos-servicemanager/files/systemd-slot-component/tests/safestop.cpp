@@ -130,10 +130,46 @@ TEST(SafeStopEvaluatorTest, DemoAgeAllowanceIsExplicitAndBoundedAtBothGates) {
   EXPECT_FALSE(demo.Evaluate(window, now).mReady);
 }
 
+TEST(SafeStopEvaluatorTest, DemoFutureSkewIsBoundedAtAcquisitionAndTheGate) {
+  const auto now = std::chrono::steady_clock::now();
+  auto window = SafeWindow(now);
+  const SafeStopEvaluator demo{SafeStopEvaluator::FreshnessProfile::eDemo5Seconds};
+  for (auto &frame : window) {
+    frame.mSourceObservedAt = frame.mAcquiredAt + std::chrono::milliseconds{5000};
+  }
+  EXPECT_TRUE(demo.Evaluate(window, now).mReady);
+  // A bounded future source eventually becomes old; it is not exempt from
+  // the latest-source freshness check at every destructive gate.
+  EXPECT_TRUE(demo.Evaluate(window, now + std::chrono::milliseconds{10000}).mReady);
+  EXPECT_EQ(demo.Evaluate(window, now + std::chrono::milliseconds{10001}).mReason,
+            SafeStopReason::eStaleEvidence);
+  EXPECT_EQ(demo.Evaluate(window, now - std::chrono::milliseconds{1}).mReason,
+            SafeStopReason::eStaleEvidence);
+  window.front().mSourceObservedAt += std::chrono::milliseconds{1};
+  EXPECT_EQ(demo.Evaluate(window, now).mReason,
+            SafeStopReason::eContradictoryEvidence);
+}
+
+TEST(SafeStopEvaluatorTest, StandardStillRejectsAnyFutureAcquisitionOrGate) {
+  const auto now = std::chrono::steady_clock::now();
+  auto window = SafeWindow(now);
+  window.front().mSourceObservedAt =
+      window.front().mAcquiredAt + std::chrono::nanoseconds{1};
+  EXPECT_EQ(SafeStopEvaluator{}.Evaluate(window, now).mReason,
+            SafeStopReason::eContradictoryEvidence);
+  window = SafeWindow(now);
+  EXPECT_EQ(SafeStopEvaluator{}.Evaluate(window, now - std::chrono::milliseconds{6}).mReason,
+            SafeStopReason::eStaleEvidence);
+}
+
 TEST(SafeStopEvaluatorTest, DemoAgeAllowancePreservesOtherGates) {
   const auto now = std::chrono::steady_clock::now();
   const SafeStopEvaluator demo{SafeStopEvaluator::FreshnessProfile::eDemo5Seconds};
-  const auto original = SafeWindow(now);
+  auto original = SafeWindow(now);
+  for (auto &frame : original) {
+    frame.mSourceObservedAt = frame.mAcquiredAt + std::chrono::milliseconds{5000};
+  }
+  ASSERT_TRUE(demo.Evaluate(original, now).mReady);
   auto window = original;
   window.back().mActiveMode = "AUTOPILOT";
   EXPECT_FALSE(demo.Evaluate(window, now).mReady);
@@ -162,10 +198,13 @@ TEST(SafeStopEvaluatorTest, DemoAgeAllowancePreservesOtherGates) {
   window.back().mControlGeneration = 100;
   EXPECT_FALSE(demo.Evaluate(window, now).mReady);
   window = original;
+  window.back().mResetGeneration = 100;
+  EXPECT_FALSE(demo.Evaluate(window, now).mReady);
+  window = original;
   window.back().mSpeedKmh.reset();
   EXPECT_FALSE(demo.Evaluate(window, now).mReady);
   window = original;
-  window.back().mSourceObservedAt = now + std::chrono::milliseconds{1};
+  window.back().mSourceObservedAt = now + std::chrono::milliseconds{5001};
   EXPECT_FALSE(demo.Evaluate(window, now).mReady);
   window = original;
   window.pop_back();

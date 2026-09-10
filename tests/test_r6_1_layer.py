@@ -94,12 +94,16 @@ class R61LayerTests(unittest.TestCase):
         transport = validate_r6_1_layer.VISS_TRANSPORT.read_text(encoding="utf-8")
         self.assertIn("cMaximumSourceAge", header)
         self.assertIn(
-            "frame.mAcquiredAt - frame.mSourceObservedAt > cMaximumSourceAge",
+            "frame.mAcquiredAt - frame.mSourceObservedAt > mMaximumSourceAge",
             evaluator,
         )
         self.assertIn(
-            "now - latest.mSourceObservedAt > cMaximumSourceAge", evaluator
+            "now - latest.mSourceObservedAt > mMaximumSourceAge", evaluator
         )
+        self.assertIn(
+            "frame.mSourceObservedAt - frame.mAcquiredAt > mMaximumFutureSkew", evaluator
+        )
+        self.assertIn("latest.mSourceObservedAt - now > mMaximumFutureSkew", evaluator)
         self.assertNotIn("now - frame.mSourceObservedAt", evaluator)
         self.assertIn('getValue<std::string>("ts")', transport)
 
