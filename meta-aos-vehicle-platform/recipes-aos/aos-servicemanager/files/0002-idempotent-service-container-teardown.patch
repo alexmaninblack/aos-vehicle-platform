@@ -1,0 +1,347 @@
+Upstream-Status: Pending [live qualification before upstream review]
+
+diff --git a/src/common/network/namespacemanager.cpp b/src/common/network/namespacemanager.cpp
+index a7db0e45..eda0e934 100644
+--- a/src/common/network/namespacemanager.cpp
++++ b/src/common/network/namespacemanager.cpp
+@@ -15,6 +15,9 @@
+ #include <core/common/tools/memory.hpp>
+ 
+ #include "namespacemanager.hpp"
++#include <linux/magic.h>
++#include <sys/stat.h>
++#include <sys/vfs.h>
+ 
+ namespace aos::common::network {
+ 
+@@ -127,12 +130,21 @@ Error NamespaceManager::DeleteNetworkNamespace(const String& ns)
+     }
+ 
+     if (umount2(path.c_str(), MNT_DETACH) != 0) {
+-        LOG_ERR() << "Failed to unmount namespace: err=" << strerror(errno);
+-
+-        return Error(ErrorEnum::eFailed, "failed to unmount namespace");
++        const int unmountError = errno;
++        struct stat info {};
++        struct statfs fs {};
++        // A successful prior unmount can leave its empty placeholder behind.
++        // Never suppress EPERM, an actual namespace mount, or an arbitrary file.
++        const bool emptyUnmountedFile = unmountError == EINVAL
++            && lstat(path.c_str(), &info) == 0 && S_ISREG(info.st_mode) && info.st_size == 0
++            && statfs(path.c_str(), &fs) == 0 && fs.f_type != NSFS_MAGIC;
++        if (!emptyUnmountedFile) {
++            LOG_ERR() << "Failed to unmount namespace: err=" << strerror(unmountError);
++            return Error(unmountError, "failed to unmount namespace");
++        }
+     }
+ 
+-    if (unlink(path.c_str()) != 0) {
++    if (unlink(path.c_str()) != 0 && errno != ENOENT) {
+         LOG_ERR() << "Failed to remove namespace file: err=" << strerror(errno);
+ 
+         return Error(ErrorEnum::eFailed, "failed to remove namespace file");
+diff --git a/src/sm/launcher/runtimes/container/cleanuperror.hpp b/src/sm/launcher/runtimes/container/cleanuperror.hpp
+new file mode 100644
+index 00000000..321fcdf7
+--- /dev/null
++++ b/src/sm/launcher/runtimes/container/cleanuperror.hpp
+@@ -0,0 +1,23 @@
++/*
++ * Copyright (C) 2026 EPAM Systems, Inc.
++ * SPDX-License-Identifier: Apache-2.0
++ */
++#ifndef AOS_SM_CONTAINER_CLEANUPERROR_HPP_
++#define AOS_SM_CONTAINER_CLEANUPERROR_HPP_
++
++#include <core/common/tools/error.hpp>
++
++namespace aos::sm::launcher::detail {
++
++// Only the crun adapter uses this policy. An internal ENOENT is not proof
++// that a container is absent; the caller must check its exact state directory.
++inline Error NormalizeCleanupError(const Error& error, bool stateAbsent, bool stopping)
++{
++    if ((stopping && error.Errno() == ESRCH) || (stateAbsent && error.Errno() == ENOENT)) {
++        return ErrorEnum::eNotFound;
++    }
++    return error;
++}
++
++} // namespace aos::sm::launcher::detail
++#endif
+diff --git a/src/sm/launcher/runtimes/container/crunrunner.cpp b/src/sm/launcher/runtimes/container/crunrunner.cpp
+index aa4e306e..8236ab5c 100644
+--- a/src/sm/launcher/runtimes/container/crunrunner.cpp
++++ b/src/sm/launcher/runtimes/container/crunrunner.cpp
+@@ -5,8 +5,10 @@
+  */
+ 
+ #include <core/common/tools/logger.hpp>
++#include <sys/stat.h>
+ 
+ #include "crunrunner.hpp"
++#include "cleanuperror.hpp"
+ #include "libcrun.hpp"
+ 
+ namespace aos::sm::launcher {
+@@ -136,7 +138,8 @@ Error CRunRunner::StopContainer(const std::string& instanceID)
+     ctx.pid_file = pidFile.c_str();
+ 
+     if (libcrun_container_kill(&ctx, instanceID.c_str(), "SIGKILL", &err) < 0) {
+-        return AOS_ERROR_WRAP(ReleaseLibcrunError(err));
++        auto stopError = ReleaseLibcrunError(err);
++        return AOS_ERROR_WRAP(detail::NormalizeCleanupError(stopError, IsMissingState(instanceID, stopError), true));
+     }
+ 
+     return ErrorEnum::eNone;
+@@ -156,7 +159,8 @@ Error CRunRunner::RemoveContainer(const std::string& instanceID)
+     libcrun_context_t ctx = MakeContext(cStateRoot, instanceID);
+ 
+     if (libcrun_container_delete(&ctx, nullptr, instanceID.c_str(), true, &err) < 0) {
+-        return AOS_ERROR_WRAP(ReleaseLibcrunError(err));
++        auto removeError = ReleaseLibcrunError(err);
++        return AOS_ERROR_WRAP(detail::NormalizeCleanupError(removeError, IsMissingState(instanceID, removeError), false));
+     }
+ 
+     return ErrorEnum::eNone;
+@@ -166,6 +170,18 @@ Error CRunRunner::RemoveContainer(const std::string& instanceID)
+  * Private
+  **********************************************************************************************************************/
+ 
++bool CRunRunner::IsMissingState(const std::string& instanceID, const Error& error) const
++{
++    if (error.Errno() != ENOENT) {
++        return false;
++    }
++
++    // Do not turn an internal missing file or an inaccessible state into success.
++    struct stat state {};
++    const auto path = std::string(cStateRoot) + "/" + instanceID;
++    return lstat(path.c_str(), &state) < 0 && errno == ENOENT;
++}
++
+ RetWithError<ContainerStatus> CRunRunner::CheckProcessAlive(const std::string& instanceID) const
+ {
+     ContainerStatus status;
+diff --git a/src/sm/launcher/runtimes/container/crunrunner.hpp b/src/sm/launcher/runtimes/container/crunrunner.hpp
+index 7a9b5df2..b69adf25 100644
+--- a/src/sm/launcher/runtimes/container/crunrunner.hpp
++++ b/src/sm/launcher/runtimes/container/crunrunner.hpp
+@@ -70,6 +70,7 @@ private:
+     static constexpr auto cStateRoot = "/run/crun";
+ 
+     RetWithError<ContainerStatus> CheckProcessAlive(const std::string& instanceID) const;
++    bool IsMissingState(const std::string& instanceID, const Error& error) const;
+ 
+     std::string           mRuntimeDir;
+     std::mutex            mMutex;
+diff --git a/src/sm/launcher/runtimes/container/tests/CMakeLists.txt b/src/sm/launcher/runtimes/container/tests/CMakeLists.txt
+index 5d0e0c22..2e43f07a 100644
+--- a/src/sm/launcher/runtimes/container/tests/CMakeLists.txt
++++ b/src/sm/launcher/runtimes/container/tests/CMakeLists.txt
+@@ -10,7 +10,7 @@ set(TARGET_NAME container_test)
+ # Sources
+ # ######################################################################################################################
+ 
+-set(SOURCES config.cpp container.cpp filesystem.cpp runner.cpp)
++set(SOURCES config.cpp container.cpp filesystem.cpp runner.cpp cleanuperror.cpp)
+ 
+ # ######################################################################################################################
+ # Libraries
+diff --git a/src/sm/launcher/runtimes/container/tests/cleanuperror.cpp b/src/sm/launcher/runtimes/container/tests/cleanuperror.cpp
+new file mode 100644
+index 00000000..210f238a
+--- /dev/null
++++ b/src/sm/launcher/runtimes/container/tests/cleanuperror.cpp
+@@ -0,0 +1,32 @@
++/*
++ * Copyright (C) 2026 EPAM Systems, Inc.
++ * SPDX-License-Identifier: Apache-2.0
++ */
++#include <gtest/gtest.h>
++#include <sm/launcher/runtimes/container/cleanuperror.hpp>
++
++using namespace aos;
++using aos::sm::launcher::detail::NormalizeCleanupError;
++
++TEST(ContainerCleanupErrorTest, ExitedProcessIsAbsentOnlyForStop)
++{
++    EXPECT_TRUE(NormalizeCleanupError(Error(ESRCH), false, true).Is(ErrorEnum::eNotFound));
++    EXPECT_EQ(NormalizeCleanupError(Error(ESRCH), false, false).Errno(), ESRCH);
++}
++
++TEST(ContainerCleanupErrorTest, MissingStateIsAbsentButMissingInternalFileIsNot)
++{
++    for (bool stopping : {false, true}) {
++        EXPECT_TRUE(NormalizeCleanupError(Error(ENOENT), true, stopping).Is(ErrorEnum::eNotFound));
++        EXPECT_EQ(NormalizeCleanupError(Error(ENOENT), false, stopping).Errno(), ENOENT);
++    }
++}
++
++TEST(ContainerCleanupErrorTest, RealErrorsAreNeverSuppressed)
++{
++    for (int code : {EPERM, EACCES, EIO, EINVAL}) {
++        for (bool stopping : {false, true}) {
++            EXPECT_EQ(NormalizeCleanupError(Error(code), true, stopping).Errno(), code);
++        }
++    }
++}
+diff --git a/src/sm/launcher/runtimes/container/tests/runner.cpp b/src/sm/launcher/runtimes/container/tests/runner.cpp
+index f1b846bf..421dbc8e 100644
+--- a/src/sm/launcher/runtimes/container/tests/runner.cpp
++++ b/src/sm/launcher/runtimes/container/tests/runner.cpp
+@@ -89,6 +89,27 @@ TEST_F(ContainerRunnerTest, StartContainerFailed)
+     mRunner.Stop();
+ }
+ 
++TEST_F(ContainerRunnerTest, StopAlreadyAbsentStillRemovesContainer)
++{
++    EXPECT_CALL(mContainerRunnerMock, StopContainer("service0")).WillOnce(Return(ErrorEnum::eNotFound));
++    EXPECT_CALL(mContainerRunnerMock, RemoveContainer("service0")).WillOnce(Return(ErrorEnum::eNotFound));
++    EXPECT_TRUE(mRunner.StopInstance("service0").IsNone());
++}
++
++TEST_F(ContainerRunnerTest, StopAbsentPreservesRemovalFailure)
++{
++    EXPECT_CALL(mContainerRunnerMock, StopContainer("service0")).WillOnce(Return(ErrorEnum::eNotFound));
++    EXPECT_CALL(mContainerRunnerMock, RemoveContainer("service0")).WillOnce(Return(Error(EPERM)));
++    EXPECT_EQ(mRunner.StopInstance("service0").Errno(), EPERM);
++}
++
++TEST_F(ContainerRunnerTest, StopFailureStillAttemptsRemoval)
++{
++    EXPECT_CALL(mContainerRunnerMock, StopContainer("service0")).WillOnce(Return(Error(EIO)));
++    EXPECT_CALL(mContainerRunnerMock, RemoveContainer("service0")).WillOnce(Return(ErrorEnum::eNone));
++    EXPECT_EQ(mRunner.StopInstance("service0").Errno(), EIO);
++}
++
+ TEST_F(ContainerRunnerTest, GetContainerStatusFailed)
+ {
+     mRunner.Start();
+diff --git a/src/sm/networkmanager/bridgenetwork.cpp b/src/sm/networkmanager/bridgenetwork.cpp
+index 0e3f5f80..a87f3389 100644
+--- a/src/sm/networkmanager/bridgenetwork.cpp
++++ b/src/sm/networkmanager/bridgenetwork.cpp
+@@ -101,7 +101,7 @@ Error BridgeNetwork::Detach(const String& instanceID, const String& bridgeIfName
+ 
+     const auto hostName = VethName(instanceID, "veth");
+ 
+-    if (auto errDel = mNetIf->DeleteLink(hostName); !errDel.IsNone()) {
++    if (auto errDel = mNetIf->DeleteLink(hostName); !errDel.IsNone() && !errDel.Is(ErrorEnum::eNotFound)) {
+         LOG_ERR() << "Failed to delete host veth" << Log::Field(errDel);
+ 
+         return AOS_ERROR_WRAP(errDel);
+diff --git a/src/sm/networkmanager/tests/CMakeLists.txt b/src/sm/networkmanager/tests/CMakeLists.txt
+index 83b425ba..b3c95297 100644
+--- a/src/sm/networkmanager/tests/CMakeLists.txt
++++ b/src/sm/networkmanager/tests/CMakeLists.txt
+@@ -10,7 +10,7 @@ set(TARGET_NAME networkmanager_test)
+ # Sources
+ # ######################################################################################################################
+ 
+-set(SOURCES bandwidth.cpp bridgenetwork.cpp dnsserver.cpp dnsname.cpp firewall.cpp trafficmonitor.cpp)
++set(SOURCES bandwidth.cpp bridgenetwork.cpp dnsserver.cpp dnsname.cpp firewall.cpp trafficmonitor.cpp namespacecleanup.cpp)
+ 
+ # ######################################################################################################################
+ # Includes
+@@ -22,7 +22,7 @@ set(INCLUDES ${CMAKE_CURRENT_SOURCE_DIR})
+ # Libraries
+ # ######################################################################################################################
+ 
+-set(LIBRARIES aos::sm::networkmanager aos::sm::tests::mocks aos::common::tests::mocks aos::core::sm::tests::mocks
++set(LIBRARIES aos::sm::networkmanager aos::common::network aos::sm::tests::mocks aos::common::tests::mocks aos::core::sm::tests::mocks
+               GTest::gmock_main
+ )
+ 
+diff --git a/src/sm/networkmanager/tests/bridgenetwork.cpp b/src/sm/networkmanager/tests/bridgenetwork.cpp
+index 7a41e418..babe73b8 100644
+--- a/src/sm/networkmanager/tests/bridgenetwork.cpp
++++ b/src/sm/networkmanager/tests/bridgenetwork.cpp
+@@ -141,6 +141,18 @@ TEST_F(BridgeNetworkTest, DetachHappyPath)
+     EXPECT_TRUE(mBridge.Detach(mInstanceID, String("br-test")).IsNone());
+ }
+ 
++TEST_F(BridgeNetworkTest, DetachAlreadyAbsentLink)
++{
++    EXPECT_CALL(mNetIf, DeleteLink(_)).WillOnce(Return(Error(ErrorEnum::eNotFound, "link not found")));
++    EXPECT_TRUE(mBridge.Detach(mInstanceID, String("br-test")).IsNone());
++}
++
++TEST_F(BridgeNetworkTest, DetachPreservesPermissionFailure)
++{
++    EXPECT_CALL(mNetIf, DeleteLink(_)).WillOnce(Return(Error(EPERM)));
++    EXPECT_EQ(mBridge.Detach(mInstanceID, String("br-test")).Errno(), EPERM);
++}
++
+ TEST_F(BridgeNetworkTest, DetachFailsOnDeleteLinkError)
+ {
+     EXPECT_CALL(mNetIf, DeleteLink(_)).WillOnce(Return(Error(ErrorEnum::eFailed)));
+diff --git a/src/sm/networkmanager/tests/namespacecleanup.cpp b/src/sm/networkmanager/tests/namespacecleanup.cpp
+new file mode 100644
+index 00000000..481433df
+--- /dev/null
++++ b/src/sm/networkmanager/tests/namespacecleanup.cpp
+@@ -0,0 +1,63 @@
++/*
++ * Copyright (C) 2026 EPAM Systems, Inc.
++ * SPDX-License-Identifier: Apache-2.0
++ */
++#include <filesystem>
++#include <fstream>
++#include <sys/mount.h>
++#include <unistd.h>
++#include <gtest/gtest.h>
++#include <common/network/namespacemanager.hpp>
++
++class NamespaceCleanupTest : public testing::Test {
++protected:
++    void SetUp() override
++    {
++        if (geteuid() != 0) { GTEST_SKIP() << "requires isolated root test environment"; }
++        name = "aos-cleanup-test-" + std::to_string(getpid());
++        path = std::filesystem::path("/run/netns") / name;
++        ASSERT_FALSE(std::filesystem::exists(path));
++        std::filesystem::create_directories(path.parent_path());
++    }
++    void TearDown() override
++    {
++        if (!path.empty()) {
++            if (mounted) { umount2(path.c_str(), MNT_DETACH); }
++            std::filesystem::remove(path);
++        }
++    }
++    aos::common::network::NamespaceManager manager;
++    std::string name;
++    std::filesystem::path path;
++    bool mounted = false;
++};
++
++TEST_F(NamespaceCleanupTest, MissingNamespaceIsIdempotent)
++{
++    EXPECT_TRUE(manager.DeleteNetworkNamespace(name.c_str()).IsNone());
++}
++
++TEST_F(NamespaceCleanupTest, EmptyUnmountedPlaceholderIsRemoved)
++{
++    std::ofstream(path).close();
++    EXPECT_TRUE(manager.DeleteNetworkNamespace(name.c_str()).IsNone());
++    EXPECT_FALSE(std::filesystem::exists(path));
++    EXPECT_TRUE(manager.DeleteNetworkNamespace(name.c_str()).IsNone());
++}
++
++TEST_F(NamespaceCleanupTest, NonemptyFileIsPreserved)
++{
++    std::ofstream(path) << "not a namespace placeholder";
++    EXPECT_EQ(manager.DeleteNetworkNamespace(name.c_str()).Errno(), EINVAL);
++    EXPECT_TRUE(std::filesystem::exists(path));
++}
++
++TEST_F(NamespaceCleanupTest, MountedNamespaceIsUnmountedNormally)
++{
++    std::ofstream(path).close();
++    ASSERT_EQ(mount("/proc/self/ns/net", path.c_str(), nullptr, MS_BIND, nullptr), 0);
++    mounted = true;
++    EXPECT_TRUE(manager.DeleteNetworkNamespace(name.c_str()).IsNone());
++    EXPECT_FALSE(std::filesystem::exists(path));
++    mounted = false;
++}

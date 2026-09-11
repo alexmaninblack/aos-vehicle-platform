@@ -1,0 +1,154 @@
+Upstream-Status: Pending [live qualification before upstream review]
+
+diff --git a/src/core/sm/launcher/launcher.cpp b/src/core/sm/launcher/launcher.cpp
+index 22dc8635..d146ee13 100644
+--- a/src/core/sm/launcher/launcher.cpp
++++ b/src/core/sm/launcher/launcher.cpp
+@@ -631,7 +631,7 @@ void Launcher::StopInstances(const Array<InstanceIdent>& stopInstances)
+             LOG_ERR() << "Failed to stop instance" << Log::Field("instance", instance) << Log::Field(err);
+ 
+             SetInstanceState(*instanceData, InstanceStateEnum::eFailed, AOS_ERROR_WRAP(err));
+-        } else {
++        } else if (instanceData->mInfo.mType != UpdateItemTypeEnum::eService) {
+             SetInstanceState(*instanceData, InstanceStateEnum::eInactive);
+         }
+     }
+@@ -663,6 +663,10 @@ void Launcher::StopInstanceTask(aos::sm::launcher::RuntimeItf* runtime, Instance
+         LOG_ERR() << "Failed to stop instance" << Log::Field("instance", instanceData.mInfo)
+                   << Log::Field(AOS_ERROR_WRAP(err));
+ 
++        if (instanceData.mInfo.mType == UpdateItemTypeEnum::eService) {
++            SetInstanceState(instanceData, InstanceStateEnum::eFailed, AOS_ERROR_WRAP(err));
++        }
++
+         return;
+     }
+ 
+@@ -676,13 +680,18 @@ void Launcher::StopInstanceTask(aos::sm::launcher::RuntimeItf* runtime, Instance
+         LOG_ERR() << "Failed to generate instance ID" << Log::Field("instance", instanceData.mInfo)
+                   << Log::Field(AOS_ERROR_WRAP(err));
+ 
++        SetInstanceState(instanceData, InstanceStateEnum::eFailed, AOS_ERROR_WRAP(err));
+         return;
+     }
+ 
+     if (auto err = mNetworkManager->ReleaseInstanceNetwork(instanceID, instanceData.mInfo.mOwnerID); !err.IsNone()) {
+         LOG_ERR() << "Failed to release instance network" << Log::Field("instance", instanceData.mInfo)
+                   << Log::Field(AOS_ERROR_WRAP(err));
++        SetInstanceState(instanceData, InstanceStateEnum::eFailed, AOS_ERROR_WRAP(err));
++        return;
+     }
++
++    SetInstanceState(instanceData, InstanceStateEnum::eInactive);
+ }
+ 
+ void Launcher::StopAllInstances()
+@@ -730,6 +739,11 @@ void Launcher::PrepareInstances(const Array<InstanceInfo>& startInstances)
+                 continue;
+             }
+         } else {
++            if (instance.mType == UpdateItemTypeEnum::eService && !(instanceData->mInfo == instance)) {
++                // A failed teardown retained the old identity. Never reset its
++                // failure and start its old version for a new desired instance.
++                continue;
++            }
+             SetInstanceState(*instanceData, InstanceStateEnum::eInactive);
+ 
+             continue;
+@@ -772,6 +786,10 @@ void Launcher::StartInstances(const Array<InstanceInfo>& startInstances)
+             continue;
+         }
+ 
++        if (instance.mType == UpdateItemTypeEnum::eService && !(instanceData->mInfo == instance)) {
++            continue;
++        }
++
+         if (auto err = StartInstance(*instanceData); !err.IsNone()) {
+             LOG_ERR() << "Failed to start instance" << Log::Field("instance", instance)
+                       << Log::Field(AOS_ERROR_WRAP(err));
+@@ -969,6 +987,14 @@ void Launcher::GetRemoveUpdateItems(const Array<InstanceIdent>& stopInstances,
+ void Launcher::RemoveUpdateItems(const Array<UpdateItemInfo>& removeItems)
+ {
+     for (const auto& updateItem : removeItems) {
++        if (mInstances.ContainsIf([&updateItem](const auto& instance) {
++                return instance.mInfo.mType == UpdateItemTypeEnum::eService
++                    && instance.mInfo.mItemID == updateItem.mItemID
++                    && instance.mInfo.mVersion == updateItem.mVersion;
++            })) {
++            // A surviving instance still owns this image (including failed stop).
++            continue;
++        }
+         if (auto err = mLaunchPool.AddTask([this, &updateItem](void*) {
+                 if (auto err = mImageManager->RemoveUpdateItem(updateItem.mItemID, updateItem.mVersion);
+                     !err.IsNone() && !err.Is(ErrorEnum::eNotFound)) {
+diff --git a/src/core/sm/launcher/tests/launcher.cpp b/src/core/sm/launcher/tests/launcher.cpp
+index 0581a79f..8e0d4700 100644
+--- a/src/core/sm/launcher/tests/launcher.cpp
++++ b/src/core/sm/launcher/tests/launcher.cpp
+@@ -664,6 +664,66 @@ TEST_F(LauncherTest, UpdateInstancesRestartsInstancesWithModifiedParams)
+     ASSERT_TRUE(err.IsNone()) << tests::utils::ErrorToStr(err);
+ }
+ 
++class ServiceReplacementTest : public LauncherTest, public WithParamInterface<int> {};
++
++TEST_P(ServiceReplacementTest, ReplacementPreservesTeardownFailureAndNeverStartsStaleVersion)
++{
++    const bool stopFails = GetParam() == 1;
++    const bool networkFails = GetParam() == 2;
++    const bool fails = stopFails || networkFails;
++    const std::vector stored {CreateInstanceInfo("service-update", 0, "3.0.0", "runtime0")};
++    auto desired = stored;
++    desired[0].mVersion = "4.0.0";
++    int starts = 0;
++
++    mStorage.Init(stored);
++    EXPECT_CALL(mRuntime0, StartInstance).Times(fails ? 1 : 2)
++        .WillRepeatedly(Invoke([&](const InstanceInfo& info, InstanceStatus& status) {
++            EXPECT_EQ(info.mVersion, starts++ == 0 ? String("3.0.0") : String("4.0.0"));
++            SetInstanceStatus(info, InstanceStateEnum::eActive, status);
++            return ErrorEnum::eNone;
++        }));
++    EXPECT_CALL(mRuntime0, StopInstance)
++        .WillOnce(Invoke([&](const InstanceIdent& info, InstanceStatus& status) {
++            // A runtime may return an error without updating its output status.
++            if (stopFails) {
++                return Error(ESRCH);
++            }
++            SetInstanceStatus(info, InstanceStateEnum::eInactive, status);
++            return Error(ErrorEnum::eNone);
++        }))
++        .WillRepeatedly(Invoke([](const InstanceIdent& info, InstanceStatus& status) {
++            SetInstanceStatus(info, InstanceStateEnum::eInactive, status);
++            return Error(ErrorEnum::eNone);
++        }));
++    if (networkFails) {
++        EXPECT_CALL(mNetworkManager, ReleaseInstanceNetwork).WillOnce(Return(Error(EPERM)));
++    }
++    EXPECT_CALL(mImageManager, RemoveUpdateItem(String("service-update"), String("3.0.0")))
++        .Times(fails ? 0 : 1).WillRepeatedly(Return(ErrorEnum::eNone));
++
++    auto err = mLauncher.Init(GetRuntimesArray(), mImageManager, mSender, mStorage, mOCISpec, mItemInfoProvider,
++        mCloudConnection, mNetworkManager, mInstanceIDProvider, mResourceInfoProvider);
++    ASSERT_TRUE(err.IsNone());
++    ASSERT_TRUE(mLauncher.Start().IsNone());
++    ASSERT_TRUE(mLauncher.GetInstancesStatuses(mReceivedStatuses).IsNone());
++    ASSERT_TRUE(mLauncher.UpdateInstances({}, Array<InstanceInfo>(desired.data(), desired.size())).IsNone());
++    ASSERT_TRUE(mSender.WaitStatuses(mReceivedStatuses, cWaitTimeout).IsNone());
++    ASSERT_EQ(mReceivedStatuses.Size(), 1);
++    EXPECT_EQ(mReceivedStatuses[0].mVersion, String(fails ? "3.0.0" : "4.0.0"));
++    EXPECT_EQ(mReceivedStatuses[0].mState, fails ? InstanceStateEnum::eFailed : InstanceStateEnum::eActive);
++    if (fails) {
++        EXPECT_EQ(mReceivedStatuses[0].mError.Errno(), stopFails ? ESRCH : EPERM);
++    }
++    auto persisted = std::make_unique<InstanceInfoArray>();
++    ASSERT_TRUE(mStorage.GetAllInstancesInfos(*persisted).IsNone());
++    ASSERT_EQ(persisted->Size(), 1);
++    EXPECT_EQ((*persisted)[0].mVersion, String(fails ? "3.0.0" : "4.0.0"));
++    ASSERT_TRUE(mLauncher.Stop().IsNone());
++}
++
++INSTANTIATE_TEST_SUITE_P(ServiceUpdate, ServiceReplacementTest, Values(0, 1, 2));
++
+ TEST_F(LauncherTest, ParallelUpdateInstancesDoesNotInterfere)
+ {
+     const std::vector cStartInstanceInfos = {
