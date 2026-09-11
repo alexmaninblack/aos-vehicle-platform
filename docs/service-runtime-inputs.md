@@ -3,9 +3,10 @@
 
 # Test service public-input resources
 
-Status: opt-in declaration for the authorized transient Test proof. Not
-installed, live-qualified, or part of Factory `.31`. No image, native SM
-behavior, credential exchange, service identity or SELinux policy changes.
+Status: opt-in declaration for the authorized transient Test proof. A bounded
+native token-mount ownership correction is now a source candidate (see below).
+Neither change is installed, live-qualified, or part of Factory `.31`. No
+credential exchange, service identity or SELinux policy change is introduced.
 
 The accepted payload and provenance contract is owned by Demo Control in
 [`demo-control-service-inputs.md`](../../aosedge-sdv-demo/docs/architecture/demo-control-service-inputs.md).
@@ -129,4 +130,30 @@ Control only, without rebuilding `.31`:
 Only after this proof may the qualified declarations be integrated into the
 single subsequent clean Factory image. If exact identity/label/mount evidence
 fails, retain the failure and report that narrow boundary; do not broaden
-permissions, change native SM, or manufacture a certificate to pass.
+permissions or manufacture a certificate to pass.
+
+## Authorized token-owner correction — 11 September 2026
+
+The user authorized correction of the token-directory ownership boundary.
+`0002-bind-kuksa-token-tmpfs-to-instance-owner.patch` changes only the native
+container launcher's handling of the exact `kuksa-auth-client` resource mount
+at `/run/aosedge/secrets/kuksa`. It copies the mount per instance and adds
+`uid`/`gid` from native `mInstanceInfo`, before writing OCI runtime configuration.
+The shared resource declaration is never mutated. There are no fixed UID/GID,
+root service, ownership placeholders, directory-creation daemon or host chmod.
+
+The source/type must both be `tmpfs`; the original six mount options must be
+exactly the existing owner-only, 64-KiB policy. Conflicting owner options,
+duplicate/missing flags, another filesystem, root or invalid ownership fail
+before launch. Other resources and the KAC socket bind keep native behavior.
+The recipe stages the small pure option function beside the native instance
+source; a later normal package build includes this candidate.
+
+The actual option function compiles with C++17 warnings-as-errors. Tests cover
+distinct dynamic UID/GID pairs, repeat construction without shared-state
+mutation, order-independent policy matching and invalid/foreign mounts. The
+patch applies to the pinned `9eecb80...` instance source. Nine focused tests and
+the repository quality gate pass. These are source-equivalent tests, **not**
+a complete native SM compile, Linux mount/SELinux proof or running service.
+Those gates remain required before the candidate is considered qualified or
+used in the next Factory image. No Builder, Test SM or VM was restarted.

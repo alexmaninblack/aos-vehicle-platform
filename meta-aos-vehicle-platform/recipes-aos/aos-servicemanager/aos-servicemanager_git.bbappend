@@ -9,6 +9,8 @@ DEPENDS:append = " softhsm"
 
 SRC_URI += " \
     file://0001-add-production-systemd-slot-component-runtime.patch \
+    file://0002-bind-kuksa-token-tmpfs-to-instance-owner.patch \
+    file://kuksatokenmount.hpp \
     file://systemd-slot-component \
 "
 
@@ -19,6 +21,9 @@ EXTRA_OECMAKE:append = " \
 "
 
 do_configure:prepend() {
+    install -m 0644 \
+        ${WORKDIR}/kuksatokenmount.hpp \
+        ${S}/src/sm/launcher/runtimes/container/kuksatokenmount.hpp
     install -m 0644 \
         ${WORKDIR}/systemd-slot-component/providerarchive.hpp \
         ${S}/src/sm/imagemanager/providerarchive.hpp
