@@ -46,7 +46,7 @@ class ServiceRuntimeInputsTests(unittest.TestCase):
         self.assertEqual(2, len(set(sources)))
         self.assertFalse(any(left in right.parents for left in sources for right in sources))
 
-    def test_existing_kuksa_authority_resources_remain_unchanged(self):
+    def test_native_socket_authority_and_private_session_mount_contract(self):
         resources = json.loads((ROOT / RESOURCE_DIRECTORY / "resources.cfg").read_text())
         self.assertEqual(
             [
@@ -66,13 +66,20 @@ class ServiceRuntimeInputsTests(unittest.TestCase):
                             "destination": "/run/aosedge/secrets/kuksa",
                             "type": "tmpfs",
                             "source": "tmpfs",
-                            "options": ["rw", "nosuid", "nodev", "noexec", "mode=0700", "size=65536"],
+                            "options": ["rw", "nosuid", "nodev", "noexec", "mode=1777", "size=65536"],
                         },
                     ],
                 },
             ],
             resources,
         )
+
+    def test_no_token_owner_sm_extension_is_staged(self):
+        recipe = (ROOT / RESOURCE_DIRECTORY.parent / "aos-servicemanager_git.bbappend").read_text()
+        self.assertNotIn("kuksatokenmount", recipe)
+        self.assertNotIn("0002-bind-kuksa-token", recipe)
+        self.assertIn("0001-add-production-systemd-slot-component-runtime.patch", recipe)
+        self.assertFalse((ROOT / RESOURCE_DIRECTORY / "kuksatokenmount.hpp").exists())
 
     def test_declaration_is_not_enabled_in_factory_config_or_recipes(self):
         sm_config = json.loads((ROOT / RESOURCE_DIRECTORY / "sm.cfg").read_text())
