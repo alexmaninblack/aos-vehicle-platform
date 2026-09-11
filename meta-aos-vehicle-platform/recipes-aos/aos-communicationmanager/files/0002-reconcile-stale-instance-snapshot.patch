@@ -1,0 +1,120 @@
+Upstream-Status: Pending [live service-update qualification]
+
+diff --git a/src/core/cm/launcher/instancemanager.cpp b/src/core/cm/launcher/instancemanager.cpp
+index 885d98a1..3a1c9b0a 100644
+--- a/src/core/cm/launcher/instancemanager.cpp
++++ b/src/core/cm/launcher/instancemanager.cpp
+@@ -548,6 +548,12 @@ bool InstanceManager::IsScheduled(const InstanceIdent& id, const String& version
+ 
+ Error InstanceManager::UpdateRunningInstances(const String& nodeID, const Array<InstanceStatus>& statuses)
+ {
++    for (const auto& status : statuses) {
++        if (status.mNodeID != nodeID) {
++            return AOS_ERROR_WRAP(Error(ErrorEnum::eInvalidArgument, "instance status belongs to another node"));
++        }
++    }
++
+     mRunningInstances.RemoveIf([&nodeID](const InstanceStatus& status) { return status.mNodeID == nodeID; });
+     mPreinstalledComponents.RemoveIf([&nodeID](const InstanceStatus& status) { return status.mNodeID == nodeID; });
+ 
+@@ -568,6 +574,14 @@ Error InstanceManager::UpdateRunningInstances(const String& nodeID, const Array<
+     Error firstErr = ErrorEnum::eNone;
+ 
+     for (const auto& status : statuses) {
++        // A full node snapshot may contain a previous or unassigned version.
++        // Retain it in mRunningInstances for stop/start reconciliation, without
++        // attributing its status to the desired version. Do not swallow errors
++        // returned while updating a known instance (including storage errors).
++        if (!status.mPreinstalled && !FindActiveInstance(static_cast<const InstanceIdent&>(status), status.mVersion)) {
++            continue;
++        }
++
+         if (auto err = UpdateStatus(status); !err.IsNone() && firstErr.IsNone()) {
+             firstErr = err;
+         }
+diff --git a/src/core/cm/launcher/tests/launcher.cpp b/src/core/cm/launcher/tests/launcher.cpp
+index 219ca4cd..a70fa4e9 100644
+--- a/src/core/cm/launcher/tests/launcher.cpp
++++ b/src/core/cm/launcher/tests/launcher.cpp
+@@ -1716,6 +1716,81 @@ TEST_F(CMLauncherTest, ResendInstancesOnMismatchedNodeStatus)
+         Array<InstanceStatus>(expectedStatuses.data(), expectedStatuses.size()));
+ }
+ 
++class CMStaleSnapshotTest : public CMLauncherTest, public WithParamInterface<aos::InstanceStateEnum> { };
++
++TEST_P(CMStaleSnapshotTest, OldVersionTriggersResendWithoutChangingDesiredVersion)
++{
++    using namespace std::chrono_literals;
++
++    mStorageState.Init();
++    mStorageState.SetTotalStateSize(1024);
++    mStorageState.SetTotalStorageSize(1024);
++    mNodeInfoProvider.Init();
++    mImageStore.Init();
++    mInstanceStatusProvider.Init();
++    mMonitoringProvider.Init();
++    mResourceManager.Init();
++    mStorage.Init();
++
++    auto nodeInfo = CreateNodeInfo(cNodeIDLocalSM, 1000, 1024, {CreateRuntime(cRunnerRunc)}, {});
++    mNodeInfoProvider.AddNodeInfo(cNodeIDLocalSM, nodeInfo);
++    auto nodeConfig = std::make_unique<NodeConfig>();
++    CreateNodeConfig(*nodeConfig, cNodeIDLocalSM);
++    mResourceManager.SetNodeConfig(cNodeIDLocalSM, cNodeTypeVM, *nodeConfig);
++    auto monitoring = std::make_unique<monitoring::NodeMonitoringData>();
++    CreateNodeMonitoring(*monitoring, cNodeIDLocalSM, 0.0);
++    mMonitoringProvider.SetAverageMonitoring(cNodeIDLocalSM, *monitoring);
++
++    auto itemConfig = std::make_unique<oci::ItemConfig>();
++    CreateItemConfig(*itemConfig, {cRunnerRunc});
++    AddItem(cService1, cImageID1, *itemConfig, CreateImageConfig(), "4.0.0");
++    mInstanceRunner.Init(mLauncher, false, aos::InstanceStateEnum::eActive);
++    const auto ident = CreateInstanceIdent(cService1, cSubject1, 0);
++    mInstanceRunner.SetInstanceStatuses({CreateInstanceStatus(ident, cNodeIDLocalSM, cRunnerRunc,
++        GetParam(), ErrorEnum::eNone, "3.0.0")});
++    EXPECT_CALL(mInstanceRunner, OnRunRequest()).Times(2).WillRepeatedly([&]() {
++        mInstanceRunner.SetAutoUpdateStatuses(true);
++    });
++
++    ASSERT_TRUE(mLauncher.Init(CreateConfig(), mNodeInfoProvider, mInstanceRunner, mImageStore, mImageStore,
++        mResourceManager, mStorageState, mMonitoringProvider, mAlertsProvider, mIdentProvider,
++        ValidateGID, ValidateUID, mStorage).IsNone());
++    ASSERT_TRUE(mLauncher.Start().IsNone());
++    mInstanceRunner.SendInitialStatuses(cNodeIDLocalSM);
++    InstanceStatusListenerStub listener;
++    mLauncher.SubscribeListener(listener);
++    auto requests = std::make_unique<StaticArray<RunInstanceRequest, cMaxNumInstances>>();
++    requests->PushBack(CreateRunRequest(cService1, cSubject1, 50, 1, "", {}, UpdateItemTypeEnum::eService, "4.0.0"));
++    auto statuses = std::make_unique<StaticArray<InstanceStatus, cMaxNumInstances>>();
++    ASSERT_TRUE(mLauncher.RunInstances(*requests, *statuses).IsNone());
++    ASSERT_TRUE(listener.WaitForNotifyCount(3, 2s));
++
++    const auto actual = mInstanceRunner.GetRunRequests().at(cNodeIDLocalSM);
++    ASSERT_EQ(actual.mStopInstances.size(), 1);
++    ASSERT_EQ(actual.mStartInstances.size(), 1);
++    EXPECT_EQ(actual.mStopInstances[0].mVersion, String("3.0.0"));
++    EXPECT_EQ(actual.mStartInstances[0].mVersion, String("4.0.0"));
++    ASSERT_EQ(listener.GetLastStatuses().Size(), 1);
++    EXPECT_EQ(listener.GetLastStatuses()[0].mVersion, String("4.0.0"));
++    EXPECT_EQ(listener.GetLastStatuses()[0].mState, aos::InstanceStateEnum::eActive);
++
++    // Reject a cross-node snapshot before mutating observed instance state.
++    auto wrong = CreateInstanceStatus(ident, cNodeIDRemoteSM1, cRunnerRunc,
++        aos::InstanceStateEnum::eActive, ErrorEnum::eNone, "4.0.0");
++    EXPECT_TRUE(static_cast<InstanceStatusReceiverItf&>(mLauncher).OnNodeInstancesStatusesReceived(cNodeIDLocalSM, Array<InstanceStatus>(&wrong, 1))
++        .Is(ErrorEnum::eInvalidArgument));
++    // A real storage not-found for a known desired instance must still fail.
++    mStorage.ClearInstances();
++    wrong.mNodeID = cNodeIDLocalSM;
++    EXPECT_TRUE(static_cast<InstanceStatusReceiverItf&>(mLauncher).OnNodeInstancesStatusesReceived(cNodeIDLocalSM, Array<InstanceStatus>(&wrong, 1))
++        .Is(ErrorEnum::eNotFound));
++    mLauncher.UnsubscribeListener(listener);
++    ASSERT_TRUE(mLauncher.Stop().IsNone());
++}
++
++INSTANTIATE_TEST_SUITE_P(ServiceReconciliation, CMStaleSnapshotTest,
++    Values(aos::InstanceStateEnum::eActive, aos::InstanceStateEnum::eFailed));
++
+ TEST_F(CMLauncherTest, SubjectChanged)
+ {
+     using namespace std::chrono_literals;
