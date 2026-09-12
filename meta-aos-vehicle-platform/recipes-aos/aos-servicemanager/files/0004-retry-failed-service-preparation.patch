@@ -29,10 +29,10 @@ index f0d34982..c7110fdb 100644
  
          if (instanceData->mInfo.mType != UpdateItemTypeEnum::eService) {
 diff --git a/src/core/sm/launcher/tests/launcher.cpp b/src/core/sm/launcher/tests/launcher.cpp
-index 8e0d4700..b2ba4db3 100644
+index 8e0d4700..1bb547de 100644
 --- a/src/core/sm/launcher/tests/launcher.cpp
 +++ b/src/core/sm/launcher/tests/launcher.cpp
-@@ -724,6 +724,52 @@ TEST_P(ServiceReplacementTest, ReplacementPreservesTeardownFailureAndNeverStarts
+@@ -724,6 +724,58 @@ TEST_P(ServiceReplacementTest, ReplacementPreservesTeardownFailureAndNeverStarts
  
  INSTANTIATE_TEST_SUITE_P(ServiceUpdate, ServiceReplacementTest, Values(0, 1, 2));
  
@@ -47,6 +47,8 @@ index 8e0d4700..b2ba4db3 100644
 +
 +    if (configFails) {
 +        EXPECT_CALL(mItemInfoProvider, GetBlobPath)
++            .WillOnce(Return(ErrorEnum::eNone))
++            .WillOnce(Return(ErrorEnum::eNone))
 +            .WillOnce(Return(ErrorEnum::eNotFound))
 +            .WillRepeatedly(Return(ErrorEnum::eNone));
 +        EXPECT_CALL(mNetworkManager, CreateInstanceNetwork).Times(1).WillOnce(Return(ErrorEnum::eNone));
@@ -56,13 +58,17 @@ index 8e0d4700..b2ba4db3 100644
 +            .WillOnce(Return(persistentFailure ? ErrorEnum::eFailed : ErrorEnum::eNone));
 +    }
 +
-+    EXPECT_CALL(mRuntime0, StartInstance).Times(persistentFailure ? 0 : 1)
-+        .WillRepeatedly(Invoke([](const InstanceInfo& info, InstanceStatus& status) {
-+            SetInstanceStatus(info, InstanceStateEnum::eActive, status);
-+            return ErrorEnum::eNone;
-+        }));
-+    EXPECT_CALL(mRuntime0, StopInstance).Times(persistentFailure ? 0 : 1)
-+        .WillRepeatedly(Return(ErrorEnum::eNone));
++    if (persistentFailure) {
++        EXPECT_CALL(mRuntime0, StartInstance).Times(0);
++        EXPECT_CALL(mRuntime0, StopInstance).Times(0);
++    } else {
++        EXPECT_CALL(mRuntime0, StartInstance)
++            .WillOnce(Invoke([](const InstanceInfo& info, InstanceStatus& status) {
++                SetInstanceStatus(info, InstanceStateEnum::eActive, status);
++                return ErrorEnum::eNone;
++            }));
++        EXPECT_CALL(mRuntime0, StopInstance).WillOnce(Return(ErrorEnum::eNone));
++    }
 +
 +    ASSERT_TRUE(mLauncher.Init(GetRuntimesArray(), mImageManager, mSender, mStorage, mOCISpec,
 +        mItemInfoProvider, mCloudConnection, mNetworkManager, mInstanceIDProvider, mResourceInfoProvider).IsNone());
