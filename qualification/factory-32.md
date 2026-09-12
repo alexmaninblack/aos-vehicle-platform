@@ -21,10 +21,18 @@ Status: built and frozen on 12 September 2026; clean Test qualification pending.
 - Builder stopped cleanly. Current Test, Production, .31 and Cloud state were
   not changed. No transient overrides were removed from the running Test.
 
-The clean Test check awaits a bounded lifecycle decision: existing Test and
-Production share the .31 factory backing, while Demo Control currently requires
-the same backing when recreating only Test. A separate Test .32 backing must
-not replace or modify Production's .31. This is not a successful reboot proof.
+The user authorized the bounded Test-only lifecycle change on 12 September.
+Demo Control now supports a separate Test .32 backing without replacing or
+modifying Production's .31. Local lifecycle and Subject-retention regressions
+passed; live clean Test and reboot qualification remain open.
+
+12 September 02:52 UTC continuation: Demo Control retired the old Test Cloud
+Unit/Node and confirmed both retained service Subjects have zero Unit recipients.
+Production .31 remains running. Old Test local cleanup is paused because Docker
+Desktop retains its context file after owned backend container removal. The
+existing recovery command refused to restart Docker while other containers run;
+no restart/bypass was attempted. Separate authority for that interruption is
+required before continuing. No .32 Test VM has been created or qualified yet.
 
 The user authorized the successor image after the 12 September 2026 transient
 proof. Preserve .31 and Production until the new Test result is established.
