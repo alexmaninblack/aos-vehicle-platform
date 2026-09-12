@@ -32,7 +32,36 @@ Production .31 remains running. Old Test local cleanup is paused because Docker
 Desktop retains its context file after owned backend container removal. The
 existing recovery command refused to restart Docker while other containers run;
 no restart/bypass was attempted. Separate authority for that interruption is
-required before continuing. No .32 Test VM has been created or qualified yet.
+was required for that proposed interruption. This boundary was superseded by
+the authorized context-only unlink correction; Docker Desktop was not restarted.
+
+## Clean Test progress — 12 September 2026
+
+Demo Control context fix `de7a6e8` completed old-Test cleanup. Original .32 was
+copied and SHA-verified into Test's separate backing without changing Production
+.31. A fresh Test started with working SSH, DNS and role initialization (61.53 s).
+Provisioning completed in 20.39 s; new Unit
+`923b9820-999b-41bb-91db-b2a2c469e743`, UID
+`5aa1f8e4a1114467a6ccfb269c62a7a8`, Online in Test Vehicles. Both backend containers
+were recreated from their retained images/volumes, without restarting Docker or
+Watt. CARLA/Gateway connected to Test; Driving Control and telemetry show Safe Stop.
+
+The native installed managers are active with zero restarts, not transient copies:
+
+- SM `/usr/bin/aos_sm_app`, SHA-256
+  `936fbd563f7e9d54651504f5aeba84fee0f3736861d30c2efb60eb564e039783`.
+- CM `/usr/bin/aos_cm_app`, SHA-256
+  `85e03a5206576c71a571a46ef90345d43037ea71b2e00c77181d247be533028d`.
+- Both native service input resources are present in `/etc/aos/resources.cfg`.
+- SM observation: SELinux enforcing, zero denied entries since SM startup.
+
+Qualification remains open: Cloud lists VDP 18.0.0 `to be installed`, while the
+native retained desired status contains zero items/instances and the provider
+payload is not installed. CM remains connected and receives acknowledgements;
+no SM startup failure is reported. This is an observed delivery gap, not an
+established Cloud or image root cause. Preserve this Test for diagnosis rather
+than publish a replacement release or reapply transient managers. Services,
+mock backend ingestion and reboot recovery have not yet been proved on .32.
 
 The user authorized the successor image after the 12 September 2026 transient
 proof. Preserve .31 and Production until the new Test result is established.
