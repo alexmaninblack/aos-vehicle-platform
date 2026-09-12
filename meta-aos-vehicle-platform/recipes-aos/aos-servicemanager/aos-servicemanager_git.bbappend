@@ -15,7 +15,14 @@ SRC_URI += " \
     file://0003-preserve-failed-service-replacement.patch;patchdir=../service-update-deps/aos_core_lib_cpp \
     file://0004-retry-failed-service-preparation.patch;patchdir=../service-update-deps/aos_core_lib_cpp \
     file://systemd-slot-component \
+    file://resources-demo-services.cfg \
+    file://aos-demo-service-inputs.py \
+    file://40-aos-demo-service-inputs.conf \
 "
+
+# Public input projection is the accepted Demo Control integration, not a
+# launcher or token authority. All imports must be available on a clean image.
+RDEPENDS:${PN}:append = " python3-modules openssl"
 
 # Private, recipe-owned dependencies: do not patch the shared warm source cache.
 SRCREV_serviceupdatelib = "60cb83535f773762c61ac5f544b31b7b88c502e3"
@@ -36,6 +43,10 @@ do_configure:prepend() {
 }
 
 do_install:append() {
+    install -d ${D}${libexecdir} ${D}${sysconfdir}/systemd/system/aos-sm.service.d
+    install -m 0644 ${WORKDIR}/aos-demo-service-inputs.py ${D}${libexecdir}
+    install -m 0644 ${WORKDIR}/40-aos-demo-service-inputs.conf \
+        ${D}${sysconfdir}/systemd/system/aos-sm.service.d
     # WITH_TEST installs only CMake test-support data below an erroneous
     # ${prefix}/usr path. The qualifier itself remains in the build tree and
     # production packages must not contain this test-only staging directory.
@@ -43,3 +54,18 @@ do_install:append() {
         find "${D}${prefix}/usr" -depth -delete
     fi
 }
+
+do_install[postfuncs] += "aos_demo_service_resources"
+python aos_demo_service_resources() {
+    import json
+    from pathlib import Path
+    path = Path(d.getVar("D")) / d.getVar("sysconfdir").lstrip("/") / "aos/resources.cfg"
+    resources = json.loads(path.read_text())
+    additions = json.loads((Path(d.getVar("WORKDIR")) / "resources-demo-services.cfg").read_text())
+    names = [item["name"] for item in resources]
+    if len(names) != len(set(names)) or set(names) & {item["name"] for item in additions}:
+        bb.fatal("Duplicate native service input resource")
+    path.write_text(json.dumps(resources + additions, indent=4) + "\n")
+}
+
+FILES:${PN}:append = " ${libexecdir}/aos-demo-service-inputs.py ${sysconfdir}/systemd/system/aos-sm.service.d/40-aos-demo-service-inputs.conf"

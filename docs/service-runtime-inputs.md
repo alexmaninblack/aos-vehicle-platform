@@ -5,14 +5,16 @@
 
 Status: source implementation of accepted
 [ADR 0015](../../aosedge-sdv-demo/docs/architecture/decisions/0015-use-native-aos-service-runtime-inputs.md).
-Not installed or live-qualified; current Factory image and Test are unchanged.
+Factory .32 source integration follows the successful transient Test proof.
+The clean-image cold-start result remains unqualified until recorded explicitly.
 
 Demo Control owns [input preparation and sequence](../../aosedge-sdv-demo/docs/architecture/demo-control-service-inputs.md).
 The opt-in [resource asset](../meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/files/resources-demo-services.cfg)
 contains only brake-runtime-inputs and tire-runtime-inputs. Each maps its own
 /run/aos-demo-service-inputs/<team> directory to
 /run/aosedge/platform/service-inputs with bind,ro,nosuid,nodev,noexec.
-It is not selected by recipes before the bounded transient proof.
+Factory .32 merges this asset into the native resources configuration at build
+time, preserving the existing resources. Nothing is copied from a live VM.
 This document supplies the resource JSON's SPDX ownership.
 
 Both packages still request kuksa and kuksa-auth-client. They never request
@@ -46,13 +48,20 @@ a binary replacement.
 Project inputs before assignment; refresh only after committed VDP
 slot/process agreement; restore /run sources before retained assignments
 launch on cold start. No daemon, persistent metadata cache or certificate
-payload is added here. The exact boot hook is not yet qualified.
+payload is added here. The packaged `40-aos-demo-service-inputs.conf` uses SM's
+`ExecStartPre` for cold projection and `ExecStartPost` for bounded process/slot
+verification. It runs the same projector source as Demo Control. Empty source
+directories exist before container construction even without compatible VDP
+data; unavailable metadata is withheld, not synthesized. Warm refresh remains
+the explicit existing `democtl service runtime-prepare test` operation after
+committed VDP/process agreement. No autonomous warm-refresh daemon is added.
 
 The bounded Test proof must establish native non-root execution, real private
 mounts, peer isolation, public read-only access, KAC/TLS/subscriptions, renewal
 and scoped SELinux results. Host source tests do not establish these facts.
 Keep process, Cloud and product readiness separate. No rootfs remount,
-broader policy, TOFU, Factory rebuild or Production change is included.
+broader policy, TOFU or Production change is included. The user authorized the
+Factory .32 build on 12 September 2026; cold/live evidence is still required.
 
 ## Source increment evidence — 2026-09-11
 

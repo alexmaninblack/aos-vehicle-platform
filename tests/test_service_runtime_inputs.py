@@ -6,6 +6,8 @@
 import json
 from pathlib import Path
 import tempfile
+import textwrap
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -81,15 +83,31 @@ class ServiceRuntimeInputsTests(unittest.TestCase):
         self.assertIn("0001-add-production-systemd-slot-component-runtime.patch", recipe)
         self.assertFalse((ROOT / RESOURCE_DIRECTORY / "kuksatokenmount.hpp").exists())
 
-    def test_declaration_is_not_enabled_in_factory_config_or_recipes(self):
-        sm_config = json.loads((ROOT / RESOURCE_DIRECTORY / "sm.cfg").read_text())
-        self.assertNotIn("resourcesConfigFile", sm_config)
-        layer = ROOT / "meta-aos-vehicle-platform"
-        recipes = list(layer.rglob("*.bb")) + list(layer.rglob("*.bbappend"))
-        for recipe in recipes:
-            with self.subTest(recipe=recipe.relative_to(ROOT)):
-                self.assertNotIn(ASSET_PATH.name, recipe.read_text())
-                self.assertNotIn("aos-demo-service-inputs", recipe.read_text())
+    def test_factory_merge_retains_native_resources_and_rejects_duplicates(self):
+        recipe = (ROOT / RESOURCE_DIRECTORY.parent / "aos-servicemanager_git.bbappend").read_text()
+        body = textwrap.dedent(recipe.split("python aos_demo_service_resources() {\n", 1)[1].split("\n}", 1)[0])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "etc/aos/resources.cfg"
+            path.parent.mkdir(parents=True)
+            original = json.loads((ROOT / RESOURCE_DIRECTORY / "resources.cfg").read_text())
+            path.write_text(json.dumps(original))
+            values = dict(D=str(root), sysconfdir="/etc", WORKDIR=str(ROOT / RESOURCE_DIRECTORY))
+            scope = dict(d=SimpleNamespace(getVar=values.get), bb=SimpleNamespace(fatal=lambda message: (_ for _ in ()).throw(ValueError(message))))
+            exec(body, scope)
+            self.assertEqual(original + self.resources, json.loads(path.read_text()))
+            with self.assertRaisesRegex(ValueError, "Duplicate"):
+                exec(body, scope)
+
+    def test_factory_hooks_do_not_replace_sm_or_create_a_daemon(self):
+        dropin = (ROOT / RESOURCE_DIRECTORY / "40-aos-demo-service-inputs.conf").read_text()
+        self.assertIn("ExecStartPre=/usr/bin/python3 -B /usr/libexec/aos-demo-service-inputs.py cold", dropin)
+        self.assertIn("ExecStartPost=/usr/bin/python3 -B /usr/libexec/aos-demo-service-inputs.py verify", dropin)
+        self.assertNotIn("ExecStart=", dropin)
+        self.assertNotIn("Restart=", dropin)
+        recipe = (ROOT / RESOURCE_DIRECTORY.parent / "aos-servicemanager_git.bbappend").read_text()
+        self.assertIn('do_install[postfuncs] += "aos_demo_service_resources"', recipe)
+        self.assertIn("python3-modules openssl", recipe)
 
     def test_no_runtime_payload_or_certificate_is_packaged_with_asset(self):
         directory = ROOT / RESOURCE_DIRECTORY
