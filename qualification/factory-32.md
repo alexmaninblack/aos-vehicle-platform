@@ -3,7 +3,28 @@
 
 # Factory .32 — native service recovery
 
-Status: source prepared; build and clean Test qualification pending.
+Status: built and frozen on 12 September 2026; clean Test qualification pending.
+
+## Build result
+
+- Platform source: `04fc8270c55ff5c35f1e98af534a5efccb035464`.
+- Release: `6.1.1-maninblack.32/main-qemuarm64`, raw image, 6,997,147,648 bytes.
+- SHA-256: `f56e037ff6ce11d1dea769055dc160a5a9a8061bbdd2d67745a3042181be2f14`.
+- Artifact: `demo-artifacts/aosedge-sdv-demo/factory-images/6.1.1-maninblack.32/main-qemuarm64.img`
+  beneath the operator's `OpenAI` workspace; not committed to Git.
+- Offline manager compile, five native Factory/VDP regressions, manager package
+  QA, final packaged resource/projector/hook checks, filesystem/image QA and
+  unchanged disk assembly passed. Host transfer SHA matched; image is read-only.
+- Eleven focused Platform tests and 80 affected Demo Control tests passed.
+- Package QA retained six nonfatal `buildpaths` warnings in manager binaries,
+  debug files and static libraries; the gate was not bypassed.
+- Builder stopped cleanly. Current Test, Production, .31 and Cloud state were
+  not changed. No transient overrides were removed from the running Test.
+
+The clean Test check awaits a bounded lifecycle decision: existing Test and
+Production share the .31 factory backing, while Demo Control currently requires
+the same backing when recreating only Test. A separate Test .32 backing must
+not replace or modify Production's .31. This is not a successful reboot proof.
 
 The user authorized the successor image after the 12 September 2026 transient
 proof. Preserve .31 and Production until the new Test result is established.
