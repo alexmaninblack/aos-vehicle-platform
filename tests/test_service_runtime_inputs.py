@@ -106,8 +106,13 @@ class ServiceRuntimeInputsTests(unittest.TestCase):
         self.assertNotIn("ExecStart=", dropin)
         self.assertNotIn("Restart=", dropin)
         recipe = (ROOT / RESOURCE_DIRECTORY.parent / "aos-servicemanager_git.bbappend").read_text()
-        self.assertIn('do_install[postfuncs] += "aos_demo_service_resources"', recipe)
+        self.assertIn('do_update_config[postfuncs] += "aos_demo_service_resources"', recipe)
         self.assertIn("python3-modules openssl", recipe)
+
+    def test_cm_does_not_package_build_only_crypto_test_fixtures(self):
+        recipe = (ROOT / "meta-aos-vehicle-platform/recipes-aos/aos-communicationmanager/aos-communicationmanager_git.bbappend").read_text()
+        self.assertIn('if [ -d "${D}${prefix}/usr" ]; then', recipe)
+        self.assertIn('find "${D}${prefix}/usr" -depth -delete', recipe)
 
     def test_no_runtime_payload_or_certificate_is_packaged_with_asset(self):
         directory = ROOT / RESOURCE_DIRECTORY

@@ -55,7 +55,9 @@ do_install:append() {
     fi
 }
 
-do_install[postfuncs] += "aos_demo_service_resources"
+# Native configuration processing follows install; merge after that task so
+# the final packaged configuration, not an intermediate file, owns the mounts.
+do_update_config[postfuncs] += "aos_demo_service_resources"
 python aos_demo_service_resources() {
     import json
     from pathlib import Path

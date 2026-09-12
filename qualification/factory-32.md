@@ -43,6 +43,12 @@ defect. Successful mock backend records do not qualify actual vehicle advisory.
 
 ## Source checks
 
+First build attempt: both managers compiled and all five native Factory/VDP
+tests passed. CM package QA rejected build-only CMake crypto fixtures under
+`/usr/usr`; the CM recipe now excludes that staging tree exactly as SM already
+does. Final service resources are merged after native `do_update_config`.
+Builder stopped automatically; no image was published from the failed attempt.
+
 Native correction proof: 77 affected SM tests and four CM snapshot tests passed
 before this image integration. Factory resource/hook tests and the unchanged
 five native Factory/VDP configuration regressions are the build gates; record

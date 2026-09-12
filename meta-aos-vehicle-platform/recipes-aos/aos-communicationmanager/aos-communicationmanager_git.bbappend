@@ -16,3 +16,11 @@ SRCREV_serviceupdateapi = "af3552a0a5eb0237eff7f5f183780ca46c339cd3"
 SRCREV_FORMAT = "default_serviceupdatelib_serviceupdateapi"
 DEPENDS:append = " softhsm googletest"
 EXTRA_OECMAKE:append = " -DAOS_CORE_DIR=${WORKDIR}/service-update-deps -DWITH_TEST=ON -DCMAKE_GTEST_DISCOVER_TESTS_DISCOVERY_MODE=PRE_TEST"
+
+do_install:append() {
+    # Match SM packaging: WITH_TEST installs CMake-only test fixtures into an
+    # erroneous nested /usr/usr prefix. They are not CM runtime dependencies.
+    if [ -d "${D}${prefix}/usr" ]; then
+        find "${D}${prefix}/usr" -depth -delete
+    fi
+}
