@@ -1,0 +1,87 @@
+From: AosEdge SDV Demo <demo@localhost>
+Subject: [PATCH] Retry preparation of a failed same-version service
+
+A transient image/config or network-provider failure must not become a
+permanent missing-network failure on the next native run request. Retain
+the existing failed replacement ownership check and component behavior.
+
+Upstream-Status: Pending
+
+diff --git a/src/core/sm/launcher/launcher.cpp b/src/core/sm/launcher/launcher.cpp
+index f0d34982..c7110fdb 100644
+--- a/src/core/sm/launcher/launcher.cpp
++++ b/src/core/sm/launcher/launcher.cpp
+@@ -744,9 +744,15 @@ void Launcher::PrepareInstances(const Array<InstanceInfo>& startInstances)
+                 // failure and start its old version for a new desired instance.
+                 continue;
+             }
++            const bool retryPreparation = instance.mType == UpdateItemTypeEnum::eService
++                && instanceData->mStatus.mState == InstanceStateEnum::eFailed;
+             SetInstanceState(*instanceData, InstanceStateEnum::eInactive);
+ 
+-            continue;
++            // A failed first attempt may not have prepared configs/network.
++            // Retry preparation for the same service before calling its runtime.
++            if (!retryPreparation) {
++                continue;
++            }
+         }
+ 
+         if (instanceData->mInfo.mType != UpdateItemTypeEnum::eService) {
+diff --git a/src/core/sm/launcher/tests/launcher.cpp b/src/core/sm/launcher/tests/launcher.cpp
+index 8e0d4700..b2ba4db3 100644
+--- a/src/core/sm/launcher/tests/launcher.cpp
++++ b/src/core/sm/launcher/tests/launcher.cpp
+@@ -724,6 +724,52 @@ TEST_P(ServiceReplacementTest, ReplacementPreservesTeardownFailureAndNeverStarts
+ 
+ INSTANTIATE_TEST_SUITE_P(ServiceUpdate, ServiceReplacementTest, Values(0, 1, 2));
+ 
++class ServicePreparationRetryTest : public LauncherTest, public WithParamInterface<int> {};
++
++TEST_P(ServicePreparationRetryTest, SameDesiredServiceRetriesFailedPreparation)
++{
++    const bool configFails = GetParam() == 0;
++    const bool persistentFailure = GetParam() == 2;
++    const std::vector stored {CreateInstanceInfo("service-prepare", 0, "7.0.0", "runtime0")};
++    mStorage.Init(stored);
++
++    if (configFails) {
++        EXPECT_CALL(mItemInfoProvider, GetBlobPath)
++            .WillOnce(Return(ErrorEnum::eNotFound))
++            .WillRepeatedly(Return(ErrorEnum::eNone));
++        EXPECT_CALL(mNetworkManager, CreateInstanceNetwork).Times(1).WillOnce(Return(ErrorEnum::eNone));
++    } else {
++        EXPECT_CALL(mNetworkManager, CreateInstanceNetwork)
++            .WillOnce(Return(ErrorEnum::eFailed))
++            .WillOnce(Return(persistentFailure ? ErrorEnum::eFailed : ErrorEnum::eNone));
++    }
++
++    EXPECT_CALL(mRuntime0, StartInstance).Times(persistentFailure ? 0 : 1)
++        .WillRepeatedly(Invoke([](const InstanceInfo& info, InstanceStatus& status) {
++            SetInstanceStatus(info, InstanceStateEnum::eActive, status);
++            return ErrorEnum::eNone;
++        }));
++    EXPECT_CALL(mRuntime0, StopInstance).Times(persistentFailure ? 0 : 1)
++        .WillRepeatedly(Return(ErrorEnum::eNone));
++
++    ASSERT_TRUE(mLauncher.Init(GetRuntimesArray(), mImageManager, mSender, mStorage, mOCISpec,
++        mItemInfoProvider, mCloudConnection, mNetworkManager, mInstanceIDProvider, mResourceInfoProvider).IsNone());
++    ASSERT_TRUE(mLauncher.Start().IsNone());
++    ASSERT_TRUE(mLauncher.GetInstancesStatuses(mReceivedStatuses).IsNone());
++    ASSERT_EQ(mReceivedStatuses.Size(), 1);
++    EXPECT_EQ(mReceivedStatuses[0].mState, InstanceStateEnum::eFailed);
++
++    ASSERT_TRUE(mLauncher.UpdateInstances({}, Array<InstanceInfo>(stored.data(), stored.size())).IsNone());
++    ASSERT_TRUE(mSender.WaitStatuses(mReceivedStatuses, cWaitTimeout).IsNone());
++    ASSERT_EQ(mReceivedStatuses.Size(), 1);
++    EXPECT_EQ(mReceivedStatuses[0].mVersion, String("7.0.0"));
++    EXPECT_EQ(mReceivedStatuses[0].mState,
++        persistentFailure ? InstanceStateEnum::eFailed : InstanceStateEnum::eActive);
++    ASSERT_TRUE(mLauncher.Stop().IsNone());
++}
++
++INSTANTIATE_TEST_SUITE_P(ServicePreparation, ServicePreparationRetryTest, Values(0, 1, 2));
++
+ TEST_F(LauncherTest, ParallelUpdateInstancesDoesNotInterfere)
+ {
+     const std::vector cStartInstanceInfos = {
