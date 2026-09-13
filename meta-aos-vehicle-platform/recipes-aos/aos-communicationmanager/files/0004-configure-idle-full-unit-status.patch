@@ -1,0 +1,71 @@
+diff --git a/src/cm/app/aoscore.cpp b/src/cm/app/aoscore.cpp
+index a157b0f4..1abb83a3 100644
+--- a/src/cm/app/aoscore.cpp
++++ b/src/cm/app/aoscore.cpp
+@@ -104,7 +104,7 @@ void AosCore::Init(const std::string& configFile)
+         mStorageState, mSMController, mAlerts, mIAMClient, utils::IsUIDValid, utils::IsGIDValid, mDatabase);
+     AOS_ERROR_CHECK_AND_THROW(err, "can't initialize launcher");
+ 
+-    err = mUpdateManager.Init({mConfig.mUnitStatusSendTimeout}, mIAMClient, mIAMClient, mUnitConfig, mNodeInfoProvider,
++    err = mUpdateManager.Init({mConfig.mUnitStatusSendTimeout, mConfig.mIdleFullStatusInterval}, mIAMClient, mIAMClient, mUnitConfig, mNodeInfoProvider,
+         mImageManager, mLauncher, mCommunication, mCommunication, mDatabase);
+     AOS_ERROR_CHECK_AND_THROW(err, "can't initialize update manager");
+ 
+diff --git a/src/cm/config/config.cpp b/src/cm/config/config.cpp
+index 927c91ab..d2964ed8 100644
+--- a/src/cm/config/config.cpp
++++ b/src/cm/config/config.cpp
+@@ -170,6 +170,13 @@ Error ParseConfig(const std::string& filename, Config& config)
+             object.GetValue<std::string>("unitStatusSendTimeout", cDefaultUnitStatusSendTimeout));
+         AOS_ERROR_CHECK_AND_THROW(err, "error parsing unitStatusSendTimeout tag");
+ 
++        Tie(config.mIdleFullStatusInterval, err) = common::utils::ParseDuration(
++            object.GetValue<std::string>("idleFullStatusInterval", "0s"));
++        AOS_ERROR_CHECK_AND_THROW(err, "error parsing idleFullStatusInterval tag");
++        if (config.mIdleFullStatusInterval < Duration {}) {
++            return ErrorEnum::eInvalidArgument;
++        }
++
+         Tie(config.mCloudResponseWaitTimeout, err) = common::utils::ParseDuration(
+             object.GetValue<std::string>("cloudResponseWaitTimeout", cDefaultCloudResponseWaitTimeout));
+         AOS_ERROR_CHECK_AND_THROW(err, "error parsing cloudResponseWaitTimeout tag");
+diff --git a/src/cm/config/config.hpp b/src/cm/config/config.hpp
+index 396cba3a..6ce68725 100644
+--- a/src/cm/config/config.hpp
++++ b/src/cm/config/config.hpp
+@@ -58,6 +58,7 @@ struct Config {
+     std::string               mWorkingDir;
+     std::string               mUnitConfigFile;
+     Duration                  mUnitStatusSendTimeout;
++    Duration                  mIdleFullStatusInterval {};
+     Duration                  mCloudResponseWaitTimeout;
+ };
+ 
+diff --git a/src/cm/config/tests/config.cpp b/src/cm/config/tests/config.cpp
+index 00eca0ee..7f4ce3d5 100644
+--- a/src/cm/config/tests/config.cpp
++++ b/src/cm/config/tests/config.cpp
+@@ -36,6 +36,7 @@ constexpr auto cFullTestConfigJSON = R"({
+     "workingDir": "workingDir",
+     "unitConfigFile": "/var/aos/aos_unit.cfg",
+     "cloudResponseWaitTimeout": "3d",
++    "idleFullStatusInterval": "60s",
+     "monitoring": {
+         "sendPeriod": "5m"
+     },
+@@ -128,6 +129,7 @@ TEST_F(CMConfigTest, ParseFullConfig)
+     EXPECT_EQ(config.mCertStorage, "/var/aos/crypt/cm/");
+ 
+     EXPECT_EQ(config.mCloudResponseWaitTimeout, aos::Time::cDay * 3);
++    EXPECT_EQ(config.mIdleFullStatusInterval, aos::Time::cSeconds * 60);
+ 
+     EXPECT_EQ(config.mMonitoring.mSendPeriod, aos::Time::cMinutes * 5);
+     EXPECT_EQ(config.mNodeInfoProvider.mSMConnectionTimeout, aos::Time::cMinutes * 10);
+@@ -171,6 +173,7 @@ TEST_F(CMConfigTest, ParseMinimalConfigWithDefaults)
+     EXPECT_EQ(config.mUnitConfigFile, (std::filesystem::path("workingDir") / "aos_unit.cfg").string());
+ 
+     EXPECT_EQ(config.mUnitStatusSendTimeout, aos::Time::cSeconds * 10);
++    EXPECT_EQ(config.mIdleFullStatusInterval, aos::Duration {});
+     EXPECT_EQ(config.mCloudResponseWaitTimeout, aos::Time::cSeconds * 10);
+ 
+     EXPECT_EQ(config.mMonitoring.mSendPeriod, aos::Time::cMinutes * 1);

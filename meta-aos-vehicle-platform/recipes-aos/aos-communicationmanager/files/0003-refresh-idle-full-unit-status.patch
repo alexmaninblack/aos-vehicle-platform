@@ -1,0 +1,331 @@
+diff --git a/src/core/cm/updatemanager/config.hpp b/src/core/cm/updatemanager/config.hpp
+index 51037cb5..f8478e74 100644
+--- a/src/core/cm/updatemanager/config.hpp
++++ b/src/core/cm/updatemanager/config.hpp
+@@ -16,6 +16,7 @@ namespace aos::cm::updatemanager {
+  */
+ struct Config {
+     Duration mUnitStatusSendTimeout;
++    Duration mIdleFullStatusInterval {};
+ 
+     /**
+      * Compares config.
+@@ -23,7 +24,11 @@ struct Config {
+      * @param rhs config to compare.
+      * @return bool.
+      */
+-    bool operator==(const Config& rhs) const { return mUnitStatusSendTimeout == rhs.mUnitStatusSendTimeout; }
++    bool operator==(const Config& rhs) const
++    {
++        return mUnitStatusSendTimeout == rhs.mUnitStatusSendTimeout
++            && mIdleFullStatusInterval == rhs.mIdleFullStatusInterval;
++    }
+ 
+     /**
+      * Compares config.
+diff --git a/src/core/cm/updatemanager/desiredstatushandler.cpp b/src/core/cm/updatemanager/desiredstatushandler.cpp
+index 7c8ce5f3..6e605988 100644
+--- a/src/core/cm/updatemanager/desiredstatushandler.cpp
++++ b/src/core/cm/updatemanager/desiredstatushandler.cpp
+@@ -181,10 +181,22 @@ void DesiredStatusHandler::Run()
+         {
+             UniqueLock lock {mMutex};
+ 
+-            if (auto err
+-                = mCondVar.Wait(lock, [this]() { return !mIsRunning || mUpdateState != UpdateStateEnum::eNone; });
+-                !err.IsNone()) {
+-                LOG_ERR() << "Error waiting cond var" << Log::Field(err);
++            const auto ready = [this]() { return !mIsRunning || mUpdateState != UpdateStateEnum::eNone; };
++            const auto refreshInterval = mUnitStatusHandler->GetIdleFullStatusInterval();
++            const auto waitError = refreshInterval > Duration {}
++                ? mCondVar.Wait(lock, refreshInterval, ready) : mCondVar.Wait(lock, ready);
++            if (waitError == ErrorEnum::eTimeout && mIsRunning && mUpdateState == UpdateStateEnum::eNone
++                && refreshInterval > Duration {}) {
++                // Reuse the update worker, not another timer/snapshot writer.
++                // Active updates keep their normal completion status path.
++                lock.Unlock();
++                if (auto err = mUnitStatusHandler->SendFullUnitStatus(true); !err.IsNone()) {
++                    LOG_ERR() << "Idle full unit status refresh failed" << Log::Field(err);
++                }
++                continue;
++            }
++            if (!waitError.IsNone()) {
++                LOG_ERR() << "Error waiting cond var" << Log::Field(waitError);
+             }
+ 
+             if (!mIsRunning) {
+diff --git a/src/core/cm/updatemanager/tests/stubs/senderstub.hpp b/src/core/cm/updatemanager/tests/stubs/senderstub.hpp
+index 3e539c06..72f2971c 100644
+--- a/src/core/cm/updatemanager/tests/stubs/senderstub.hpp
++++ b/src/core/cm/updatemanager/tests/stubs/senderstub.hpp
+@@ -31,6 +31,7 @@ public:
+ 
+         mUnitStatus = unitStatus;
+         mSendCalled = true;
++        ++mSendCount;
+         mCondVar.notify_one();
+ 
+         return ErrorEnum::eNone;
+@@ -49,11 +50,32 @@ public:
+         return mUnitStatus;
+     }
+ 
++    size_t SendCount()
++    {
++        std::lock_guard lock {mMutex};
++        return mSendCount;
++    }
++
++    bool WaitForCount(size_t count, std::chrono::milliseconds timeout)
++    {
++        std::unique_lock lock {mMutex};
++        return mCondVar.wait_for(lock, timeout, [this, count] { return mSendCount >= count; });
++    }
++
++    bool IsFullSnapshot()
++    {
++        std::lock_guard lock {mMutex};
++        return !mUnitStatus.mIsDeltaInfo && mUnitStatus.mUnitConfig.HasValue()
++            && mUnitStatus.mNodes.HasValue() && mUnitStatus.mUpdateItems.HasValue()
++            && mUnitStatus.mInstances.HasValue() && mUnitStatus.mUnitSubjects.HasValue();
++    }
++
+ private:
+     static constexpr std::chrono::milliseconds cWaitTimeout {5000};
+ 
+     UnitStatus              mUnitStatus;
+     bool                    mSendCalled {};
++    size_t                  mSendCount {};
+     std::mutex              mMutex;
+     std::condition_variable mCondVar;
+ };
+diff --git a/src/core/cm/updatemanager/tests/updatemanager.cpp b/src/core/cm/updatemanager/tests/updatemanager.cpp
+index 6e551220..936aa7e8 100644
+--- a/src/core/cm/updatemanager/tests/updatemanager.cpp
++++ b/src/core/cm/updatemanager/tests/updatemanager.cpp
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include <gtest/gtest.h>
++#include <thread>
+ 
+ #include <core/common/tests/mocks/cloudconnectionmock.hpp>
+ #include <core/common/tests/mocks/identprovidermock.hpp>
+@@ -324,7 +325,7 @@ protected:
+ 
+     void SetUp() override
+     {
+-        Config config {cUnitStatusSendTimeout};
++        Config config {cUnitStatusSendTimeout, IdleRefreshInterval()};
+ 
+         auto err = mUpdateManager.Init(config, mIdentProviderMock, mNodeHandlerMock, mUnitConfigMock,
+             mNodeInfoProviderMock, mImageManagerMock, mLauncherMock, mCloudConnectionMock, mSenderStub, mStorageStub);
+@@ -412,6 +413,8 @@ protected:
+         EXPECT_TRUE(err.IsNone()) << "Failed to stop update manager: " << tests::utils::ErrorToStr(err);
+     }
+ 
++    virtual Duration IdleRefreshInterval() const { return {}; }
++
+     UpdateManager                                    mUpdateManager;
+     NiceMock<iamclient::IdentProviderMock>           mIdentProviderMock;
+     NiceMock<iamclient::NodeHandlerMock>             mNodeHandlerMock;
+@@ -434,6 +437,50 @@ protected:
+  * Tests
+  **********************************************************************************************************************/
+ 
++class IdleRefreshTest : public UpdateManagerTest {
++protected:
++    Duration IdleRefreshInterval() const override { return 100 * Time::cMilliseconds; }
++};
++
++TEST_F(UpdateManagerTest, IdleRefreshDisabledByDefault)
++{
++    mConnectionListener->OnConnect();
++    ASSERT_TRUE(mSenderStub.WaitForCount(1, std::chrono::milliseconds(1000)));
++    EXPECT_FALSE(mSenderStub.WaitForCount(2, std::chrono::milliseconds(250)));
++}
++
++TEST_F(IdleRefreshTest, SendsFreshFullSnapshotsWithoutDesiredStatus)
++{
++    EXPECT_CALL(mImageManagerMock, DownloadUpdateItems(_, _, _, _)).Times(0);
++    EXPECT_CALL(mImageManagerMock, InstallUpdateItems(_, _)).Times(0);
++    mConnectionListener->OnConnect();
++    ASSERT_TRUE(mSenderStub.WaitForCount(3, std::chrono::milliseconds(1500)));
++    EXPECT_TRUE(mSenderStub.IsFullSnapshot());
++}
++
++TEST_F(IdleRefreshTest, DisconnectSuppressesRefreshAndReconnectResumes)
++{
++    mConnectionListener->OnConnect();
++    ASSERT_TRUE(mSenderStub.WaitForCount(2, std::chrono::milliseconds(1500)));
++    mConnectionListener->OnDisconnect();
++    // Allow a full report already in progress to return, then require silence.
++    std::this_thread::sleep_for(std::chrono::milliseconds(150));
++    auto count = mSenderStub.SendCount();
++    EXPECT_FALSE(mSenderStub.WaitForCount(count + 1, std::chrono::milliseconds(250)));
++    mConnectionListener->OnConnect();
++    EXPECT_TRUE(mSenderStub.WaitForCount(count + 2, std::chrono::milliseconds(1500)));
++    EXPECT_TRUE(mSenderStub.IsFullSnapshot());
++}
++
++TEST_F(IdleRefreshTest, CollectionFailureReleasesSnapshotForLaterRefresh)
++{
++    EXPECT_CALL(mUnitConfigMock, GetUnitConfigStatus(_))
++        .WillOnce(Return(ErrorEnum::eFailed)).WillRepeatedly(Return(ErrorEnum::eNone));
++    mConnectionListener->OnConnect();
++    ASSERT_TRUE(mSenderStub.WaitForCount(2, std::chrono::milliseconds(1500)));
++    EXPECT_TRUE(mSenderStub.IsFullSnapshot());
++}
++
+ TEST_F(UpdateManagerTest, SendUnitStatusOnCloudConnect)
+ {
+     auto expectedUnitStatus = std::make_unique<UnitStatus>();
+diff --git a/src/core/cm/updatemanager/unitstatushandler.cpp b/src/core/cm/updatemanager/unitstatushandler.cpp
+index 8d04069c..a74a454f 100644
+--- a/src/core/cm/updatemanager/unitstatushandler.cpp
++++ b/src/core/cm/updatemanager/unitstatushandler.cpp
+@@ -28,6 +28,7 @@ Error UnitStatusHandler::Init(const Config& config, iamclient::IdentProviderItf&
+     mCloudConnection        = &cloudConnection;
+     mSender                 = &sender;
+     mUnitStatusSendTimeout  = config.mUnitStatusSendTimeout;
++    mIdleFullStatusInterval = config.mIdleFullStatusInterval;
+ 
+     LOG_DBG() << "Init unit status handler";
+ 
+@@ -92,64 +93,64 @@ Error UnitStatusHandler::Stop()
+     return ErrorEnum::eNone;
+ }
+ 
+-Error UnitStatusHandler::SendFullUnitStatus()
++Error UnitStatusHandler::SendFullUnitStatus(bool idleRefresh)
+ {
+     {
+         LockGuard lock {mMutex};
+ 
+-        if (!mCloudConnected) {
++        if (!mCloudConnected || mIsStatusProcessing || (idleRefresh && mTimerStarted)) {
+             return ErrorEnum::eNone;
+         }
+ 
+         mIsStatusProcessing = true;
+     }
+ 
+-    LOG_INF() << "Send full unit status";
+-
+-    mUnitStatus.mIsDeltaInfo = false;
+-
+-    if (auto err = SetUnitConfigStatus(); !err.IsNone()) {
+-        return AOS_ERROR_WRAP(err);
+-    }
+-
+-    if (auto err = SetNodesInfo(); !err.IsNone()) {
+-        return AOS_ERROR_WRAP(err);
+-    }
+-
+-    if (auto err = SetUpdateItemsStatus(); !err.IsNone()) {
+-        return AOS_ERROR_WRAP(err);
+-    }
+-
+-    if (auto err = SetInstancesStatus(); !err.IsNone()) {
+-        return AOS_ERROR_WRAP(err);
++    if (idleRefresh) {
++        LOG_INF() << "Refresh idle full unit status";
+     }
+ 
+-    if (auto err = SetUnitSubjects(); !err.IsNone()) {
+-        return AOS_ERROR_WRAP(err);
+-    }
+-
+-    if (auto err = SetItemsForPreinstalledInstances(); !err.IsNone()) {
+-        return AOS_ERROR_WRAP(err);
+-    }
+-
+-    {
++    // The existing status producer owns this snapshot. Always release its
++    // processing guard on collection/send error so a later refresh can recover.
++    const auto collectAndSend = [this]() -> Error {
++        LOG_INF() << "Send full unit status";
++        mUnitStatus.mIsDeltaInfo = false;
++        if (auto err = SetUnitConfigStatus(); !err.IsNone()) {
++            return AOS_ERROR_WRAP(err);
++        }
++        if (auto err = SetNodesInfo(); !err.IsNone()) {
++            return AOS_ERROR_WRAP(err);
++        }
++        if (auto err = SetUpdateItemsStatus(); !err.IsNone()) {
++            return AOS_ERROR_WRAP(err);
++        }
++        if (auto err = SetInstancesStatus(); !err.IsNone()) {
++            return AOS_ERROR_WRAP(err);
++        }
++        if (auto err = SetUnitSubjects(); !err.IsNone()) {
++            return AOS_ERROR_WRAP(err);
++        }
++        if (auto err = SetItemsForPreinstalledInstances(); !err.IsNone()) {
++            return AOS_ERROR_WRAP(err);
++        }
+         LogUnitStatus();
+-
+         if (auto err = mSender->SendUnitStatus(mUnitStatus); !err.IsNone()) {
+             return AOS_ERROR_WRAP(err);
+         }
++        return ErrorEnum::eNone;
++    };
+ 
+-        ClearUnitStatus();
+-        ClearUpdateStatuses();
+-
+-        mTimer.Stop();
+-
++    const auto err = collectAndSend();
++    mTimer.Stop();
++    {
+         LockGuard lock {mMutex};
+-
++        ClearUnitStatus();
++        if (err.IsNone()) {
++            ClearUpdateStatuses();
++        }
++        mTimerStarted = false;
+         mIsStatusProcessing = false;
+     }
+-
+-    return ErrorEnum::eNone;
++    return err;
+ }
+ 
+ Error UnitStatusHandler::SetUpdateUnitConfigStatus(const UnitConfigStatus& status)
+@@ -579,6 +580,10 @@ void UnitStatusHandler::StartTimer()
+     mTimer.Start(mUnitStatusSendTimeout, [this](void*) {
+         LockGuard lock {mMutex};
+ 
++        if (!mCloudConnected || mIsStatusProcessing || !mTimerStarted) {
++            return;
++        }
++
+         mUnitStatus.mIsDeltaInfo = true;
+ 
+         LOG_INF() << "Send delta unit status";
+diff --git a/src/core/cm/updatemanager/unitstatushandler.hpp b/src/core/cm/updatemanager/unitstatushandler.hpp
+index 413d974a..94b8009f 100644
+--- a/src/core/cm/updatemanager/unitstatushandler.hpp
++++ b/src/core/cm/updatemanager/unitstatushandler.hpp
+@@ -73,7 +73,9 @@ public:
+      *
+      * @return Error
+      */
+-    Error SendFullUnitStatus();
++    Error SendFullUnitStatus(bool idleRefresh = false);
++
++    Duration GetIdleFullStatusInterval() const { return mIdleFullStatusInterval; }
+ 
+     /**
+      * Sets update unit config status.
+@@ -140,6 +142,7 @@ private:
+     Timer    mTimer;
+     bool     mTimerStarted {};
+     Duration mUnitStatusSendTimeout {};
++    Duration mIdleFullStatusInterval {};
+ 
+     Optional<UnitConfigStatus>             mUpdateUnitConfigStatus;
+     StaticMap<String, Error, cMaxNumNodes> mUpdateNodeStatuses;
