@@ -3,7 +3,20 @@
 
 # Factory .33 — persistent CM idle status recovery
 
-Status: source integration; build and clean Test E2E pending.
+Status: built on 13 September 2026; clean Test E2E not yet performed.
+
+Build source: `f7922b02b15f6cf816f181e1bf97572b61859aea`. Image size:
+6,997,147,648 bytes; SHA-256:
+`a302b2f2e2f238b361682ab8a529ec036ff260e00b2fb9a4d21db325d8d45761`.
+Offline compile, five native Factory tests, manager package QA, final CM
+60-second interval and service-input package checks, filesystem/image QA,
+disk assembly and host transfer passed. Builder stopped cleanly.
+
+Live qualification is paused before any Unit mutation: execution approval
+requires explicit retirement authority for the preserved isolated .31 Test
+comparison, which shares Test Vehicles. Canonical .32, comparison .31 and
+Production are unchanged. The detailed resume record is in the Solution
+repository, `docs/qualification/factory-33-e2e-2026-09-13.md`.
 
 Authorized on 13 September 2026. Preserve Production and the immutable .32
 baseline until qualification completes. All live/build actions use Demo Control.
