@@ -190,13 +190,13 @@ def project(request, *, cold=False):
         for temporary, target in staged:
             os.replace(temporary, target)
             changed.append(str(target.relative_to(PUBLIC)))
-        for directory in paths:
+        for directory in paths if changed else ():
             descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
             try:
                 os.fsync(descriptor)
             finally:
                 os.close(descriptor)
-        if observe() != before:
+        if changed and observe() != before:
             raise ValueError("SERVICE_INPUT_POST_WRITE_RECONCILIATION_REQUIRED")
         return dict(state="PREPARED", noOp=not changed, changed=changed,
             metadata=before["metadata"], vdpVersion=before["installed"]["Version"],
