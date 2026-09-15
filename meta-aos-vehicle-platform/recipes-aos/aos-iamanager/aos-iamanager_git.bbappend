@@ -3,7 +3,12 @@
 
 FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 
+# Keep complete VSS permission keys across CM, SM and IAM registration/readback.
+# Capacity only: permission scopes, values and authorization remain unchanged.
+CXXFLAGS:append = " -DAOS_CONFIG_TYPES_FUNCTION_LEN=256"
+
 SRC_URI += "file://enable-permissions-handler.py file://aos-kuksa-iam-configure.py"
+SRC_URI += "file://0001-use-function-count-for-permission-response.patch"
 
 inherit python3native
 

@@ -3,6 +3,11 @@
 
 FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 
+# Exact VSS permission paths exceed the native 32-character default. Apply
+# uniformly to the application and embedded Core library; match CM and IAM.
+# This changes storage capacity only, never scopes or authorization decisions.
+CXXFLAGS:append = " -DAOS_CONFIG_TYPES_FUNCTION_LEN=256"
+
 # Build-only dependency required by the upstream ARM64 test targets. It is not
 # a runtime dependency and is not installed into aos-image-vm.
 DEPENDS:append = " softhsm"

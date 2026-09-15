@@ -3,6 +3,11 @@
 
 FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 
+# Exact VSS permission paths exceed the native 32-character default. Apply
+# uniformly to the application and embedded Core library; match SM and IAM.
+# This changes storage capacity only, never scopes or authorization decisions.
+CXXFLAGS:append = " -DAOS_CONFIG_TYPES_FUNCTION_LEN=256"
+
 # Keep the pinned native CM and shared gRPC write-lock backport.
 SRC_URI += " \
     file://0001-serialize-sm-stream-writes.patch \

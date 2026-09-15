@@ -1,0 +1,14 @@
+From: AosEdge SDV Demo <demo@example.invalid>
+Subject: [PATCH] iamserver: size permission reply by functions, not services
+
+GetPermissions returns functions within one functional service. Using the
+functional-service count (16) rejects valid permission sets of 17..32 entries
+that RegisterInstance accepts. Keep all permission contents and policy intact.
+
+Upstream-Status: Pending
+
+--- a/src/iam/iamserver/publicmessagehandler.cpp
++++ b/src/iam/iamserver/publicmessagehandler.cpp
+@@ -1,1 +1,1 @@
+-    auto          aosInstancePerm = std::make_unique<StaticArray<FunctionPermissions, cFuncServiceMaxCount>>();
++    auto          aosInstancePerm = std::make_unique<StaticArray<FunctionPermissions, cFunctionsMaxCount>>();
