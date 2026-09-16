@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "kac/provider.hpp"
+#include "kac/store_completion.hpp"
 
 #ifdef NDEBUG
 #undef NDEBUG
@@ -96,6 +97,12 @@ void TestNegatives() {
 }  // namespace
 
 int main() {
+  using aos::kac::detail::CleanKeyStoreEnd;
+  assert(CleanKeyStoreEnd(true, 0, true));
+  assert(!CleanKeyStoreEnd(false, 0, true));
+  assert(!CleanKeyStoreEnd(true, 1, true));
+  assert(!CleanKeyStoreEnd(true, 0, false));
+  assert(!CleanKeyStoreEnd(false, 1, false));
   TestClaims();
   TestLifecycle();
   TestNegatives();

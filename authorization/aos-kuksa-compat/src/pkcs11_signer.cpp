@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "kac/core.hpp"
+#include "kac/store_completion.hpp"
 
 #include <openssl/crypto.h>
 #include <openssl/err.h>
@@ -88,6 +89,11 @@ class Pkcs11Signer::Impl {
     while (!OSSL_STORE_eof(store)) {
       OSSL_STORE_INFO* info = OSSL_STORE_load(store);
       if (info == nullptr) {
+        // OpenSSL storeutl treats loader EOF as termination even when the
+        // generic error flag is set. Be stricter: require one key already
+        // found and no queued error; retain duplicate/close/signature checks.
+        if (detail::CleanKeyStoreEnd(OSSL_STORE_eof(store) != 0,
+                                    ERR_peek_last_error(), key_ != nullptr)) break;
         if (OSSL_STORE_error(store)) {
           std::fprintf(stderr, "provider-prepare: stage=%s rv=0x%lx\n",
               OSSL_STORE_eof(store) ? "key-load-eof-error" : "key-load-error", ERR_peek_last_error());
