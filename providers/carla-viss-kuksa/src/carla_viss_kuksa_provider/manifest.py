@@ -31,6 +31,11 @@ ADVISORY_CONTRACT = {
     "contractVersion": "1.0.2",
     "sha256": "f7ae78148fb3b3265c8b773117126665afb1edd97a73f59db5a1f3af7c223487",
 }
+CURRENT_ADVISORY_CONTRACT = {
+    "contractId": "aosedge-demo-typed-qm-advisory",
+    "contractVersion": "1.1.0",
+    "sha256": "343e128bf9a0cac60a4f1b573315716f440accef17933fbcd9f6af49bc88300c",
+}
 ADVISORY_ENDPOINTS = {
     "BRAKE_HEALTH_ADVISORY": {
         "id": "BRAKE_HEALTH_ADVISORY",
@@ -112,6 +117,9 @@ def validate_manifest(manifest: object, profile: ModuleType) -> None:
         "vissTrustTelemetry": VISS_CONTRACT,
     }
     if profile.ADVISORY_ENDPOINT_IDS:
-        expected_contracts["typedQmAdvisory"] = ADVISORY_CONTRACT
+        advisory_contract = getattr(profile, "ADVISORY_CONTRACT", ADVISORY_CONTRACT)
+        if advisory_contract not in (ADVISORY_CONTRACT, CURRENT_ADVISORY_CONTRACT):
+            raise ManifestError("CONTRACT_DIGEST_MISMATCH")
+        expected_contracts["typedQmAdvisory"] = advisory_contract
     if contracts != expected_contracts:
         raise ManifestError("CONTRACT_DIGEST_MISMATCH")

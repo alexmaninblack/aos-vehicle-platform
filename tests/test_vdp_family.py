@@ -251,7 +251,7 @@ class VdpReleaseProfileTests(unittest.TestCase):
             self.assertEqual(configuration.semantic_version, profile.VERSION)
             self.assertEqual(configuration.signals, profile.SIGNALS)
             self.assertEqual(
-                configuration.advisory_enabled, profile.VERSION == "3.0.0"
+                configuration.advisory_enabled, False
             )
 
 
@@ -766,7 +766,7 @@ class VdpAdvisoryTests(unittest.TestCase):
         self.viss = FakeViss()
         self.kuksa = FakeKuksa()
         self.policy = AdvisoryPolicy(self.viss, self.kuksa)
-        self.brake = Caller("BRAKE_HEALTH", "3.0.0")
+        self.brake = Caller("BRAKE_HEALTH", "v3")
         self.brake_path = "Vehicle.OEM.BrakeHealth.Advisory.Request"
         self.brake_status = "Vehicle.OEM.BrakeHealth.Advisory.GatewayStatus"
 
@@ -784,7 +784,7 @@ class VdpAdvisoryTests(unittest.TestCase):
             reason="PREDICTED_TIRE_WEAR",
         )
         tire = self.policy.handle_request(
-            Caller("TIRE_HEALTH", "1.0.0"),
+            Caller("TIRE_HEALTH", "v1"),
             "Vehicle.OEM.TireHealth.Advisory.Request",
             tire_request,
             NOW,
@@ -802,12 +802,17 @@ class VdpAdvisoryTests(unittest.TestCase):
     def test_unknown_caller_path_provider_authority_and_motion_write_are_denied(self) -> None:
         cases = (
             (
-                Caller("TIRE_HEALTH", "1.0.0"),
+                Caller("TIRE_HEALTH", "v1"),
                 self.brake_path,
                 "UNAUTHORIZED_SOURCE",
             ),
             (
-                Caller("BRAKE_HEALTH", "3.0.0", "PROVIDER"),
+                Caller("BRAKE_HEALTH", "v3", "PROVIDER"),
+                self.brake_path,
+                "UNAUTHORIZED_SOURCE",
+            ),
+            (
+                Caller("BRAKE_HEALTH", "v2"),
                 self.brake_path,
                 "UNAUTHORIZED_SOURCE",
             ),
@@ -825,6 +830,32 @@ class VdpAdvisoryTests(unittest.TestCase):
                 self.assertFalse(decision.accepted)
                 self.assertEqual(decision.reason, reason)
         self.assertEqual(self.viss.sets, [])
+
+    def test_new_release_numbers_preserve_exact_provenance(self) -> None:
+        for team, profile, version, recommendation, reason in (
+            ("BRAKE_HEALTH", "v3", "47.0.0", "INSPECTION_RECOMMENDED", "PREDICTED_BRAKE_DEGRADATION"),
+            ("TIRE_HEALTH", "v1", "29.0.0", "TIRE_INSPECTION_RECOMMENDED", "PREDICTED_TIRE_WEAR"),
+            ("TIRE_HEALTH", "v1", "100.2.3", "TIRE_INSPECTION_RECOMMENDED", "PREDICTED_TIRE_WEAR"),
+        ):
+            with self.subTest(team=team, version=version):
+                raw = request(service_version=version, recommendation=recommendation, reason=reason)
+                path = self.brake_path if team == "BRAKE_HEALTH" else "Vehicle.OEM.TireHealth.Advisory.Request"
+                decision = AdvisoryPolicy(self.viss, self.kuksa).handle_request(Caller(team, profile), path, raw, NOW, 10.0)
+                self.assertTrue(decision.forwarded)
+                self.assertFalse(decision.application_success)
+                self.assertEqual((path, raw), self.viss.sets[-1])
+
+    def test_release_number_cannot_select_profile_or_bypass_replay(self) -> None:
+        for invalid in (None, 29, "", "v3", "29.0", "29.0.0\n", "29.0.0+unapproved"):
+            raw = json.loads(request())
+            raw["serviceVersion"] = invalid
+            self.assertEqual("INVALID_VALUE", self.policy.handle_request(self.brake, self.brake_path, canonical_json(raw), NOW, 10.0).reason)
+        raw = json.loads(request(service_version="47.0.0"))
+        raw["functionalProfile"] = "v3"
+        self.assertEqual("INVALID_SCHEMA", self.policy.handle_request(self.brake, self.brake_path, canonical_json(raw), NOW, 10.0).reason)
+        self.assertEqual([], self.viss.sets)
+        self.assertTrue(self.policy.handle_request(self.brake, self.brake_path, request(service_version="47.0.0"), NOW, 10.0).forwarded)
+        self.assertEqual("REPLAY_DETECTED", self.policy.handle_request(self.brake, self.brake_path, request(service_version="48.0.0"), NOW, 20.0).reason)
 
     def test_schema_value_canonical_freshness_and_lease_are_enforced(self) -> None:
         noncanonical = json.dumps(json.loads(request()), indent=2)

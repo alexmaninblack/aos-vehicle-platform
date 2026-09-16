@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import hashlib
 import importlib.metadata
 import json
@@ -33,7 +34,7 @@ from .bridge import (
     parse_subscribe_response,
     subscription_request,
 )
-from .manifest import load_manifest
+from .manifest import CURRENT_ADVISORY_CONTRACT, load_manifest
 from .readiness import ReadinessTracker, ReadinessView, SourceIdentity
 
 try:
@@ -173,11 +174,36 @@ class KuksaSink:
             token=token,
             root_certificates=self._configuration.ca,
             tls_server_name=self._configuration.tls_server_name,
+            ensure_startup_connection=False,
         )
         client.connect()
         self._client = client
         LOG.info("Connected to the verified KUKSA Databroker")
         return client
+
+    def read_advisory_targets(self) -> dict[str, str]:
+        from .advisory import ENDPOINTS
+
+        try:
+            values = self._connect().get_target_values(tuple(ENDPOINTS), timeout=2.0)
+            return {path: point.value for path, point in values.items() if point is not None}
+        except Exception:
+            self.close()
+            raise KuksaUnavailable("KUKSA advisory observation is unavailable") from None
+
+    def publish_status(self, path: str, canonical_value: str) -> None:
+        from .advisory import ENDPOINT_BY_STATUS
+        from kuksa_client.grpc import DataEntry, Datapoint, EntryUpdate, Field, DataType
+
+        if path not in ENDPOINT_BY_STATUS:
+            raise ValueError("unauthorized Gateway status path")
+        update = EntryUpdate(DataEntry(path, value=Datapoint(canonical_value),
+                                      value_type=DataType.STRING), (Field.VALUE,))
+        try:
+            self._connect().set([update], try_v2=False, timeout=2.0)
+        except Exception:
+            self.close()
+            raise KuksaUnavailable("KUKSA advisory publication is unavailable") from None
 
     def close(self) -> None:
         if self._client is not None:
@@ -235,6 +261,16 @@ def run(
         configuration.payload.subscription_period_ms,
         configuration.payload.signals,
     )
+    targets = None
+    advisory = None
+    if configuration.payload.advisory_enabled:
+        from .advisory_transport import AdvisoryTransport, CurrentTargets
+
+        if configuration.viss.server_authenticated_test_only or configuration.viss.client_certificate is None:
+            raise ValueError("advisory transport requires selected-Unit mutual TLS")
+        targets = CurrentTargets(KuksaSink(configuration.kuksa, ()))
+        advisory = AdvisoryTransport(targets, sink)
+        request = advisory.subscription(request)
     reconnect_delay = configuration.payload.reconnect_initial_ms / 1000.0
     maximum_delay = configuration.payload.reconnect_max_ms / 1000.0
 
@@ -248,6 +284,8 @@ def run(
             LOG.info("Explicit unavailability request completed")
 
     try:
+        if targets is not None:
+            targets.start()
         # KUKSA authentication and fail-safe unavailability are the readiness
         # boundary. CARLA may remain absent without failing component health.
         emit_readiness()
@@ -293,6 +331,8 @@ def run(
                     subscription_id = parse_subscribe_response(
                         websocket.recv(timeout=5), request_id
                     )
+                    if advisory is not None:
+                        advisory.attach(websocket)
                     viss_authenticated = True
                     if readiness is not None:
                         readiness.dependencies(
@@ -308,6 +348,8 @@ def run(
                     )
                     while not stop.is_set():
                         apply_unavailable_request()
+                        if advisory is not None:
+                            advisory.tick(dt.datetime.now(dt.timezone.utc))
                         try:
                             message = websocket.recv(timeout=0.1)
                         except TimeoutError:
@@ -318,6 +360,8 @@ def run(
                                 LOG.warning(
                                     "CARLA telemetry became stale; KUKSA values are unavailable"
                                 )
+                            continue
+                        if advisory is not None and advisory.consume(message, subscription_id):
                             continue
                         snapshot = bridge.handle_message(message, subscription_id)
                         if readiness is not None:
@@ -331,6 +375,8 @@ def run(
                                 ", ".join(snapshot.invalid_paths),
                             )
             except Exception as error:
+                if advisory is not None:
+                    advisory.detach()
                 try:
                     if bridge.mark_unavailable():
                         LOG.warning(
@@ -380,6 +426,13 @@ def run(
                     apply_unavailable_request()
                 reconnect_delay = min(reconnect_delay * 2, maximum_delay)
     finally:
+        if advisory is not None:
+            advisory.detach()
+        if targets is not None:
+            try:
+                targets.close()
+            except RuntimeError:
+                LOG.error("QM_ADVISORY result=OBSERVER_STOP_TIMEOUT")
         try:
             bridge.mark_unavailable()
         except Exception as error:
@@ -500,7 +553,8 @@ def _load_release_payload_configuration(
         reconnect_max_ms=_integer(timing, "reconnectMaxMs", 100, 300_000),
         semantic_version=release_profile.VERSION,
         signals=release_profile.SIGNALS,
-        advisory_enabled=bool(release_profile.ADVISORY_ENDPOINT_IDS),
+        advisory_enabled=(bool(release_profile.ADVISORY_ENDPOINT_IDS)
+                          and getattr(release_profile, "ADVISORY_CONTRACT", None) == CURRENT_ADVISORY_CONTRACT),
     )
     if configuration.reconnect_initial_ms > configuration.reconnect_max_ms:
         raise ValueError("initial reconnect delay must not exceed maximum delay")

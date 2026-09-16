@@ -34,7 +34,7 @@ MODEL_VERSION = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 class Endpoint:
     endpoint_id: str
     owner_service: str
-    service_version: str
+    functional_profile: str
     request_path: str
     status_path: str
     recommendations: frozenset[str]
@@ -45,7 +45,7 @@ ENDPOINTS = {
     "Vehicle.OEM.BrakeHealth.Advisory.Request": Endpoint(
         "BRAKE_HEALTH_ADVISORY",
         "BRAKE_HEALTH",
-        "3.0.0",
+        "v3",
         "Vehicle.OEM.BrakeHealth.Advisory.Request",
         "Vehicle.OEM.BrakeHealth.Advisory.GatewayStatus",
         frozenset({"INSPECTION_RECOMMENDED"}),
@@ -54,7 +54,7 @@ ENDPOINTS = {
     "Vehicle.OEM.TireHealth.Advisory.Request": Endpoint(
         "TIRE_HEALTH_ADVISORY",
         "TIRE_HEALTH",
-        "1.0.0",
+        "v1",
         "Vehicle.OEM.TireHealth.Advisory.Request",
         "Vehicle.OEM.TireHealth.Advisory.GatewayStatus",
         frozenset(
@@ -68,8 +68,15 @@ ENDPOINT_BY_STATUS = {endpoint.status_path: endpoint for endpoint in ENDPOINTS.v
 
 @dataclass(frozen=True)
 class Caller:
+    """Trusted endpoint context, not identity/profile supplied by a request.
+
+    The KUKSA adapter must establish exact-path authorization before calling
+    this policy. VAL target notifications do not independently attest a
+    package release number; that number remains unmodified request provenance.
+    """
+
     service_id: str
-    service_version: str
+    functional_profile: str
     authority: str = "SERVICE_WRITE"
 
 
@@ -102,7 +109,7 @@ class AdvisoryPolicy:
         }
         self._latest_sequence: OrderedDict[tuple[str, str], int] = OrderedDict()
         self._last_forward: dict[str, tuple[float, tuple[str, str | None]]] = {}
-        self._pending: OrderedDict[tuple[str, str, int], Endpoint] = OrderedDict()
+        self._pending: OrderedDict[tuple[str, str, str, int], Endpoint] = OrderedDict()
 
     def handle_request(
         self,
@@ -118,12 +125,12 @@ class AdvisoryPolicy:
         if (
             caller.authority != "SERVICE_WRITE"
             or caller.service_id != endpoint.owner_service
-            or caller.service_version != endpoint.service_version
+            or caller.functional_profile != endpoint.functional_profile
         ):
             return Decision(False, "UNAUTHORIZED_SOURCE")
         try:
             request = _canonical_object(raw_value, MAX_REQUEST_BYTES)
-            _validate_request(request, endpoint, caller, now_utc)
+            _validate_request(request, endpoint, now_utc)
         except AdvisoryError as error:
             return Decision(False, error.reason)
 
@@ -163,8 +170,9 @@ class AdvisoryPolicy:
         while len(self._latest_sequence) > 2 * REPLAY_CAPACITY_PER_ENDPOINT:
             self._latest_sequence.popitem(last=False)
         self._last_forward[endpoint.endpoint_id] = (monotonic_now, requested_state)
-        self._pending[identity] = endpoint
-        self._pending.move_to_end(identity)
+        status_identity = (endpoint.endpoint_id, *identity)
+        self._pending[status_identity] = endpoint
+        self._pending.move_to_end(status_identity)
         while len(self._pending) > 2 * REPLAY_CAPACITY_PER_ENDPOINT:
             self._pending.popitem(last=False)
         try:
@@ -180,14 +188,20 @@ class AdvisoryPolicy:
         try:
             status = _canonical_object(raw_value, MAX_STATUS_BYTES)
             _validate_status(status)
+            if status["activeRecommendation"] not in endpoint.recommendations | {"NONE"}:
+                raise AdvisoryError("INVALID_VALUE")
+            if status["activeReasonCode"] not in {endpoint.set_reason, "NONE"}:
+                raise AdvisoryError("INVALID_VALUE")
         except AdvisoryError as error:
             return Decision(False, error.reason)
-        identity = _identity(status)
+        identity = (endpoint.endpoint_id, *_identity(status))
         if self._pending.get(identity) != endpoint:
             return Decision(False, "REPLAY_DETECTED")
         canonical = canonical_json(status)
         self._kuksa.publish_status(endpoint.status_path, canonical)
-        if status["state"] in {"APPLIED", "CLEARED", "REJECTED", "EXPIRED", "FAILED"}:
+        # APPLIED is not terminal: the same lease later becomes EXPIRED.
+        # Keep correlation (bounded above), independently for each endpoint.
+        if status["state"] in {"CLEARED", "REJECTED", "EXPIRED", "FAILED"}:
             self._pending.pop(identity, None)
         return Decision(
             True,
@@ -232,7 +246,6 @@ def _canonical_object(raw_value: str, maximum_bytes: int) -> dict[str, object]:
 def _validate_request(
     request: dict[str, object],
     endpoint: Endpoint,
-    caller: Caller,
     now_utc: dt.datetime,
 ) -> None:
     base_fields = {
@@ -257,8 +270,10 @@ def _validate_request(
     sequence = request.get("sequence")
     if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 1:
         raise AdvisoryError("INVALID_VALUE")
-    if request.get("serviceVersion") != caller.service_version:
-        raise AdvisoryError("UNAUTHORIZED_SOURCE")
+    # Package release provenance is independent of the qualified function.
+    # Never rewrite it to v1/v3 or use a caller-supplied version as authority.
+    if not isinstance(request.get("serviceVersion"), str) or SEMVER.fullmatch(request["serviceVersion"]) is None:
+        raise AdvisoryError("INVALID_VALUE")
     if not isinstance(request.get("decisionId"), str) or DECISION_ID.fullmatch(request["decisionId"]) is None:
         raise AdvisoryError("INVALID_VALUE")
     if not isinstance(request.get("modelVersion"), str) or MODEL_VERSION.fullmatch(request["modelVersion"]) is None:
