@@ -82,6 +82,25 @@ class _LifecycleModel:
 
 
 class KacFactoryIntegrationTests(unittest.TestCase):
+    def test_provider_activation_retries_kac_without_restart_or_hard_dependency(self):
+        dropin = (validate_kac_factory_integration.FILES /
+            "aos-vehicle-data-provider.service.d/20-kuksa-provider.conf").read_text()
+        self.assertIn("Wants=aos-kuksa-auth-compat.service", dropin)
+        self.assertIn("After=aos-kuksa-auth-compat.service", dropin)
+        self.assertFalse(any("aos-kuksa-auth-compat.service" in line
+            for line in dropin.splitlines() if line.startswith(("Requires=", "BindsTo="))))
+        kac = (validate_kac_factory_integration.AUTH_FILES / "aos-kuksa-auth-compat.service").read_text()
+        self.assertNotIn("PartOf=aos-vehicle-data-provider.service", kac)
+        self.assertIn("ConditionPathExists=/var/aos/.provisionstate", kac)
+
+    def test_time_marker_access_is_only_read_search(self):
+        policy = (validate_kac_factory_integration.ROOT /
+            "meta-aos-vehicle-platform/recipes-security/refpolicy/files/aos_kuksa_auth_compat.te").read_text()
+        rules = [line for line in policy.splitlines() if line.startswith("allow ") and "ntpd_pid_t:" in line]
+        self.assertEqual(rules, [
+            "allow aos_kuksa_auth_compat_t ntpd_pid_t:dir { getattr search };",
+            "allow aos_kuksa_auth_compat_t ntpd_pid_t:file { getattr open read };"])
+
     def test_bounded_factory_integration_passes(self) -> None:
         validate_kac_factory_integration.validate()
 

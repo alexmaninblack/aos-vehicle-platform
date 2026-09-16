@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 maninblack
 # SPDX-License-Identifier: Apache-2.0
 
-policy_module(aos_kuksa_auth_compat, 1.1.2)
+policy_module(aos_kuksa_auth_compat, 1.1.3)
 
 type aos_kuksa_auth_compat_t;
 type aos_kuksa_auth_compat_exec_t;
@@ -58,6 +58,7 @@ gen_require(`
     type proc_t;
     type sysfs_t;
     type syslogd_runtime_t;
+    type ntpd_pid_t;
 ')
 
 # These finite systemd services retain NoNewPrivileges. Permit only their
@@ -78,6 +79,10 @@ files_search_runtime(aos_kuksa_provider_prepare_t)
 
 allow aos_kuksa_auth_compat_t initrc_runtime_t:dir { getattr search };
 allow aos_kuksa_auth_compat_t initrc_runtime_t:file { getattr open read };
+# SystemClock verifies the native systemd-timesyncd marker for this boot.
+# Read/search only: KAC must never create or modify time-trust evidence.
+allow aos_kuksa_auth_compat_t ntpd_pid_t:dir { getattr search };
+allow aos_kuksa_auth_compat_t ntpd_pid_t:file { getattr open read };
 allow aos_kuksa_verifier_prepare_t initrc_runtime_t:dir { getattr search };
 allow aos_kuksa_verifier_prepare_t initrc_runtime_t:file { getattr open read };
 allow aos_kuksa_provider_prepare_t initrc_runtime_t:dir { getattr search };
