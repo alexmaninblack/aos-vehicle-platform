@@ -2,10 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "kac/core.hpp"
-#include "kac/store_completion.hpp"
 
 #include <openssl/crypto.h>
-#include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/provider.h>
@@ -14,7 +12,6 @@
 #include <openssl/ui.h>
 
 #include <cstdlib>
-#include <cstdio>
 #include <fstream>
 #include <iterator>
 #include <limits>
@@ -23,11 +20,6 @@
 
 namespace aos::kac {
 namespace {
-
-void SignerStage(const char* stage) {
-  // Fixed stage only: never keys, PINs or errors' auxiliary data.
-  std::fprintf(stderr, "provider-prepare: stage=%s\n", stage);
-}
 
 constexpr const char* kCredentialName = "kuksa-jwt-pin";
 constexpr const char* kPrivateKeyUri =
@@ -76,39 +68,28 @@ class Pkcs11Signer::Impl {
  public:
   Impl() {
     pin_ = ReadCredential();
-    if (pin_.empty()) { SignerStage("credential-unavailable"); return; }
+    if (pin_.empty()) return;
     default_provider_ = OSSL_PROVIDER_load(nullptr, "default");
     pkcs11_provider_ = OSSL_PROVIDER_load(nullptr, "pkcs11");
-    if (default_provider_ == nullptr || pkcs11_provider_ == nullptr) { SignerStage("openssl-provider-unavailable"); return; }
+    if (default_provider_ == nullptr || pkcs11_provider_ == nullptr) return;
     std::unique_ptr<UI_METHOD, UiMethodDeleter> ui(UI_create_method("kac-pin"));
-    if (!ui || UI_method_set_reader(ui.get(), UiReader) != 0) { SignerStage("pin-reader-unavailable"); return; }
+    if (!ui || UI_method_set_reader(ui.get(), UiReader) != 0) return;
     OSSL_STORE_CTX* store = OSSL_STORE_open_ex(
         kPrivateKeyUri, nullptr, nullptr, ui.get(), &pin_, nullptr, nullptr, nullptr);
-    if (store == nullptr) { SignerStage("key-store-unavailable"); return; }
+    if (store == nullptr) return;
     bool ambiguous_or_invalid = false;
     while (!OSSL_STORE_eof(store)) {
       OSSL_STORE_INFO* info = OSSL_STORE_load(store);
       if (info == nullptr) {
-        // OpenSSL storeutl treats loader EOF as termination even when the
-        // generic error flag is set. Be stricter: require one key already
-        // found and no queued error; retain duplicate/close/signature checks.
-        if (detail::CleanKeyStoreEnd(OSSL_STORE_eof(store) != 0,
-                                    ERR_peek_last_error(), key_ != nullptr)) break;
         if (OSSL_STORE_error(store)) {
-          std::fprintf(stderr, "provider-prepare: stage=%s rv=0x%lx\n",
-              OSSL_STORE_eof(store) ? "key-load-eof-error" : "key-load-error", ERR_peek_last_error());
           ambiguous_or_invalid = true;
           break;
         }
         continue;
       }
-      std::fprintf(stderr, "provider-prepare: stage=key-object-type result=%u\n",
-          static_cast<unsigned>(OSSL_STORE_INFO_get_type(info)));
       if (OSSL_STORE_INFO_get_type(info) == OSSL_STORE_INFO_PKEY) {
         EVP_PKEY* candidate = OSSL_STORE_INFO_get1_PKEY(info);
-        SignerStage(candidate == nullptr ? "key-extract-unavailable" : "key-extracted");
         if (candidate != nullptr && key_ != nullptr) {
-          SignerStage("key-duplicate");
           EVP_PKEY_free(candidate);
           ambiguous_or_invalid = true;
         } else if (candidate != nullptr) {
@@ -118,29 +99,28 @@ class Pkcs11Signer::Impl {
       OSSL_STORE_INFO_free(info);
       if (ambiguous_or_invalid) break;
     }
-    if (OSSL_STORE_close(store) != 1) { SignerStage("key-store-close-failed"); ambiguous_or_invalid = true; }
+    if (OSSL_STORE_close(store) != 1) ambiguous_or_invalid = true;
     if (ambiguous_or_invalid) {
-      SignerStage("key-store-invalid");
       EVP_PKEY_free(key_);
       key_ = nullptr;
     }
-    if (key_ == nullptr) { SignerStage("key-unavailable"); return; }
+    if (key_ == nullptr) return;
 
     std::unique_ptr<BIO, BioDeleter> output(BIO_new(BIO_s_mem()));
-    if (!output || PEM_write_bio_PUBKEY(output.get(), key_) != 1) { SignerStage("public-key-export-unavailable"); return; }
+    if (!output || PEM_write_bio_PUBKEY(output.get(), key_) != 1) return;
     char* data = nullptr;
     const long size = BIO_get_mem_data(output.get(), &data);
     if (size <= 0 || data == nullptr ||
         size > static_cast<long>(std::numeric_limits<int>::max())) {
-      SignerStage("public-key-size-invalid"); return;
+      return;
     }
     public_key_pem_.assign(data, static_cast<std::size_t>(size));
     std::unique_ptr<BIO, BioDeleter> input(BIO_new_mem_buf(
         public_key_pem_.data(), static_cast<int>(public_key_pem_.size())));
-    if (!input) { SignerStage("public-key-input-unavailable"); return; }
+    if (!input) return;
     verification_key_ = PEM_read_bio_PUBKEY_ex(
         input.get(), nullptr, nullptr, nullptr, nullptr, "provider=default");
-    if (verification_key_ == nullptr) { SignerStage("public-key-parse-unavailable"); public_key_pem_.clear(); }
+    if (verification_key_ == nullptr) public_key_pem_.clear();
   }
 
   ~Impl() {
