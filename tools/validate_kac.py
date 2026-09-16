@@ -245,7 +245,8 @@ def validate_kac() -> None:
     )
 
     policy = POLICY.read_text(encoding="utf-8")
-    require(policy, "policy_module(aos_kuksa_auth_compat, 1.1.2)", "SELinux version")
+    require(policy, "policy_module(aos_kuksa_auth_compat, 1.1.3)", "SELinux version")
+    require(policy, "allow aos_kuksa_auth_compat_t initrc_runtime_t:file { getattr open read };", "verified time-marker read")
     require(policy, "aos_kuksa_auth_compat_t", "SELinux")
     require(policy, "aos_kuksa_verifier_prepare_t", "SELinux")
     require(policy, "aos_kuksa_provider_prepare_t", "SELinux")

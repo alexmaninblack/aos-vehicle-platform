@@ -36,12 +36,16 @@ class VdpSchemaTests(unittest.TestCase):
             self.assertEqual(set(paths), set(actual))
             self.assertEqual((7, 15, 23)[version - 1], len(actual))
 
-    def test_only_eight_leaves_added_and_base_preserved(self):
+    def test_eight_slip_and_six_advisory_leaves_added_and_base_preserved(self):
         original = baseline()
         saved = json.dumps(original, sort_keys=True)
         result = SCHEMA["supplement"](original)
         self.assertEqual(saved, json.dumps(original, sort_keys=True))
+        for name, kind in SCHEMA["ADVISORY_TYPES"]:
+            self.assertEqual(kind, SCHEMA["lookup"](result, name)["type"])
+            self.assertEqual("string", SCHEMA["lookup"](result, name)["datatype"])
         del result["Vehicle"]["children"]["CarlaSimulation"]
+        del result["Vehicle"]["children"]["OEM"]
         self.assertEqual(original, result)
 
     def test_deterministic_repeat_and_original_file_mode(self):

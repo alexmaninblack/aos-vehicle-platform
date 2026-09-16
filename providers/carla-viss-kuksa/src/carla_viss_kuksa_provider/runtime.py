@@ -183,9 +183,10 @@ class KuksaSink:
 
     def read_advisory_targets(self) -> dict[str, str]:
         from .advisory import ENDPOINTS
+        from .advisory_transport import READINESS_PATHS
 
         try:
-            values = self._connect().get_target_values(tuple(ENDPOINTS), timeout=2.0)
+            values = self._connect().get_target_values(tuple(ENDPOINTS) + READINESS_PATHS, timeout=2.0)
             return {path: point.value for path, point in values.items() if point is not None}
         except Exception:
             self.close()

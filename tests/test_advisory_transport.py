@@ -13,7 +13,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "providers/carla-viss-kuksa/src"))
 from carla_viss_kuksa_provider.advisory import canonical_json
-from carla_viss_kuksa_provider.advisory_transport import AdvisoryTransport, CurrentTargets
+from carla_viss_kuksa_provider.advisory_transport import AdvisoryTransport, CurrentTargets, READINESS_PATHS, AVAILABILITY_PATHS, producer_ready
 from carla_viss_kuksa_provider import runtime
 from carla_viss_kuksa_provider.bridge import subscription_request
 from carla_viss_kuksa_provider.releases import v3
@@ -70,14 +70,14 @@ class TransportTests(unittest.TestCase):
     def test_exact_two_targets_preserve_release_and_set_is_not_application(self):
         self.transport.tick(NOW)
         sent = [json.loads(call.args[0]) for call in self.socket.send.call_args_list]
-        self.assertEqual({B, T}, {item["path"] for item in sent})
-        self.assertEqual({"29.0.0", "47.0.0"}, {json.loads(item["value"])["serviceVersion"] for item in sent})
-        self.assertEqual(2, len(self.transport.pending))
+        self.assertEqual({B, T, *AVAILABILITY_PATHS}, {item["path"] for item in sent})
+        self.assertEqual({"29.0.0", "47.0.0"}, {json.loads(item["value"])["serviceVersion"] for item in sent if item["path"] in (B, T)})
+        self.assertEqual(4, len(self.transport.pending))
         for item in sent:
             self.assertTrue(self.transport.consume(json.dumps({"action": "set", "requestId": item["requestId"]}), "7"))
         self.publisher.publish_status.assert_not_called()
         self.transport.tick(NOW)
-        self.assertEqual(2, self.socket.send.call_count)
+        self.assertEqual(4, self.socket.send.call_count)
 
     def test_same_identity_on_both_endpoints_and_applied_then_expired(self):
         self.transport.tick(NOW)
@@ -118,7 +118,7 @@ class TransportTests(unittest.TestCase):
         self.transport.detach()
         self.transport.attach(self.socket)
         self.transport.tick(NOW)
-        self.assertEqual(2, self.socket.send.call_count)
+        self.assertEqual(6, self.socket.send.call_count)
 
     def test_current_mailbox_bounds_paths_size_type_and_clears_on_error(self):
         self.client.read_advisory_targets.return_value = {B: "x" * 2049, T: 42, "Vehicle.Speed": "30"}
@@ -144,8 +144,29 @@ class TransportTests(unittest.TestCase):
     def test_stale_target_is_rejected_and_not_retried_each_frame(self):
         self.transport.tick(NOW + dt.timedelta(seconds=3))
         self.transport.tick(NOW + dt.timedelta(seconds=4))
-        self.socket.send.assert_not_called()
+        self.assertEqual(set(AVAILABILITY_PATHS), {json.loads(call.args[0])["path"] for call in self.socket.send.call_args_list})
         self.assertEqual("STALE_REQUEST", self.transport.last_result[B])
+
+    def test_readiness_is_bounded_fresh_and_never_an_advisory_request(self):
+        value = dict(schemaVersion=1, ready=True, observedAt=NOW.isoformat().replace("+00:00", "Z"))
+        raw = canonical_json(value)
+        self.assertTrue(producer_ready(raw, NOW))
+        self.assertFalse(producer_ready(raw, NOW - dt.timedelta(milliseconds=1)))
+        self.assertFalse(producer_ready(raw, NOW + dt.timedelta(seconds=16)))
+        for bad in (None, "{}", raw + " ", canonical_json(dict(value, ready=1)),
+                    canonical_json(dict(value, schemaVersion=True)), canonical_json(dict(value, extra=True))):
+            self.assertFalse(producer_ready(bad, NOW))
+        self.client.read_advisory_targets.return_value = {READINESS_PATHS[0]: raw}
+        self.targets.poll()
+        self.transport.tick(NOW)
+        sent = [json.loads(call.args[0]) for call in self.socket.send.call_args_list]
+        self.assertEqual(list(AVAILABILITY_PATHS), [item["path"] for item in sent])
+        self.assertEqual([True, False], [json.loads(item["value"])["ready"] for item in sent])
+        self.publisher.publish_status.assert_not_called()
+        self.client.read_advisory_targets.side_effect = RuntimeError("unavailable")
+        self.targets.poll(); self.now += 5; self.transport.tick(NOW + dt.timedelta(seconds=5))
+        latest = [json.loads(call.args[0]) for call in self.socket.send.call_args_list][-2:]
+        self.assertEqual([False, False], [json.loads(item["value"])["ready"] for item in latest])
 
     def test_worker_closes_and_stops(self):
         self.targets.start()

@@ -53,6 +53,8 @@ void TestClaims() {
          std::string::npos);
   assert(aos::kac::provider::kScope.find("Row2") != std::string_view::npos);
   assert(aos::kac::provider::kScope.find("create:") == std::string_view::npos);
+  assert(aos::kac::provider::kScope.find("read:Vehicle.OEM.BrakeHealth.Advisory.Readiness") != std::string_view::npos);
+  assert(aos::kac::provider::kScope.find("read:Vehicle.OEM.TireHealth.Advisory.Readiness") != std::string_view::npos);
   assert(aos::kac::provider::kScope.find("actuate:") == std::string_view::npos);
   assert(aos::kac::provider::kScope.find('*') == std::string_view::npos);
 }

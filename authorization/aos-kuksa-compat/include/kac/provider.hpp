@@ -44,7 +44,9 @@ inline constexpr std::string_view kScope =
     "provide:Vehicle.OEM.TireHealth.Advisory.GatewayStatus "
     "provide:Vehicle.Speed "
     "read:Vehicle.OEM.BrakeHealth.Advisory.Request "
-    "read:Vehicle.OEM.TireHealth.Advisory.Request";
+    "read:Vehicle.OEM.TireHealth.Advisory.Request "
+    "read:Vehicle.OEM.BrakeHealth.Advisory.Readiness "
+    "read:Vehicle.OEM.TireHealth.Advisory.Readiness";
 
 class Signer {
  public:

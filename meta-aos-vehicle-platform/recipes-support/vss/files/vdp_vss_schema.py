@@ -24,6 +24,11 @@ SLIP_PATHS = tuple(
     for signal in ("LongitudinalSlip", "LateralSlipAngle")
     for row in ("Row1", "Row2") for side in ("Left", "Right")
 )
+ADVISORY_TYPES = tuple(
+    ("Vehicle.OEM." + team + ".Advisory." + leaf, kind)
+    for team in ("BrakeHealth", "TireHealth")
+    for leaf, kind in (("Request", "actuator"), ("GatewayStatus", "sensor"), ("Readiness", "actuator"))
+)
 
 
 def lookup(schema, name):
@@ -46,6 +51,10 @@ def validate(schema):
         datatype = "uint8" if name.endswith("PedalPosition") else "float"
         if leaf.get("type") != "sensor" or leaf.get("datatype") != datatype:
             raise ValueError("VDP schema type conflict: " + name)
+    for name, kind in ADVISORY_TYPES:
+        leaf = lookup(schema, name)
+        if leaf.get("type") != kind or leaf.get("datatype") != "string":
+            raise ValueError("VDP schema type conflict: " + name)
 
 
 def supplement(schema):
@@ -67,6 +76,18 @@ def supplement(schema):
         if signal in current and current[signal] != leaf:
             raise ValueError("VDP schema leaf conflict: " + name)
         current.setdefault(signal, leaf)
+    for name, kind in ADVISORY_TYPES:
+        current = result
+        parts = name.split(".")
+        for part in parts[:-1]:
+            branch = current.setdefault(part, dict(type="branch", description=part, children={}))
+            if not isinstance(branch, dict) or branch.get("type") != "branch" or not isinstance(branch.get("children"), dict):
+                raise ValueError("VDP schema branch conflict: " + name)
+            current = branch["children"]
+        leaf = dict(type=kind, datatype="string", description="Typed QM advisory " + parts[-1] + ".")
+        if parts[-1] in current and (current[parts[-1]].get("type") != kind or current[parts[-1]].get("datatype") != "string"):
+            raise ValueError("VDP schema leaf conflict: " + name)
+        current.setdefault(parts[-1], leaf)
     validate(result)
     return result
 

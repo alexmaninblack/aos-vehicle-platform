@@ -20,10 +20,30 @@ import uuid
 from .advisory import AdvisoryPolicy, Caller, ENDPOINTS, ENDPOINT_BY_STATUS, MAX_REQUEST_BYTES
 
 LOG = logging.getLogger("carla-viss-kuksa-provider")
+READINESS_PATHS = tuple(path.removesuffix("Request") + "Readiness" for path in ENDPOINTS)
+AVAILABILITY_PATHS = tuple(path.removesuffix("Request") + "Availability" for path in ENDPOINTS)
+
+
+def producer_ready(raw: str | None, now: dt.datetime) -> bool:
+    """Strict current observation, never a package/version inference."""
+    if not isinstance(raw, str) or len(raw.encode("utf-8")) > 256:
+        return False
+    try:
+        value = json.loads(raw)
+        if (not isinstance(value, dict) or set(value) != {"schemaVersion", "ready", "observedAt"}
+                or type(value["schemaVersion"]) is not int or value["schemaVersion"] != 1
+                or type(value["ready"]) is not bool or not isinstance(value["observedAt"], str)
+                or not value["observedAt"].endswith("Z")
+                or json.dumps(value, separators=(",", ":"), sort_keys=True) != raw):
+            return False
+        observed = dt.datetime.fromisoformat(value["observedAt"].removesuffix("Z") + "+00:00")
+        return value["ready"] and 0 <= (now - observed).total_seconds() <= 15
+    except (ValueError, TypeError, KeyError, OverflowError):
+        return False
 
 
 class CurrentTargets:
-    """Two bounded current values; no history or unbounded cross-thread queue."""
+    """Two requests and two readiness values; no history/unbounded queue."""
 
     def __init__(self, client) -> None:
         self.client = client
@@ -38,7 +58,7 @@ class CurrentTargets:
             values = self.client.read_advisory_targets()
             bounded = {
                 path: raw for path, raw in values.items()
-                if path in ENDPOINTS and isinstance(raw, str)
+                if (path in ENDPOINTS or path in READINESS_PATHS) and isinstance(raw, str)
                 and 0 < len(raw.encode("utf-8")) <= MAX_REQUEST_BYTES
             }
         except Exception:
@@ -87,6 +107,7 @@ class AdvisoryTransport:
         self.seen_targets: dict[str, str] = {}
         self.seen_statuses: dict[str, str] = {}
         self.last_result: dict[str, str] = {}
+        self.next_availability = 0.0
 
     @staticmethod
     def subscription(raw: str) -> str:
@@ -99,13 +120,14 @@ class AdvisoryTransport:
         self.websocket = websocket
         self.pending.clear()
         self.seen_statuses.clear()
+        self.next_availability = 0.0
 
     def detach(self) -> None:
         self.websocket = None
         self.pending.clear()
 
     def set_value(self, path: str, canonical_value: str) -> None:
-        if path not in ENDPOINTS or self.websocket is None:
+        if (path not in ENDPOINTS and path not in AVAILABILITY_PATHS) or self.websocket is None:
             raise RuntimeError("advisory VISS route unavailable")
         if any(item[0] == path for item in self.pending.values()):
             raise RuntimeError("advisory VISS response pending")
@@ -125,11 +147,22 @@ class AdvisoryTransport:
         if self.websocket is None:
             return
         ready, values = self.targets.snapshot()
+        if now >= self.next_availability:
+            for source, path in zip(READINESS_PATHS, AVAILABILITY_PATHS):
+                if any(item[0] == path for item in self.pending.values()):
+                    continue
+                self.set_value(path, json.dumps({
+                    "schemaVersion": 1, "ready": ready and producer_ready(values.get(source), now_utc),
+                    "observedAt": now_utc.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                }, separators=(",", ":"), sort_keys=True))
+            self.next_availability = now + 5.0
         if not ready:
             self._report("transport", "KUKSA_TARGETS_UNAVAILABLE")
             return
         self._report("transport", "KUKSA_TARGETS_READY")
         for path, raw in values.items():
+            if path not in ENDPOINTS:
+                continue
             if self.seen_targets.get(path) == raw:
                 continue
             if any(item[0] == path for item in self.pending.values()):
