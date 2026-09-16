@@ -4,6 +4,7 @@
 #include "kac/core.hpp"
 
 #include <openssl/crypto.h>
+#include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/provider.h>
@@ -12,6 +13,7 @@
 #include <openssl/ui.h>
 
 #include <cstdlib>
+#include <cstdio>
 #include <fstream>
 #include <iterator>
 #include <limits>
@@ -20,6 +22,12 @@
 
 namespace aos::kac {
 namespace {
+
+void SignerStage(const char* stage) {
+  // Fixed stage and numeric library reason only: never keys, PINs or errors'
+  // auxiliary data (which may contain PKCS#11 URIs).
+  std::fprintf(stderr, "provider-prepare: stage=%s\n", stage);
+}
 
 constexpr const char* kCredentialName = "kuksa-jwt-pin";
 constexpr const char* kPrivateKeyUri =
@@ -68,15 +76,15 @@ class Pkcs11Signer::Impl {
  public:
   Impl() {
     pin_ = ReadCredential();
-    if (pin_.empty()) return;
+    if (pin_.empty()) { SignerStage("credential-unavailable"); return; }
     default_provider_ = OSSL_PROVIDER_load(nullptr, "default");
     pkcs11_provider_ = OSSL_PROVIDER_load(nullptr, "pkcs11");
-    if (default_provider_ == nullptr || pkcs11_provider_ == nullptr) return;
+    if (default_provider_ == nullptr || pkcs11_provider_ == nullptr) { SignerStage("openssl-provider-unavailable"); return; }
     std::unique_ptr<UI_METHOD, UiMethodDeleter> ui(UI_create_method("kac-pin"));
-    if (!ui || UI_method_set_reader(ui.get(), UiReader) != 0) return;
+    if (!ui || UI_method_set_reader(ui.get(), UiReader) != 0) { SignerStage("pin-reader-unavailable"); return; }
     OSSL_STORE_CTX* store = OSSL_STORE_open_ex(
         kPrivateKeyUri, nullptr, nullptr, ui.get(), &pin_, nullptr, nullptr, nullptr);
-    if (store == nullptr) return;
+    if (store == nullptr) { SignerStage("key-store-unavailable"); return; }
     bool ambiguous_or_invalid = false;
     while (!OSSL_STORE_eof(store)) {
       OSSL_STORE_INFO* info = OSSL_STORE_load(store);
@@ -101,26 +109,27 @@ class Pkcs11Signer::Impl {
     }
     if (OSSL_STORE_close(store) != 1) ambiguous_or_invalid = true;
     if (ambiguous_or_invalid) {
+      SignerStage("key-store-invalid");
       EVP_PKEY_free(key_);
       key_ = nullptr;
     }
-    if (key_ == nullptr) return;
+    if (key_ == nullptr) { SignerStage("key-unavailable"); return; }
 
     std::unique_ptr<BIO, BioDeleter> output(BIO_new(BIO_s_mem()));
-    if (!output || PEM_write_bio_PUBKEY(output.get(), key_) != 1) return;
+    if (!output || PEM_write_bio_PUBKEY(output.get(), key_) != 1) { SignerStage("public-key-export-unavailable"); return; }
     char* data = nullptr;
     const long size = BIO_get_mem_data(output.get(), &data);
     if (size <= 0 || data == nullptr ||
         size > static_cast<long>(std::numeric_limits<int>::max())) {
-      return;
+      SignerStage("public-key-size-invalid"); return;
     }
     public_key_pem_.assign(data, static_cast<std::size_t>(size));
     std::unique_ptr<BIO, BioDeleter> input(BIO_new_mem_buf(
         public_key_pem_.data(), static_cast<int>(public_key_pem_.size())));
-    if (!input) return;
+    if (!input) { SignerStage("public-key-input-unavailable"); return; }
     verification_key_ = PEM_read_bio_PUBKEY_ex(
         input.get(), nullptr, nullptr, nullptr, nullptr, "provider=default");
-    if (verification_key_ == nullptr) public_key_pem_.clear();
+    if (verification_key_ == nullptr) { SignerStage("public-key-parse-unavailable"); public_key_pem_.clear(); }
   }
 
   ~Impl() {
