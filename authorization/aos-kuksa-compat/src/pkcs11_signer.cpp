@@ -24,8 +24,7 @@ namespace aos::kac {
 namespace {
 
 void SignerStage(const char* stage) {
-  // Fixed stage and numeric library reason only: never keys, PINs or errors'
-  // auxiliary data (which may contain PKCS#11 URIs).
+  // Fixed stage only: never keys, PINs or errors' auxiliary data.
   std::fprintf(stderr, "provider-prepare: stage=%s\n", stage);
 }
 
@@ -90,6 +89,8 @@ class Pkcs11Signer::Impl {
       OSSL_STORE_INFO* info = OSSL_STORE_load(store);
       if (info == nullptr) {
         if (OSSL_STORE_error(store)) {
+          std::fprintf(stderr, "provider-prepare: stage=%s rv=0x%lx\n",
+              OSSL_STORE_eof(store) ? "key-load-eof-error" : "key-load-error", ERR_peek_last_error());
           ambiguous_or_invalid = true;
           break;
         }
@@ -98,6 +99,7 @@ class Pkcs11Signer::Impl {
       if (OSSL_STORE_INFO_get_type(info) == OSSL_STORE_INFO_PKEY) {
         EVP_PKEY* candidate = OSSL_STORE_INFO_get1_PKEY(info);
         if (candidate != nullptr && key_ != nullptr) {
+          SignerStage("key-duplicate");
           EVP_PKEY_free(candidate);
           ambiguous_or_invalid = true;
         } else if (candidate != nullptr) {
@@ -107,7 +109,7 @@ class Pkcs11Signer::Impl {
       OSSL_STORE_INFO_free(info);
       if (ambiguous_or_invalid) break;
     }
-    if (OSSL_STORE_close(store) != 1) ambiguous_or_invalid = true;
+    if (OSSL_STORE_close(store) != 1) { SignerStage("key-store-close-failed"); ambiguous_or_invalid = true; }
     if (ambiguous_or_invalid) {
       SignerStage("key-store-invalid");
       EVP_PKEY_free(key_);
