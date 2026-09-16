@@ -3,9 +3,19 @@
 
 # Factory .34 — native permissions and advisory readiness
 
-Status: authorized consolidation candidate, 16 September 2026; not built or
-clean-boot/UI qualified. Preserve the running staging Test and immutable .33
-until the successor passes. Production is excluded.
+Status: built, 16 September 2026; not clean-boot/UI qualified. Preserve the
+running staging Test and immutable .33 until the successor passes. Production
+is excluded.
+
+Build source: `81e7e1fda991c133a7dc83188c1dcf0f966fd62e`. Raw image size
+6,997,147,648 bytes; SHA-256
+`fac0cccfd5c4ededaf068bbd574b0f0a83b9af1b94f1df94022fa0ca5893eeeb`.
+Offline compile and three-manager flag parity, five native Factory regressions,
+ten KAC tests, Provider/verifier executables, package QA and image QA passed.
+Package QA retained build-path warnings. Transfer SHA matched; file is read-only
+and Builder stopped cleanly. No live state entered the artifact. Detailed
+execution evidence is the Solution report
+`docs/qualification/advisory-readiness-reset-2026-09-16.md`.
 
 ## Source scope
 
