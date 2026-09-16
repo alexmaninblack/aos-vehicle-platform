@@ -102,8 +102,11 @@ class Pkcs11Signer::Impl {
         }
         continue;
       }
+      std::fprintf(stderr, "provider-prepare: stage=key-object-type result=%u\n",
+          static_cast<unsigned>(OSSL_STORE_INFO_get_type(info)));
       if (OSSL_STORE_INFO_get_type(info) == OSSL_STORE_INFO_PKEY) {
         EVP_PKEY* candidate = OSSL_STORE_INFO_get1_PKEY(info);
+        SignerStage(candidate == nullptr ? "key-extract-unavailable" : "key-extracted");
         if (candidate != nullptr && key_ != nullptr) {
           SignerStage("key-duplicate");
           EVP_PKEY_free(candidate);
