@@ -12,6 +12,7 @@
 #include <cerrno>
 #include <charconv>
 #include <cstring>
+#include <cstdio>
 #include <sstream>
 
 namespace aos::kac::provider {
@@ -130,9 +131,15 @@ bool ValidateToken(std::string_view token, std::int64_t now, const Signer& signe
 }
 
 Result Prepare(std::int64_t now, Signer& signer, Store& store) {
-  if (!signer.Ready() || now < 0) return Result::kUnavailable;
+  if (!signer.Ready() || now < 0) {
+    std::fputs("provider-prepare: stage=signer-unavailable\n", stderr);
+    return Result::kUnavailable;
+  }
   auto existing = store.Read();
-  if (!existing) return Result::kUnavailable;
+  if (!existing) {
+    std::fprintf(stderr, "provider-prepare: stage=store-read failed errno=%d\n", errno);
+    return Result::kUnavailable;
+  }
   if (existing->exists) {
     if (!existing->regular || !existing->root_owned || existing->mode != 0600U) {
       return Result::kRejected;
@@ -156,7 +163,14 @@ Result Prepare(std::int64_t now, Signer& signer, Store& store) {
     if (!exact_expired) return Result::kRejected;
   }
   auto token = CreateToken(now, signer);
-  if (!token || !store.ReplaceAtomically(*token)) return Result::kUnavailable;
+  if (!token) {
+    std::fputs("provider-prepare: stage=signing-unavailable\n", stderr);
+    return Result::kUnavailable;
+  }
+  if (!store.ReplaceAtomically(*token)) {
+    std::fprintf(stderr, "provider-prepare: stage=store-replace failed errno=%d\n", errno);
+    return Result::kUnavailable;
+  }
   return Result::kCreated;
 }
 
