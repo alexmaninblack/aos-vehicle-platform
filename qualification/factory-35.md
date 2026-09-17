@@ -3,9 +3,18 @@
 
 # Factory .35 — retained startup reconciliation
 
-Status: build and complete staging Test qualification authorized on
-17 September 2026. Not yet built or live-qualified. Preserve .34 until the
-successor passes. Production is excluded.
+Status: PASS — built and clean staging Test qualification completed on
+17 September 2026 by 05:32 UTC. Production is excluded. The .34 image was
+retained then and removed by the separately authorized 17 September cleanup;
+its source and compact qualification evidence remain.
+
+Build source: `bb691efcbf19f1bebd74fd2ef3ae9ff0aee2bf74`.
+Image SHA-256: `668690a922d62f158c60769cab673ca9cac1ccb7fde7dee2c7cd22dd9952a458`.
+The first packaged Park/Resume completed without a hotpatch, retry or recovery:
+same identity, VDP76/V3, Brake55/V3 and Tire32/V1, zero CM/SM restarts and no
+fresh SELinux denials. Both independent advisory Reset/renewed-warning chains,
+actual network Offline/Online and final UI Finish/deprovision/delete passed.
+Detailed timed evidence and limitations are in the solution record linked below.
 
 The only native change over .34 is the proven CM launcher correction:
 an unchanged Subject list must not erase a pending startup rebalance.

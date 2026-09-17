@@ -1044,7 +1044,18 @@ def validate_layer() -> None:
         "provider policy shell commands are appended to the Python patch task",
     )
 
-    all_text = "\n".join(read(path) for path in LAYER.rglob("*") if path.is_file())
+    validate_data_hygiene({path.relative_to(LAYER).as_posix(): read(path)
+                           for path in LAYER.rglob("*") if path.is_file()})
+
+
+def validate_data_hygiene(files):
+    # The parser checks a PEM delimiter; it does not embed a certificate.
+    # Exempt only this exact expression in its owning source, not certificate
+    # blocks, other files, or all lines mentioning certificate handling.
+    parser = "recipes-aos/aos-servicemanager/files/aos-demo-service-inputs.py"
+    delimiter_check = 'raw.count(b"-----BEGIN CERTIFICATE-----")'
+    all_text = "\n".join(text.replace(delimiter_check, "PEM_DELIMITER_CHECK", 1)
+                         if path == parser else text for path, text in files.items())
     for forbidden in (
         "BEGIN PRIVATE KEY",
         "BEGIN CERTIFICATE",

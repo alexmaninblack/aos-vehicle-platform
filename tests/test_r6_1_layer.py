@@ -18,6 +18,15 @@ class R61LayerTests(unittest.TestCase):
     def test_tracked_layer_passes(self) -> None:
         validate_r6_1_layer.validate_layer()
 
+    def test_data_hygiene_exempts_only_the_owning_parser_expression(self):
+        parser = "recipes-aos/aos-servicemanager/files/aos-demo-service-inputs.py"
+        expression = 'raw.count(b"-----BEGIN CERTIFICATE-----")'
+        validate_r6_1_layer.validate_data_hygiene({parser: expression})
+        for files in ({"foreign.py": expression}, {parser: expression + '\n-----BEGIN CERTIFICATE-----'},
+                      {parser: expression + '\n-----BEGIN PRIVATE KEY-----'}):
+            with self.assertRaises(validate_r6_1_layer.LayerError):
+                validate_r6_1_layer.validate_data_hygiene(files)
+
     def test_component_identity_is_fixed(self) -> None:
         self.assertEqual(
             validate_r6_1_layer.COMPONENT_ROOT,
