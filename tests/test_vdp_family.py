@@ -290,8 +290,78 @@ class VdpSignalQualityTests(unittest.TestCase):
         self.assertTrue(all(value is None for value in sink.publications[-1].values()))
         bridge.handle_message(viss_event(v1.SIGNALS), "7")
         with self.assertRaisesRegex(ValueError, "monotonic"):
-            bridge.handle_message(viss_event(v1.SIGNALS), "7")
+            bridge.handle_message(viss_event(v1.SIGNALS, "2026-08-28T11:59:59.000Z"), "7")
         self.assertTrue(all(value is None for value in sink.publications[-1].values()))
+
+    def test_identical_periodic_snapshot_is_not_a_gap_or_a_new_measurement(self) -> None:
+        sink = FakeSink()
+        clock = [10.0]
+        bridge = BridgeState(sink, 0.25, lambda: clock[0], v3.SIGNALS,
+                             require_complete_frames=True)
+        event = viss_event(v3.SIGNALS)
+        self.assertFalse(bridge.handle_message(event, "7").repeated)
+        for instant in (10.05, 10.1, 10.2):
+            clock[0] = instant
+            self.assertTrue(bridge.handle_message(event, "7").repeated)
+            self.assertFalse(bridge.tick())
+        self.assertEqual(len(sink.publications), 1)
+        # A busy socket cannot extend freshness or recover already stale data.
+        clock[0] = 10.3
+        self.assertTrue(bridge.handle_message(event, "7").repeated)
+        self.assertTrue(bridge.tick())
+        self.assertTrue(all(value is None for value in sink.publications[-1].values()))
+        self.assertTrue(bridge.handle_message(event, "7").repeated)
+        self.assertEqual(len(sink.publications), 2)
+        self.assertFalse(bridge.handle_message(
+            viss_event(v3.SIGNALS, "2026-08-28T12:00:00.350Z"), "7").repeated)
+        self.assertEqual(len(sink.publications), 3)
+
+    def test_changed_values_at_same_timestamp_remain_fail_closed(self) -> None:
+        sink = FakeSink()
+        bridge = BridgeState(sink, 0.25, lambda: 10.0, v3.SIGNALS,
+                             require_complete_frames=True)
+        bridge.handle_message(viss_event(v3.SIGNALS), "7")
+        changed = json.loads(viss_event(v3.SIGNALS))
+        changed["data"][0]["dp"]["value"] = "2.5"
+        with self.assertRaisesRegex(ValueError, "monotonic"):
+            bridge.handle_message(json.dumps(changed), "7")
+        self.assertTrue(all(value is None for value in sink.publications[-1].values()))
+
+    def test_busy_duplicate_stream_expires_without_reconnect_and_recovers_on_new_frame(self) -> None:
+        stop = threading.Event()
+        sink = FakeSink()
+        clock = [10.0]
+        configuration = runtime.Configuration(
+            runtime.PayloadConfiguration(50, 250, 500, 10_000,
+                semantic_version="1.0.0", signals=v1.SIGNALS),
+            runtime.VissConfiguration(uri="wss://10.0.0.1:6443", ca=Path("/test/ca"),
+                tls_server_name="127.0.0.1", client_certificate=Path("/test/cert"),
+                client_key=Path("/test/key"), source_identity=(UNIT_ID, NODE_ID, "a" * 64, 7)),
+            runtime.KuksaConfiguration("127.0.0.1", 55555, Path("/test/ca"),
+                "127.0.0.1", Path("/test/token")),
+        )
+        class PeriodicWebSocket(FakeWebSocket):
+            def recv(self, timeout):
+                if self._receive_count == 0:
+                    return super().recv(timeout)
+                self._receive_count += 1
+                clock[0] = {2: 10.0, 3: 10.1, 4: 10.3, 5: 10.4, 6: 10.5}[self._receive_count]
+                if self._receive_count == 6:
+                    stop.set()
+                    return viss_event(v1.SIGNALS, "2026-08-28T12:00:00.500Z")
+                return viss_event(v1.SIGNALS)
+        views = []
+        connect = mock.Mock(return_value=PeriodicWebSocket(stop))
+        with mock.patch.object(runtime, "KuksaSink", return_value=sink), \
+                mock.patch.object(runtime.ssl, "create_default_context"), \
+                mock.patch.object(runtime, "notify_ready"), \
+                mock.patch.object(runtime, "notify_readiness", side_effect=views.append), \
+                mock.patch.object(runtime.time, "monotonic", side_effect=lambda: clock[0]):
+            self.assertEqual(0, runtime.run(configuration, stop, threading.Event(), connect_factory=connect))
+        self.assertEqual(connect.call_count, 1)
+        self.assertEqual([view.source_state for view in views],
+            ["STARTING", "AUTHENTICATING", "DISCONNECTED", "LIVE", "STALE", "LIVE", "DISCONNECTED"])
+        self.assertEqual(len(sink.publications), 5)
 
     def test_profile_specific_parse_never_substitutes_zero(self) -> None:
         message = json.loads(viss_event(v2.SIGNALS))

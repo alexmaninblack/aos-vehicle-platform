@@ -47,6 +47,12 @@ Unit VISS client material and the fixed KUKSA Provider token are read only from
 protected external/systemd credential paths. Unit identity and credentials do
 not enter a release profile.
 
+Time-based VISS subscriptions can repeat the latest snapshot between source
+ticks. An identical complete snapshot with the same source timestamp is ignored:
+it is not republished and does not renew freshness or recover stale data. The
+normal stale timeout is checked even on a continuously busy duplicate stream.
+Changed values at the same timestamp and backward timestamps remain invalid.
+
 VDP v3 accepts only the two frozen canonical JSON Request schemas from their
 exact service owners. It enforces path, value, freshness, lease, replay, rate
 and correlation bounds before the narrow VISS Set. Only a correlated factual

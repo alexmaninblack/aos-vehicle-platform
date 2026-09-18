@@ -8,7 +8,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Mapping, Protocol
 
 
@@ -34,6 +34,7 @@ class Snapshot:
     invalid_paths: tuple[str, ...]
     complete: bool = False
     source_timestamp: dt.datetime | None = None
+    repeated: bool = False
 
 
 class TelemetrySink(Protocol):
@@ -215,6 +216,7 @@ class BridgeState:
         self._require_complete_frames = require_complete_frames
         self._last_publish_at: float | None = None
         self._last_source_timestamp: dt.datetime | None = None
+        self._last_source_values: Mapping[str, SignalValue | None] | None = None
         # Clear any value retained by KUKSA before the first healthy CARLA
         # frame. This also makes a provider restart fail safe when CARLA is
         # already unavailable.
@@ -228,6 +230,14 @@ class BridgeState:
                 return snapshot
             if (
                 self._last_source_timestamp is not None
+                and snapshot.source_timestamp == self._last_source_timestamp
+                and snapshot.values == self._last_source_values
+            ):
+                # A time-based VISS subscription can repeat its latest frame.
+                # This is no new measurement: do not republish it or renew age.
+                return replace(snapshot, repeated=True)
+            if (
+                self._last_source_timestamp is not None
                 and snapshot.source_timestamp <= self._last_source_timestamp
             ):
                 self.mark_unavailable()
@@ -235,6 +245,7 @@ class BridgeState:
         self._sink.publish(snapshot.values)
         self._last_publish_at = self._monotonic()
         self._last_source_timestamp = snapshot.source_timestamp
+        self._last_source_values = dict(snapshot.values)
         self._unavailable = False
         return snapshot
 

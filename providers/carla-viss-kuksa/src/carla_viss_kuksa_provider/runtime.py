@@ -240,6 +240,8 @@ def run(
     )
     readiness = _readiness_tracker(configuration)
     last_readiness_view: ReadinessView | None = None
+    next_repeat_report = 0.0
+    repeated_frames = 0
 
     def emit_readiness() -> None:
         nonlocal last_readiness_view
@@ -365,10 +367,26 @@ def run(
                         if advisory is not None and advisory.consume(message, subscription_id):
                             continue
                         snapshot = bridge.handle_message(message, subscription_id)
+                        if snapshot.repeated:
+                            repeated_frames += 1
+                            now = time.monotonic()
+                            if now >= next_repeat_report:
+                                LOG.info("VISS repeated source frames ignored: %d", repeated_frames)
+                                repeated_frames = 0
+                                next_repeat_report = now + 10.0
+                            # Receiving duplicate envelopes must not hide a
+                            # stopped source behind a continuously busy socket.
+                            if bridge.tick():
+                                if readiness is not None:
+                                    readiness.stale()
+                                    emit_readiness()
+                                LOG.warning("CARLA telemetry became stale; KUKSA values are unavailable")
+                            continue
                         if readiness is not None:
+                            was_ready = readiness.view.data_readiness == "READY"
                             became_ready = readiness.observe(snapshot)
                             emit_readiness()
-                            if became_ready:
+                            if became_ready and not was_ready:
                                 LOG.info("Selected vehicle data is ready")
                         if snapshot.invalid_paths:
                             LOG.warning(
