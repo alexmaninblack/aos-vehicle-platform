@@ -1,0 +1,164 @@
+Subject: [PATCH] cm: notify connection subscribers outside the transport lock
+
+Monitoring and Alerts hold their own mutex while enqueuing messages. Calling
+their disconnect listeners under Communication::mMutex inverts that order.
+Serialize connection transitions separately, retain subscriber lifetime
+protection, and release the transport mutex before callbacks on Disconnect
+and Stop. Keep the transition guard through notification, but not worker join.
+Make connection-state reads atomic and suppress duplicate transition events.
+Always notify disconnect after a shutdown error or an already absent socket.
+
+Upstream-Status: Pending
+
+Validated with the deterministic native lock/reconnect harness in the demo
+solution. No storage, protocol, retry interval or authentication changes.
+
+diff --git a/src/cm/communication/communication.cpp b/src/cm/communication/communication.cpp
+index f9bd66443..8634df6d7 100644
+--- a/src/cm/communication/communication.cpp
++++ b/src/cm/communication/communication.cpp
+@@ -272,21 +272,29 @@ Error Communication::Start()
+ Error Communication::Stop()
+ {
+     {
+-        std::lock_guard lock {mMutex};
++        std::lock_guard connectionLock {mConnectionMutex};
+ 
+-        LOG_DBG() << "Stop communication";
++        {
++            std::lock_guard lock {mMutex};
+ 
+-        if (!mIsRunning) {
+-            return AOS_ERROR_WRAP(ErrorEnum::eWrongState);
+-        }
++            LOG_DBG() << "Stop communication";
+ 
+-        mIsRunning = false;
++            if (!mIsRunning) {
++                return AOS_ERROR_WRAP(ErrorEnum::eWrongState);
++            }
+ 
+-        CloseConnection();
++            mIsRunning = false;
+ 
+-        mCondVar.notify_all();
++            CloseConnection();
++
++            mCondVar.notify_all();
++        }
++
++        NotifyConnectionLost();
+     }
+ 
++    // The receive worker may still need Disconnect(); do not hold the
++    // connection mutex while joining it.
+     for (auto& thread : mThreadPool) {
+         if (thread.joinable()) {
+             thread.join();
+@@ -488,9 +496,7 @@ Error Communication::UnsubscribeListener(cloudconnection::ConnectionListenerItf&
+ 
+ bool Communication::IsConnected() const
+ {
+-    std::lock_guard lock {mMutex};
+-
+-    return mIsConnected;
++    return mIsConnected.load();
+ }
+ 
+ /***********************************************************************************************************************
+@@ -615,6 +621,12 @@ Error Communication::SendDiscoveryRequest(const String& url)
+ 
+ Error Communication::ConnectToCloud()
+ {
++    std::lock_guard connectionLock {mConnectionMutex};
++
++    if (!mIsRunning) {
++        return AOS_ERROR_WRAP(ErrorEnum::eWrongState);
++    }
++
+     auto serviceDiscoveryURLs = std::make_unique<StaticArray<StaticString<cURLLen>, cMaxServiceDiscoveryURLs>>();
+ 
+     if (auto err = mCryptoHelper->GetServiceDiscoveryURLs(*serviceDiscoveryURLs); !err.IsNone()) {
+@@ -701,8 +713,6 @@ Error Communication::CloseConnection()
+         if (mClientSession) {
+             mClientSession->reset();
+         }
+-
+-        NotifyConnectionLost();
+     } catch (const std::exception& e) {
+         return common::utils::ToAosError(e);
+     }
+@@ -712,14 +722,24 @@ Error Communication::CloseConnection()
+ 
+ Error Communication::Disconnect()
+ {
+-    std::lock_guard lock {mMutex};
++    std::lock_guard connectionLock {mConnectionMutex};
++
++    Error err;
++
++    {
++        std::lock_guard lock {mMutex};
+ 
+-    LOG_DBG() << "Disconnect from web socket server";
++        LOG_DBG() << "Disconnect from web socket server";
+ 
+-    auto err = CloseConnection();
++        err = CloseConnection();
+ 
+-    mWebSocket.reset();
+-    mClientSession.reset();
++        mWebSocket.reset();
++        mClientSession.reset();
++    }
++
++    // Subscribers may call senders while holding their own mutex. Never
++    // invoke them under mMutex, including when socket shutdown fails.
++    NotifyConnectionLost();
+ 
+     return err;
+ }
+@@ -728,7 +748,9 @@ void Communication::NotifyConnectionEstablished()
+ {
+     std::lock_guard lock {mSubscribersMutex};
+ 
+-    mIsConnected = true;
++    if (mIsConnected.exchange(true)) {
++        return;
++    }
+ 
+     LOG_INF() << "Connection established";
+ 
+@@ -741,7 +763,9 @@ void Communication::NotifyConnectionLost()
+ {
+     std::lock_guard lock {mSubscribersMutex};
+ 
+-    mIsConnected = false;
++    if (!mIsConnected.exchange(false)) {
++        return;
++    }
+ 
+     LOG_INF() << "Connection lost";
+ 
+diff --git a/src/cm/communication/communication.hpp b/src/cm/communication/communication.hpp
+index a95253720..220f70e21 100644
+--- a/src/cm/communication/communication.hpp
++++ b/src/cm/communication/communication.hpp
+@@ -307,12 +307,15 @@ private:
+     std::mutex                                                     mSubscribersMutex;
+     std::vector<cloudconnection::ConnectionListenerItf*>           mSubscribers;
+     std::optional<common::cloudprotocol::ServiceDiscoveryResponse> mDiscoveryResponse;
++    // Serialize socket transitions and notifications, never queue operations.
++    // Lock order: connection -> transport; release transport before callbacks.
++    std::mutex                                                     mConnectionMutex;
+     mutable std::mutex                                             mMutex;
+     std::condition_variable                                        mCondVar;
+     StaticString<cIDLen>                                           mMainNodeID;
+     Duration                                                       mReconnectTimeout {cReconnectTimeout};
+     Poco::URI                                                      mConfigServiceDiscoveryURI;
+-    bool                                                           mIsConnected {};
++    std::atomic_bool                                               mIsConnected {};
+ 
+     SessionPtr                          mClientSession;
+     std::optional<Poco::Net::WebSocket> mWebSocket;
+

@@ -17,6 +17,8 @@ SRC_URI += " \
     file://0003-refresh-idle-full-unit-status.patch;patchdir=../service-update-deps/aos_core_lib_cpp \
     file://0004-configure-idle-full-unit-status.patch \
     file://0005-preserve-pending-startup-rebalance.patch;patchdir=../service-update-deps/aos_core_lib_cpp \
+    file://0006-notify-outside-transport-lock.patch \
+    file://0007-preserve-shared-instance-storage.patch;patchdir=../service-update-deps/aos_core_lib_cpp \
 "
 
 SRCREV_serviceupdatelib = "60cb83535f773762c61ac5f544b31b7b88c502e3"
