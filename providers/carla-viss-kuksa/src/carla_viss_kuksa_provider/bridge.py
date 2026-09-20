@@ -241,7 +241,11 @@ class BridgeState:
                 and snapshot.source_timestamp <= self._last_source_timestamp
             ):
                 self.mark_unavailable()
-                raise ValueError("VISS source frame is not monotonic")
+                # Fixed diagnostic category only; never emit signal values.
+                reason = ("SAME_TIMESTAMP_CHANGED" if
+                          snapshot.source_timestamp == self._last_source_timestamp
+                          else "TIME_REGRESSION")
+                raise ValueError("VISS source frame is not monotonic: " + reason)
         self._sink.publish(snapshot.values)
         self._last_publish_at = self._monotonic()
         self._last_source_timestamp = snapshot.source_timestamp
