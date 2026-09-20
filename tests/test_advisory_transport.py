@@ -106,7 +106,9 @@ class TransportTests(unittest.TestCase):
         self.transport.consume('{"action":"set","requestId":[]}', "7")
         self.now += 3.0
         self.transport.tick(NOW)
-        self.assertEqual({}, self.transport.pending)
+        # Rejected readiness is retried after backoff; timed-out peers remain
+        # bounded. Neither case creates a Gateway application observation.
+        self.assertEqual({AVAILABILITY_PATHS[0]}, {p[0] for p in self.transport.pending.values()})
         self.publisher.publish_status.assert_not_called()
 
     def test_disconnect_preserves_replay_but_sends_nothing_until_attached(self):
@@ -164,6 +166,8 @@ class TransportTests(unittest.TestCase):
         self.assertEqual([True, False], [json.loads(item["value"])["ready"] for item in sent])
         self.publisher.publish_status.assert_not_called()
         self.client.read_advisory_targets.side_effect = RuntimeError("unavailable")
+        for item in sent:
+            self.transport.consume(json.dumps({"action": "set", "requestId": item["requestId"]}), "7")
         self.targets.poll(); self.now += 5; self.transport.tick(NOW + dt.timedelta(seconds=5))
         latest = [json.loads(call.args[0]) for call in self.socket.send.call_args_list][-2:]
         self.assertEqual([False, False], [json.loads(item["value"])["ready"] for item in latest])

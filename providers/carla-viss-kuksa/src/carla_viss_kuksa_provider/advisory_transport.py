@@ -107,7 +107,10 @@ class AdvisoryTransport:
         self.seen_targets: dict[str, str] = {}
         self.seen_statuses: dict[str, str] = {}
         self.last_result: dict[str, str] = {}
-        self.next_availability = 0.0
+        self.availability_confirmed: dict[str, bool] = {}
+        self.availability_pending: dict[str, bool] = {}
+        self.availability_next_attempt: dict[str, float] = {}
+        self.availability_heartbeat: dict[str, float] = {}
 
     @staticmethod
     def subscription(raw: str) -> str:
@@ -120,11 +123,15 @@ class AdvisoryTransport:
         self.websocket = websocket
         self.pending.clear()
         self.seen_statuses.clear()
-        self.next_availability = 0.0
+        self.availability_confirmed.clear()
+        self.availability_pending.clear()
+        self.availability_next_attempt.clear()
+        self.availability_heartbeat.clear()
 
     def detach(self) -> None:
         self.websocket = None
         self.pending.clear()
+        self.availability_pending.clear()
 
     def set_value(self, path: str, canonical_value: str) -> None:
         if (path not in ENDPOINTS and path not in AVAILABILITY_PATHS) or self.websocket is None:
@@ -133,29 +140,43 @@ class AdvisoryTransport:
             raise RuntimeError("advisory VISS response pending")
         request_id = "vdp-advisory-" + str(uuid.uuid4())
         self.pending[request_id] = (path, self.monotonic() + 2.0)
-        self.websocket.send(json.dumps({
-            "action": "set", "path": path, "value": canonical_value,
-            "requestId": request_id,
-        }, separators=(",", ":"), sort_keys=True))
+        try:
+            self.websocket.send(json.dumps({
+                "action": "set", "path": path, "value": canonical_value,
+                "requestId": request_id,
+            }, separators=(",", ":"), sort_keys=True))
+        except Exception:
+            del self.pending[request_id]
+            raise
 
     def tick(self, now_utc: dt.datetime) -> None:
         now = self.monotonic()
         for request_id, (path, deadline) in list(self.pending.items()):
             if now >= deadline:
                 del self.pending[request_id]
+                if path in AVAILABILITY_PATHS:
+                    self.availability_pending.pop(path, None)
+                    self.availability_next_attempt[path] = now + 1.0
                 self._report(path, "VISS_RESPONSE_TIMEOUT")
         if self.websocket is None:
             return
         ready, values = self.targets.snapshot()
-        if now >= self.next_availability:
-            for source, path in zip(READINESS_PATHS, AVAILABILITY_PATHS):
-                if any(item[0] == path for item in self.pending.values()):
-                    continue
-                self.set_value(path, json.dumps({
-                    "schemaVersion": 1, "ready": ready and producer_ready(values.get(source), now_utc),
-                    "observedAt": now_utc.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
-                }, separators=(",", ":"), sort_keys=True))
-            self.next_availability = now + 5.0
+        for source, path in zip(READINESS_PATHS, AVAILABILITY_PATHS):
+            current = ready and producer_ready(values.get(source), now_utc)
+            if (any(item[0] == path for item in self.pending.values())
+                    or now < self.availability_next_attempt.get(path, 0.0)):
+                continue
+            if (self.availability_confirmed.get(path) == current
+                    and now < self.availability_heartbeat.get(path, 0.0)):
+                continue
+            # Publish current transitions without waiting for the heartbeat.
+            # Keep one in-flight Set per team, bounded retry and no stale queue.
+            self.set_value(path, json.dumps({
+                "schemaVersion": 1, "ready": current,
+                "observedAt": now_utc.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            }, separators=(",", ":"), sort_keys=True))
+            self.availability_pending[path] = current
+            self.availability_next_attempt[path] = now + 0.1
         if not ready:
             self._report("transport", "KUKSA_TARGETS_UNAVAILABLE")
             return
@@ -182,6 +203,15 @@ class AdvisoryTransport:
             request_id = message.get("requestId")
             pending = self.pending.pop(request_id, None) if isinstance(request_id, str) else None
             if pending is not None:
+                path = pending[0]
+                if path in AVAILABILITY_PATHS:
+                    value = self.availability_pending.pop(path, None)
+                    if "error" in message:
+                        self.availability_next_attempt[path] = self.monotonic() + 1.0
+                    elif value is not None:
+                        self.availability_confirmed[path] = value
+                        self.availability_heartbeat[path] = self.monotonic() + 5.0
+                        self._report(path + ":readiness", "READY" if value else "NOT_READY")
                 self._report(pending[0], "VISS_SET_REJECTED" if "error" in message else "VISS_SET_ACCEPTED")
             # A Set response is never a telemetry snapshot or application proof.
             return True
