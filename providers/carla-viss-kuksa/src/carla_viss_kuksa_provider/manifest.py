@@ -33,8 +33,8 @@ ADVISORY_CONTRACT = {
 }
 CURRENT_ADVISORY_CONTRACT = {
     "contractId": "aosedge-demo-typed-qm-advisory",
-    "contractVersion": "1.1.0",
-    "sha256": "343e128bf9a0cac60a4f1b573315716f440accef17933fbcd9f6af49bc88300c",
+    "contractVersion": "1.2.0",
+    "sha256": "e055578130968e69344de981634dd69a43a1b851e437fa8dcfa77771b6c1e24c",
 }
 ADVISORY_ENDPOINTS = {
     "BRAKE_HEALTH_ADVISORY": {

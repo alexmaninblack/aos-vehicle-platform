@@ -945,6 +945,42 @@ class VdpAdvisoryTests(unittest.TestCase):
                 )
                 self.assertEqual(decision.reason, reason)
 
+    def test_bounded_future_clock_tolerance_preserves_original_request(self) -> None:
+        for is_tire in (False, True):
+            path = "Vehicle.OEM.TireHealth.Advisory.Request" if is_tire else self.brake_path
+            caller = Caller("TIRE_HEALTH", "v1") if is_tire else self.brake
+            for offset_ms in (-2001, -2000, 0, 1, 100, 101):
+                with self.subTest(tire=is_tire, offset_ms=offset_ms):
+                    issued = NOW + dt.timedelta(milliseconds=offset_ms)
+                    raw = request(
+                        issued_at=issued, expires_at=issued + dt.timedelta(seconds=30),
+                        recommendation="TIRE_INSPECTION_RECOMMENDED" if is_tire else "INSPECTION_RECOMMENDED",
+                        reason="PREDICTED_TIRE_WEAR" if is_tire else "PREDICTED_BRAKE_DEGRADATION",
+                    )
+                    viss = FakeViss()
+                    policy = AdvisoryPolicy(viss, self.kuksa)
+                    decision = policy.handle_request(caller, path, raw, NOW, 10.0)
+                    accepted = -2000 <= offset_ms <= 100
+                    self.assertEqual(accepted, decision.forwarded)
+                    if accepted:
+                        self.assertEqual([(path, raw)], viss.sets)
+                        self.assertFalse(decision.application_success)
+                        duplicate = policy.handle_request(caller, path, raw, NOW, 10.1)
+                        self.assertEqual("IDEMPOTENT_NO_NEW_EFFECT", duplicate.reason)
+                        self.assertEqual([(path, raw)], viss.sets)
+                        changed = json.loads(raw)
+                        changed["expiresAt"] = (issued + dt.timedelta(seconds=29)).isoformat().replace("+00:00", "Z")
+                        self.assertEqual("REPLAY_DETECTED", policy.handle_request(caller, path, canonical_json(changed), NOW, 10.2).reason)
+                    else:
+                        self.assertEqual("STALE_REQUEST", decision.reason)
+                        self.assertEqual([], viss.sets)
+
+    def test_future_tolerance_does_not_expand_declared_lease(self) -> None:
+        issued = NOW + dt.timedelta(milliseconds=100)
+        raw = request(issued_at=issued, expires_at=issued + dt.timedelta(milliseconds=30001))
+        self.assertEqual("STALE_REQUEST", self.policy.handle_request(self.brake, self.brake_path, raw, NOW, 10.0).reason)
+        self.assertEqual([], self.viss.sets)
+
     def test_explicit_clear_is_schema_bound_and_rate_limited(self) -> None:
         self.assertTrue(
             self.policy.handle_request(

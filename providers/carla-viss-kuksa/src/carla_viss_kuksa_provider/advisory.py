@@ -16,6 +16,7 @@ from typing import Protocol
 MAX_REQUEST_BYTES = 2048
 MAX_STATUS_BYTES = 1024
 MAX_ACCEPTANCE_AGE = dt.timedelta(milliseconds=2000)
+MAX_FUTURE_CLOCK_SKEW = dt.timedelta(milliseconds=100)
 MAX_LEASE = dt.timedelta(milliseconds=30000)
 MIN_REFRESH_INTERVAL = 10.0
 MIN_STATE_CHANGE_INTERVAL = 1.0
@@ -292,7 +293,9 @@ def _validate_request(
     expires_at = _timestamp(request.get("expiresAt"))
     if now_utc.tzinfo is None or now_utc.utcoffset() != dt.timedelta(0):
         raise AdvisoryError("INVALID_VALUE")
-    if issued_at > now_utc or now_utc - issued_at > MAX_ACCEPTANCE_AGE:
+    # Preserve original timestamps. Gateway independently enforces this bound
+    # and caps effective activation at 30 seconds from its own acceptance time.
+    if issued_at > now_utc + MAX_FUTURE_CLOCK_SKEW or now_utc - issued_at > MAX_ACCEPTANCE_AGE:
         raise AdvisoryError("STALE_REQUEST")
     if expires_at <= now_utc or expires_at <= issued_at or expires_at - issued_at > MAX_LEASE:
         raise AdvisoryError("STALE_REQUEST")
