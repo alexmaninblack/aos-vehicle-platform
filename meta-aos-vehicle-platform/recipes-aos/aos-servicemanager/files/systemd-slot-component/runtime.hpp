@@ -89,6 +89,7 @@ public:
   Error Start() override;
   Error Stop() override;
   Error GetRuntimeInfo(RuntimeInfo &runtimeInfo) const override;
+  Error InitInstances(const Array<InstanceInfo> &instancesInfo) override;
   Error StartInstance(const InstanceInfo &instance,
                       InstanceStatus &status) override;
   Error StopInstance(const InstanceIdent &instance,

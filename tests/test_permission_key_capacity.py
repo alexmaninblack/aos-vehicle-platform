@@ -25,8 +25,9 @@ class PermissionKeyCapacityTests(unittest.TestCase):
         removed = [line for line in patch.splitlines() if line.startswith("-") and not line.startswith("---")]
         added = [line for line in patch.splitlines() if line.startswith("+") and not line.startswith("+++")]
         self.assertEqual(1, len(removed))
-        self.assertEqual([removed[0].replace("-", "+", 1).replace("cFuncServiceMaxCount", "cFunctionsMaxCount")], added)
+        self.assertIn(removed[0].replace("-", "+", 1).replace("cFuncServiceMaxCount", "cFunctionsMaxCount"), added)
         self.assertIn("src/iam/iamserver/publicmessagehandler.cpp", patch)
+        self.assertIn("RepliesWithAll32LongFunctionKeysWithoutTruncation", patch)
 
     def test_all_managers_compile_all_cpp_units_with_the_same_capacity(self):
         for recipe in ("aos-communicationmanager", "aos-servicemanager", "aos-iamanager"):

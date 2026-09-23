@@ -1,0 +1,81 @@
+From: Demo Solution Team <noreply@example.invalid>
+Subject: [PATCH] pkcs11: cover three-token cache with a retained session
+
+Test-only proof of the injected allocator: clear/reopen three token
+slots for 20 cycles while an old session remains referenced.
+No production allocator or authorization change.
+
+Upstream-Status: Pending [native regression proof; mainline migration]
+Base: aos_core_lib_cpp 5560291ba6914e36a5b841ade4d8fc54134a9e91
+
+diff --git a/src/core/common/pkcs11/tests/pkcs11.cpp b/src/core/common/pkcs11/tests/pkcs11.cpp
+index 031e1054..129d36eb 100644
+--- a/src/core/common/pkcs11/tests/pkcs11.cpp
++++ b/src/core/common/pkcs11/tests/pkcs11.cpp
+@@ -132,6 +132,66 @@ TEST_F(PKCS11Test, CreateMultipleSessions)
+     ASSERT_TRUE(err.IsNone());
+ }
+ 
++TEST_F(PKCS11Test, ThreeTokenCacheSurvivesRetainedSessionAndReopen)
++{
++    ASSERT_EQ(AOS_CONFIG_PKCS11_SESSION_POOL_MAX_SIZE, 3U) << "Run with the accepted IAM cache setting";
++    StaticArray<SlotID, 16> allSlots;
++    StaticArray<SlotID, 3> slots;
++    ASSERT_TRUE(slots.PushBack(mSlotID).IsNone());
++    for (const auto* label : {"migration-cloud-test", "migration-kuksa-test"}) {
++        ASSERT_TRUE(mLibrary->GetSlotList(false, allSlots).IsNone());
++        bool initialized = false;
++        for (auto slot : allSlots) {
++            TokenInfo token;
++            ASSERT_TRUE(mLibrary->GetTokenInfo(slot, token).IsNone());
++            if (!(token.mFlags & CKF_TOKEN_INITIALIZED)) {
++                ASSERT_TRUE(mLibrary->InitToken(slot, mPIN, label).IsNone());
++                initialized = true;
++                break;
++            }
++        }
++        ASSERT_TRUE(initialized);
++        ASSERT_TRUE(mLibrary->GetSlotList(true, allSlots).IsNone());
++        for (auto slot : allSlots) {
++            TokenInfo token;
++            ASSERT_TRUE(mLibrary->GetTokenInfo(slot, token).IsNone());
++            if (token.mLabel == label) {
++                ASSERT_TRUE(slots.PushBack(slot).IsNone());
++                break;
++            }
++        }
++    }
++    ASSERT_EQ(slots.Size(), 3U);
++    constexpr auto flags = CKF_RW_SESSION | CKF_SERIAL_SESSION;
++    mLibrary->ClearSessions();
++    auto retained = mLibrary->OpenSession(slots[0], flags);
++    ASSERT_TRUE(retained.mError.IsNone());
++    ASSERT_TRUE(retained.mValue);
++    // One cert module may retain an old session across SetOwner/cache reset.
++    // The injected allocator must permit that owner plus all three new keys.
++    for (int cycle = 0; cycle < 20; ++cycle) {
++        mLibrary->ClearSessions();
++        StaticArray<SharedPtr<SessionContext>, 3> sessions;
++        for (auto slot : slots) {
++            auto opened = mLibrary->OpenSession(slot, flags);
++            ASSERT_TRUE(opened.mError.IsNone());
++            ASSERT_TRUE(opened.mValue);
++            ASSERT_TRUE(sessions.PushBack(opened.mValue).IsNone());
++        }
++        for (size_t i = 0; i < slots.Size(); ++i) {
++            auto reused = mLibrary->OpenSession(slots[i], flags);
++            ASSERT_TRUE(reused.mError.IsNone());
++            EXPECT_EQ(reused.mValue.Get(), sessions[i].Get());
++            SessionInfo info;
++            ASSERT_TRUE(reused.mValue->GetSessionInfo(info).IsNone());
++            EXPECT_EQ(info.slotID, slots[i]);
++        }
++        SessionInfo retainedInfo;
++        ASSERT_TRUE(retained.mValue->GetSessionInfo(retainedInfo).IsNone());
++        EXPECT_EQ(retainedInfo.slotID, slots[0]);
++    }
++}
++
+ TEST_F(PKCS11Test, GenerateRSAKeyPairWithLabel)
+ {
+     Error                     err = ErrorEnum::eNone;

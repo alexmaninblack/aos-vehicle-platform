@@ -122,22 +122,22 @@
     },
     {
       "name": "AosCore C++",
-      "revision": "9eecb80c4994937b5c8cbe0464970f81e8ad4c2d",
-      "displayVersion": "AosVM 6.1.0 Service Manager recipe SRCREV",
+      "revision": "9d613a46df3c7f550062e2f19ae3406c57715694",
+      "displayVersion": "mainline pinned 2026-09-23; CM/SM/IAM",
       "license": "Apache-2.0",
       "source": "https://github.com/AosEdge/aos_core_cpp"
     },
     {
       "name": "AosCore C++ library",
-      "revision": "60cb83535f773762c61ac5f544b31b7b88c502e3",
-      "displayVersion": "v9.1.0",
+      "revision": "5560291ba6914e36a5b841ade4d8fc54134a9e91",
+      "displayVersion": "v9.1.2",
       "license": "Apache-2.0",
       "source": "https://github.com/AosEdge/aos_core_lib_cpp"
     },
     {
       "name": "AosCore API",
       "revision": "af3552a0a5eb0237eff7f5f183780ca46c339cd3",
-      "displayVersion": "v9.1.0",
+      "displayVersion": "unchanged API commit; mainline triplet 2026-09-23",
       "license": "Apache-2.0",
       "source": "https://github.com/AosEdge/aos_core_api"
     },

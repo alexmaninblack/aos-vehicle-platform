@@ -8,20 +8,20 @@ FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 # This changes storage capacity only, never scopes or authorization decisions.
 CXXFLAGS:append = " -DAOS_CONFIG_TYPES_FUNCTION_LEN=256"
 
-# Keep the pinned native CM and shared gRPC write-lock backport.
+# Coordinated mainline baseline for CM, SM and IAM. Upstream already owns
+# shared gRPC write serialization; keep only tested residual behavior.
+SRCREV = "9d613a46df3c7f550062e2f19ae3406c57715694"
+SRCREV_default = "9d613a46df3c7f550062e2f19ae3406c57715694"
 SRC_URI += " \
-    file://0001-serialize-sm-stream-writes.patch \
     git://github.com/aosedge/aos_core_lib_cpp.git;protocol=https;nobranch=1;name=serviceupdatelib;destsuffix=service-update-deps/aos_core_lib_cpp \
     git://github.com/aosedge/aos_core_api.git;protocol=https;nobranch=1;name=serviceupdateapi;destsuffix=service-update-deps/aos_core_api \
-    file://0002-reconcile-stale-instance-snapshot.patch;patchdir=../service-update-deps/aos_core_lib_cpp \
+    file://0002-mainline-cm-instance-lifecycle.patch;patchdir=../service-update-deps/aos_core_lib_cpp \
     file://0003-refresh-idle-full-unit-status.patch;patchdir=../service-update-deps/aos_core_lib_cpp \
     file://0004-configure-idle-full-unit-status.patch \
-    file://0005-preserve-pending-startup-rebalance.patch;patchdir=../service-update-deps/aos_core_lib_cpp \
     file://0006-notify-outside-transport-lock.patch \
-    file://0007-preserve-shared-instance-storage.patch;patchdir=../service-update-deps/aos_core_lib_cpp \
 "
 
-SRCREV_serviceupdatelib = "60cb83535f773762c61ac5f544b31b7b88c502e3"
+SRCREV_serviceupdatelib = "5560291ba6914e36a5b841ade4d8fc54134a9e91"
 SRCREV_serviceupdateapi = "af3552a0a5eb0237eff7f5f183780ca46c339cd3"
 SRCREV_FORMAT = "default_serviceupdatelib_serviceupdateapi"
 DEPENDS:append = " softhsm googletest"

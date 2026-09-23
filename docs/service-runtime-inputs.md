@@ -39,11 +39,14 @@ Do not activate the new mount with the legacy fixed-root bootstrap.
 
 ## Native constraints and qualification
 
-Pinned AosCore 9eecb80c4994937b5c8cbe0464970f81e8ad4c2d reads
+The mainline candidate `9d613a46df3c7f550062e2f19ae3406c57715694` still reads
 resourcesConfigFile at initialization, not via hot reload. It copies mounts
 without preparing/chowning sources. Bind directories must exist before
 instance construction. Configuration activation through Demo Control is not
 a binary replacement.
+
+The [mainline migration](aoscore-mainline-migration-2026-09-23.md) changes the
+build candidate, not the qualification status of the currently installed VM.
 
 Project inputs before assignment; refresh only after committed VDP
 slot/process agreement; restore /run sources before retained assignments

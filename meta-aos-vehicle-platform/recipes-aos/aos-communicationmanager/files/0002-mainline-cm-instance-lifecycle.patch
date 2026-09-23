@@ -1,0 +1,688 @@
+From: Demo Solution Team <noreply@example.invalid>
+Subject: [PATCH] cm: preserve final-owner storage and mainline UID ownership
+
+Consolidate residual node validation, pending startup rebalance and
+shared-storage retention on the mainline stable-UID launcher. Preserve
+failed retirements and release only acquired UID/GID references.
+No schema, quota, identity, TTL or Cloud protocol change.
+
+Upstream-Status: Pending [native regression proof; mainline migration]
+Base: aos_core_lib_cpp 5560291ba6914e36a5b841ade4d8fc54134a9e91
+
+diff --git a/src/core/cm/launcher/instance.cpp b/src/core/cm/launcher/instance.cpp
+index a360a65c..8a41e6e9 100644
+--- a/src/core/cm/launcher/instance.cpp
++++ b/src/core/cm/launcher/instance.cpp
+@@ -305,7 +305,7 @@ Error ComponentInstance::Init()
+     return ErrorEnum::eNone;
+ }
+ 
+-Error ComponentInstance::Remove()
++Error ComponentInstance::Remove(bool /* removeStorage */)
+ {
+     LOG_DBG() << "Remove instance" << Log::Field("instanceID", mInfo.mInstanceIdent);
+ 
+@@ -410,41 +410,51 @@ Error ServiceInstance::Init()
+     if (!uidErr.IsNone()) {
+         return AOS_ERROR_WRAP(uidErr);
+     }
++    mUIDAcquired = true;
+ 
+     Tie(mInfo.mGID, gidErr) = mGIDPool.Acquire(mInfo.mInstanceIdent.mItemID, mInfo.mGID);
+     if (!gidErr.IsNone()) {
+         return AOS_ERROR_WRAP(gidErr);
+     }
++    mGIDAcquired = true;
+ 
+     return ErrorEnum::eNone;
+ }
+ 
+-Error ServiceInstance::Remove()
++Error ServiceInstance::Remove(bool removeStorage)
+ {
+     LOG_DBG() << "Remove instance" << Log::Field("instanceID", mInfo.mInstanceIdent);
+ 
+-    Error firstErr = ErrorEnum::eNone;
+-
+-    if (auto err = mStorageState.Remove(mInfo.mInstanceIdent); !err.IsNone() && !err.Is(ErrorEnum::eNotFound)) {
+-        firstErr = AOS_ERROR_WRAP(err);
++    // A failed retirement remains an owner. Keep its identity references until
++    // the storage/database operation succeeds so a retry cannot free a live UID.
++    if (removeStorage) {
++        if (auto err = mStorageState.Remove(mInfo.mInstanceIdent); !err.IsNone() && !err.Is(ErrorEnum::eNotFound)) {
++            return AOS_ERROR_WRAP(err);
++        }
+     }
+ 
+     if (auto err = mStorage.RemoveInstance(mInfo.mInstanceIdent, mInfo.mVersion);
+         !err.IsNone() && !err.Is(ErrorEnum::eNotFound)) {
+-        if (firstErr.IsNone()) {
+-            firstErr = AOS_ERROR_WRAP(err);
+-        }
++        return AOS_ERROR_WRAP(err);
+     }
+ 
+-    if (auto err = mUIDPool.Release(mInfo.mInstanceIdent); !err.IsNone() && !err.Is(ErrorEnum::eNotFound)) {
+-        if (firstErr.IsNone()) {
++    Error firstErr = ErrorEnum::eNone;
++
++    if (mUIDAcquired) {
++        if (auto err = mUIDPool.Release(mInfo.mInstanceIdent); !err.IsNone() && !err.Is(ErrorEnum::eNotFound)) {
+             firstErr = AOS_ERROR_WRAP(err);
++        } else {
++            mUIDAcquired = false;
+         }
+     }
+ 
+-    if (auto err = mGIDPool.Release(mInfo.mInstanceIdent.mItemID); !err.IsNone() && !err.Is(ErrorEnum::eNotFound)) {
+-        if (firstErr.IsNone()) {
+-            firstErr = AOS_ERROR_WRAP(err);
++    if (mGIDAcquired) {
++        if (auto err = mGIDPool.Release(mInfo.mInstanceIdent.mItemID); !err.IsNone() && !err.Is(ErrorEnum::eNotFound)) {
++            if (firstErr.IsNone()) {
++                firstErr = AOS_ERROR_WRAP(err);
++            }
++        } else {
++            mGIDAcquired = false;
+         }
+     }
+ 
+diff --git a/src/core/cm/launcher/instance.hpp b/src/core/cm/launcher/instance.hpp
+index 46893231..64be968b 100644
+--- a/src/core/cm/launcher/instance.hpp
++++ b/src/core/cm/launcher/instance.hpp
+@@ -122,9 +122,10 @@ public:
+     /**
+      * Removes instance.
+      *
++     * @param removeStorage whether this is the final owner of the shared storage.
+      * @return Error.
+      */
+-    virtual Error Remove() = 0;
++    virtual Error Remove(bool removeStorage) = 0;
+ 
+     /**
+      * Caches instance.
+@@ -273,7 +274,7 @@ public:
+      *
+      * @return Error.
+      */
+-    Error Remove() override;
++    Error Remove(bool removeStorage) override;
+ 
+     /**
+      * Caches component instance.
+@@ -365,7 +366,7 @@ public:
+      *
+      * @return Error.
+      */
+-    Error Remove() override;
++    Error Remove(bool removeStorage) override;
+ 
+     /**
+      * Caches service instance.
+@@ -447,6 +448,10 @@ private:
+     UIDPool&      mUIDPool;
+     GIDPool&      mGIDPool;
+     StorageState& mStorageState;
++    // Failed Init owns only successfully acquired references. Cleanup must not
++    // release another version's reference, nor release twice on a retry.
++    bool mUIDAcquired {};
++    bool mGIDAcquired {};
+ };
+ 
+ /** @}*/
+diff --git a/src/core/cm/launcher/instancemanager.cpp b/src/core/cm/launcher/instancemanager.cpp
+index b042b89f..54d49379 100644
+--- a/src/core/cm/launcher/instancemanager.cpp
++++ b/src/core/cm/launcher/instancemanager.cpp
+@@ -21,8 +21,14 @@ Error InstanceManager::RemoveInstances(Array<SharedPtr<Instance>>& instances, Pr
+ 
+     for (auto instance = instances.begin(); instance != instances.end();) {
+         if (predicate(*instance)) {
+-            if (auto err = (*instance)->Remove(); !err.IsNone() && firstErr.IsNone()) {
+-                firstErr = err;
++            if (auto err = (*instance)->Remove(!HasOtherStorageOwner(**instance)); !err.IsNone()) {
++                if (firstErr.IsNone()) {
++                    firstErr = err;
++                }
++
++                // Failed retirement must remain visible to later ownership checks.
++                ++instance;
++                continue;
+             }
+ 
+             instance = instances.Erase(instance);
+@@ -341,14 +347,9 @@ void InstanceManager::ClearCacheIfLimitReached()
+         }
+     }
+ 
+-    for (auto& instance : mCachedInstances) {
+-        if (auto err = instance->Remove(); !err.IsNone()) {
+-            LOG_ERR() << "Remove cached instance failed" << Log::Field("instanceID", instance->GetInfo().mInstanceIdent)
+-                      << AOS_ERROR_WRAP(err);
+-        }
++    if (auto err = RemoveInstances(mCachedInstances, [](const SharedPtr<Instance>&) { return true; }); !err.IsNone()) {
++        LOG_ERR() << "Remove cached instances failed" << Log::Field(AOS_ERROR_WRAP(err));
+     }
+-
+-    mCachedInstances.Clear();
+ }
+ 
+ SharedPtr<Instance> InstanceManager::FindActiveInstance(const InstanceIdent& id, const String& version)
+@@ -501,22 +502,23 @@ Error InstanceManager::SetExpiredStatus()
+ 
+ Error InstanceManager::RemoveOutdatedInstances()
+ {
+-    Error firstErr = ErrorEnum::eNone;
+-    auto  now      = Time::Now();
++    const auto now = Time::Now();
+ 
+-    for (auto instance = mCachedInstances.begin(); instance != mCachedInstances.end();) {
+-        if (now.Sub((*instance)->GetInfo().mTimestamp) >= mConfig.mInstanceTTL) {
+-            if (auto err = (*instance)->Remove(); !err.IsNone() && firstErr.IsNone()) {
+-                firstErr = err;
+-            }
++    return RemoveInstances(mCachedInstances, [this, &now](const SharedPtr<Instance>& instance) {
++        return now.Sub(instance->GetInfo().mTimestamp) >= mConfig.mInstanceTTL;
++    });
++}
+ 
+-            instance = mCachedInstances.Erase(instance);
+-        } else {
+-            instance++;
+-        }
+-    }
++bool InstanceManager::HasOtherStorageOwner(const Instance& instance) const
++{
++    // Storage is shared by versions of one identity, not by item ID alone.
++    const auto otherOwner = [&instance](const SharedPtr<Instance>& candidate) {
++        return candidate.Get() != &instance
++            && candidate->GetInfo().mInstanceIdent == instance.GetInfo().mInstanceIdent;
++    };
+ 
+-    return firstErr;
++    return mActiveInstances.ContainsIf(otherOwner) || mCachedInstances.ContainsIf(otherOwner)
++        || mScheduledInstances.ContainsIf(otherOwner);
+ }
+ 
+ Error InstanceManager::ClearInstancesWithDeletedImages()
+@@ -578,7 +580,7 @@ RetWithError<SharedPtr<Instance>> InstanceManager::CreateInstance(const Instance
+ 
+     if (auto err = newInstance->Init(); !err.IsNone()) {
+         // Do not leave invalid instance in storage.
+-        if (auto rmErr = newInstance->Remove(); !rmErr.IsNone()) {
++        if (auto rmErr = newInstance->Remove(!HasOtherStorageOwner(*newInstance)); !rmErr.IsNone()) {
+             LOG_ERR() << "Can't remove instance" << Log::Field(AOS_ERROR_WRAP(rmErr));
+         }
+ 
+@@ -621,6 +623,12 @@ bool InstanceManager::IsScheduled(const InstanceIdent& id, const String& version
+ 
+ Error InstanceManager::UpdateRunningInstances(const String& nodeID, const Array<InstanceStatus>& statuses)
+ {
++    for (const auto& status : statuses) {
++        if (status.mNodeID != nodeID) {
++            return AOS_ERROR_WRAP(Error(ErrorEnum::eInvalidArgument, "instance status belongs to another node"));
++        }
++    }
++
+     mRunningInstances.RemoveIf([&nodeID](const InstanceStatus& status) { return status.mNodeID == nodeID; });
+     mPreinstalledComponents.RemoveIf([&nodeID](const InstanceStatus& status) { return status.mNodeID == nodeID; });
+ 
+diff --git a/src/core/cm/launcher/instancemanager.hpp b/src/core/cm/launcher/instancemanager.hpp
+index 25187f88..a6b510c1 100644
+--- a/src/core/cm/launcher/instancemanager.hpp
++++ b/src/core/cm/launcher/instancemanager.hpp
+@@ -262,6 +262,7 @@ private:
+     Error SetExpiredStatus();
+     Error RemoveOutdatedInstances();
+     Error ClearInstancesWithDeletedImages();
++    bool HasOtherStorageOwner(const Instance& instance) const;
+     template <typename Predicate>
+     Error RemoveInstances(Array<SharedPtr<Instance>>& instances, Predicate predicate) const;
+ 
+diff --git a/src/core/cm/launcher/launcher.cpp b/src/core/cm/launcher/launcher.cpp
+index 39f1cbd3..8e8da709 100644
+--- a/src/core/cm/launcher/launcher.cpp
++++ b/src/core/cm/launcher/launcher.cpp
+@@ -450,7 +450,9 @@ void Launcher::ProcessUpdate()
+         bool  doRebalance = mForceRebalance;
+ 
+         if (mNewSubjects.HasValue()) {
+-            Tie(doRebalance, err) = mInstanceManager.SetSubjects(mNewSubjects.GetValue());
++            bool subjectsChanged = false;
++            Tie(subjectsChanged, err) = mInstanceManager.SetSubjects(mNewSubjects.GetValue());
++            doRebalance = doRebalance || subjectsChanged;
+             if (!err.IsNone()) {
+                 LOG_ERR() << "Failed to set subjects" << Log::Field(AOS_ERROR_WRAP(err));
+             }
+diff --git a/src/core/cm/launcher/tests/CMakeLists.txt b/src/core/cm/launcher/tests/CMakeLists.txt
+index e2884b4c..4ac484c1 100644
+--- a/src/core/cm/launcher/tests/CMakeLists.txt
++++ b/src/core/cm/launcher/tests/CMakeLists.txt
+@@ -10,7 +10,7 @@ set(TARGET_NAME launcher_test)
+ # Sources
+ # ######################################################################################################################
+ 
+-set(SOURCES launcher.cpp)
++set(SOURCES launcher.cpp storage_retention.cpp)
+ 
+ # ######################################################################################################################
+ # Libraries
+diff --git a/src/core/cm/launcher/tests/launcher.cpp b/src/core/cm/launcher/tests/launcher.cpp
+index 6ddefae1..c64bc6c3 100644
+--- a/src/core/cm/launcher/tests/launcher.cpp
++++ b/src/core/cm/launcher/tests/launcher.cpp
+@@ -1746,6 +1746,81 @@ TEST_F(CMLauncherTest, ResendInstancesOnMismatchedNodeStatus)
+         Array<InstanceStatus>(expectedStatuses.data(), expectedStatuses.size()));
+ }
+ 
++class CMStaleSnapshotTest : public CMLauncherTest, public WithParamInterface<aos::InstanceStateEnum> { };
++
++TEST_P(CMStaleSnapshotTest, OldVersionTriggersResendWithoutChangingDesiredVersion)
++{
++    using namespace std::chrono_literals;
++
++    mStorageState.Init();
++    mStorageState.SetTotalStateSize(1024);
++    mStorageState.SetTotalStorageSize(1024);
++    mNodeInfoProvider.Init();
++    mImageStore.Init();
++    mInstanceStatusProvider.Init();
++    mMonitoringProvider.Init();
++    mResourceManager.Init();
++    mStorage.Init();
++
++    auto nodeInfo = CreateNodeInfo(cNodeIDLocalSM, 1000, 1024, {CreateRuntime(cRunnerRunc)}, {});
++    mNodeInfoProvider.AddNodeInfo(cNodeIDLocalSM, nodeInfo);
++    auto nodeConfig = std::make_unique<NodeConfig>();
++    CreateNodeConfig(*nodeConfig, cNodeIDLocalSM);
++    mResourceManager.SetNodeConfig(cNodeIDLocalSM, cNodeTypeVM, *nodeConfig);
++    auto monitoring = std::make_unique<monitoring::NodeMonitoringData>();
++    CreateNodeMonitoring(*monitoring, cNodeIDLocalSM, 0.0);
++    mMonitoringProvider.SetAverageMonitoring(cNodeIDLocalSM, *monitoring);
++
++    auto itemConfig = std::make_unique<oci::ItemConfig>();
++    CreateItemConfig(*itemConfig, {cRunnerRunc});
++    AddItem(cService1, cImageID1, *itemConfig, CreateImageConfig(), "4.0.0");
++    mInstanceRunner.Init(mLauncher, false, aos::InstanceStateEnum::eActive);
++    const auto ident = CreateInstanceIdent(cService1, cSubject1, 0);
++    mInstanceRunner.SetInstanceStatuses({CreateInstanceStatus(ident, cNodeIDLocalSM, cRunnerRunc,
++        GetParam(), ErrorEnum::eNone, "3.0.0")});
++    EXPECT_CALL(mInstanceRunner, OnRunRequest()).Times(2).WillRepeatedly([&]() {
++        mInstanceRunner.SetAutoUpdateStatuses(true);
++    });
++
++    ASSERT_TRUE(mLauncher.Init(mAllocator, CreateConfig(), mNodeInfoProvider, mInstanceRunner, mImageStore, mImageStore,
++        mResourceManager, mStorageState, mMonitoringProvider, mAlertsProvider, mIdentProvider,
++        ValidateGID, ValidateUID, mStorage, mSender).IsNone());
++    ASSERT_TRUE(mLauncher.Start().IsNone());
++    mInstanceRunner.SendInitialStatuses(cNodeIDLocalSM);
++    InstanceStatusListenerStub listener;
++    mLauncher.SubscribeListener(listener);
++    auto requests = std::make_unique<StaticArray<RunInstanceRequest, cMaxNumInstances>>();
++    requests->PushBack(CreateRunRequest(cService1, cSubject1, 50, 1, "", {}, UpdateItemTypeEnum::eService, "4.0.0"));
++    auto statuses = std::make_unique<StaticArray<InstanceStatus, cMaxNumInstances>>();
++    ASSERT_TRUE(mLauncher.RunInstances(*requests, *statuses).IsNone());
++    ASSERT_TRUE(listener.WaitForNotifyCount(3, 2s));
++
++    const auto actual = mInstanceRunner.GetRunRequests().at(cNodeIDLocalSM);
++    ASSERT_EQ(actual.mStopInstances.size(), 1);
++    ASSERT_EQ(actual.mStartInstances.size(), 1);
++    EXPECT_EQ(actual.mStopInstances[0].mVersion, String("3.0.0"));
++    EXPECT_EQ(actual.mStartInstances[0].mVersion, String("4.0.0"));
++    ASSERT_EQ(listener.GetLastStatuses().Size(), 1);
++    EXPECT_EQ(listener.GetLastStatuses()[0].mVersion, String("4.0.0"));
++    EXPECT_EQ(listener.GetLastStatuses()[0].mState, aos::InstanceStateEnum::eActive);
++
++    // Reject a cross-node snapshot before mutating observed instance state.
++    auto wrong = CreateInstanceStatus(ident, cNodeIDRemoteSM1, cRunnerRunc,
++        aos::InstanceStateEnum::eActive, ErrorEnum::eNone, "4.0.0");
++    EXPECT_TRUE(static_cast<InstanceStatusReceiverItf&>(mLauncher).OnNodeInstancesStatusesReceived(cNodeIDLocalSM, Array<InstanceStatus>(&wrong, 1))
++        .Is(ErrorEnum::eInvalidArgument));
++    // A real storage not-found for a known desired instance must still fail.
++    mStorage.ClearInstances();
++    wrong.mNodeID = cNodeIDLocalSM;
++    EXPECT_TRUE(static_cast<InstanceStatusReceiverItf&>(mLauncher).OnNodeInstancesStatusesReceived(cNodeIDLocalSM, Array<InstanceStatus>(&wrong, 1))
++        .Is(ErrorEnum::eNotFound));
++    mLauncher.UnsubscribeListener(listener);
++    ASSERT_TRUE(mLauncher.Stop().IsNone());
++}
++
++INSTANTIATE_TEST_SUITE_P(ServiceReconciliation, CMStaleSnapshotTest,
++    Values(aos::InstanceStateEnum::eActive, aos::InstanceStateEnum::eFailed));
++
+ TEST_F(CMLauncherTest, SubjectChanged)
+ {
+     using namespace std::chrono_literals;
+@@ -2357,10 +2432,21 @@ TEST_F(CMLauncherTest, RebalancingWithStoredNotScheduledInstances)
+     InstanceStatusListenerStub instanceStatusListener;
+     mLauncher.SubscribeListener(instanceStatusListener);
+ 
++    EXPECT_CALL(mInstanceRunner, OnRunRequest()).WillRepeatedly([this]() {
++        for (const auto& [node, request] : mInstanceRunner.GetRunRequests()) {
++            EXPECT_TRUE(request.mStopInstances.empty()) << "unexpected startup stop: " << node;
++        }
++    });
+     ASSERT_TRUE(mLauncher.Start().IsNone());
+ 
+     mInstanceRunner.SendInitialStatuses(cNodeIDLocalSM);
+-    mInstanceRunner.SendInitialStatuses(cNodeIDRemoteSM1);
++    // SM may already run an instance whose stored CM scheduling was incomplete.
++    // Startup reconciliation must restore the plan before sending a stop request.
++    std::vector<InstanceStatus> running = {CreateInstanceStatus(
++        CreateInstanceIdent(cService2, cSubject1, 0), cNodeIDRemoteSM1, cRunnerRunc,
++        aos::InstanceStateEnum::eActive, ErrorEnum::eNone, "", false, digest2.CStr())};
++    static_cast<InstanceStatusReceiverItf&>(mLauncher).OnNodeInstancesStatusesReceived(cNodeIDRemoteSM1,
++        Array<InstanceStatus>(running.data(), running.size()));
+ 
+     // Wait until initial statuses are processed and rebalance is completed.
+     ASSERT_TRUE(instanceStatusListener.WaitForNotifyCount(3, 2s));
+diff --git a/src/core/cm/launcher/tests/storage_retention.cpp b/src/core/cm/launcher/tests/storage_retention.cpp
+new file mode 100644
+--- /dev/null
++++ b/src/core/cm/launcher/tests/storage_retention.cpp
+@@ -0,0 +1,303 @@
++/*
++ * SPDX-FileCopyrightText: 2026 maninblack
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include <memory>
++#include <tuple>
++#include <map>
++
++#include <gtest/gtest.h>
++#include <core/cm/launcher/instancemanager.hpp>
++#include <core/common/tests/utils/log.hpp>
++#include <core/common/tools/heapallocator.hpp>
++
++#include "stubs/imagestorestub.hpp"
++#include "stubs/storagestatestub.hpp"
++#include "stubs/storagestub.hpp"
++
++namespace aos::cm::launcher {
++namespace {
++
++class RetirementStorage : public StorageStub {
++public:
++    std::string failVersion;
++    Error RemoveInstance(const InstanceIdent& id, const String& version) override
++    {
++        if (failVersion == version.CStr()) {
++            return ErrorEnum::eFailed;
++        }
++        return StorageStub::RemoveInstance(id, version);
++    }
++};
++
++class RetirementState : public storagestate::StorageStateStub {
++public:
++    bool failRemove = false;
++    Error Remove(const InstanceIdent& id) override
++    {
++        if (failRemove) {
++            return ErrorEnum::eFailed;
++        }
++        return StorageStateStub::Remove(id);
++    }
++};
++
++class CMStorageRetention : public testing::Test {
++protected:
++    void SetUp() override
++    {
++        tests::utils::InitLog();
++        Config config;
++        config.mInstanceTTL = Time::cDay;
++        config.mNodesConnectionTimeout = Time::cMinutes;
++        ASSERT_TRUE(manager->Init(allocator, config, images, state, images,
++            [](size_t) { return true; }, [](size_t) { return true; }, rows).IsNone());
++    }
++    void TearDown() override { EXPECT_TRUE(manager->Stop().IsNone()); }
++
++    InstanceInfo Add(const InstanceIdent& id, const char* version, InstanceState status,
++        bool expired, bool imagePresent = true)
++    {
++        oci::ItemConfig item;
++        oci::ImageConfig image;
++        if (imagePresent) {
++            images.AddItem(id.mItemID, "image", item, image, version);
++        }
++        InstanceInfo info;
++        info.mInstanceIdent = id;
++        info.mVersion = version;
++        info.mManifestDigest = images.GetManifestDigest(id.mItemID, "image");
++        info.mState = status;
++        info.mTimestamp = expired ? Time::Now().Add(-25 * Time::cHours) : Time::Now();
++        // Match mainline's versionless identity allocation, not the old
++        // per-version UID behavior. Legacy-record migration is a separate case.
++        auto [entry, inserted] = uids.emplace(id, uid);
++        if (inserted) ++uid;
++        info.mUID = entry->second;
++        info.mGID = id.mItemID == "service-b" ? 5001 : 5000;
++        EXPECT_TRUE(rows.AddInstance(info).IsNone());
++        return info;
++    }
++    void Restart()
++    {
++        ASSERT_TRUE(manager->Stop().IsNone());
++        ASSERT_TRUE(manager->Start().IsNone());
++    }
++
++    const InstanceIdent id {"service-a", "subject-a", 0, UpdateItemTypeEnum::eService};
++    RetirementStorage rows;
++    RetirementState state;
++    imagemanager::ImageStoreStub images;
++    HeapAllocator allocator;
++    std::unique_ptr<InstanceManager> manager = std::make_unique<InstanceManager>();
++    std::map<InstanceIdent, uint32_t> uids;
++    uint32_t uid = 5000;
++};
++
++class CMStorageSurvivor : public CMStorageRetention,
++    public testing::WithParamInterface<std::tuple<bool, int, int>> { };
++
++TEST_P(CMStorageSurvivor, OldVersionCleanupPreservesSharedData)
++{
++    const auto [expire, survivorKind, oldCount] = GetParam();
++    const InstanceState survivorStates[] {
++        InstanceStateEnum::eActive, InstanceStateEnum::eCached, InstanceStateEnum::eDisabled};
++    auto current = Add(id, "4.0.0", survivorStates[survivorKind], false);
++    for (int index = 1; index <= oldCount; ++index) {
++        const auto version = std::to_string(index) + ".0.0";
++        Add(id, version.c_str(), InstanceStateEnum::eCached, expire, expire);
++    }
++    ASSERT_TRUE(manager->Start().IsNone());
++    EXPECT_TRUE(rows.HasInstance(id, "4.0.0"));
++    for (int index = 1; index <= oldCount; ++index) {
++        const auto version = std::to_string(index) + ".0.0";
++        EXPECT_FALSE(rows.HasInstance(id, version.c_str()));
++    }
++    EXPECT_TRUE(state.GetRemovedInstances().empty());
++    Restart();
++    EXPECT_TRUE(rows.HasInstance(id, "4.0.0"));
++    EXPECT_TRUE(state.GetRemovedInstances().empty());
++
++    // Once the final owner actually expires, cleanup must not leak its data.
++    current.mState = InstanceStateEnum::eCached;
++    current.mTimestamp = Time::Now().Add(-25 * Time::cHours);
++    ASSERT_TRUE(rows.UpdateInstance(current).IsNone());
++    Restart();
++    EXPECT_FALSE(rows.HasInstance(id, "4.0.0"));
++    ASSERT_EQ(state.GetRemovedInstances().size(), 1U);
++    EXPECT_TRUE(state.GetRemovedInstances().front() == id);
++    Restart();
++    EXPECT_EQ(state.GetRemovedInstances().size(), 1U);
++}
++
++INSTANTIATE_TEST_SUITE_P(MissingImageAndExpiry, CMStorageSurvivor,
++    testing::Combine(testing::Bool(), testing::Values(0, 1, 2), testing::Values(1, 3)));
++
++class CMStorageIsolation : public CMStorageRetention,
++    public testing::WithParamInterface<std::tuple<bool, int>> { };
++
++TEST_P(CMStorageIsolation, AnotherIdentityDoesNotRetainRetiredStorage)
++{
++    const auto [expire, difference] = GetParam();
++    auto other = id;
++    if (difference == 0) other.mSubjectID = "subject-b";
++    if (difference == 1) other.mInstance = 1;
++    if (difference == 2) other.mItemID = "service-b";
++    if (difference == 3) other.mType = UpdateItemTypeEnum::eComponent;
++    Add(other, "2.0.0", InstanceStateEnum::eActive, false);
++    Add(id, "1.0.0", InstanceStateEnum::eCached, expire, expire);
++    ASSERT_TRUE(manager->Start().IsNone());
++    EXPECT_TRUE(rows.HasInstance(other, "2.0.0"));
++    EXPECT_FALSE(rows.HasInstance(id, "1.0.0"));
++    ASSERT_EQ(state.GetRemovedInstances().size(), 1U);
++    EXPECT_TRUE(state.GetRemovedInstances().front() == id);
++}
++
++INSTANTIATE_TEST_SUITE_P(MissingImageAndExpiry, CMStorageIsolation,
++    testing::Combine(testing::Bool(), testing::Values(0, 1, 2, 3)));
++
++TEST_F(CMStorageRetention, MultipleRetiredOwnersRemoveStorageOnlyOnce)
++{
++    Add(id, "1.0.0", InstanceStateEnum::eCached, true);
++    Add(id, "2.0.0", InstanceStateEnum::eCached, true);
++    Add(id, "3.0.0", InstanceStateEnum::eCached, true);
++    ASSERT_TRUE(manager->Start().IsNone());
++    EXPECT_EQ(manager->GetCachedInstances().Size(), 0U);
++    ASSERT_EQ(state.GetRemovedInstances().size(), 1U);
++    EXPECT_TRUE(state.GetRemovedInstances().front() == id);
++}
++
++TEST_F(CMStorageRetention, InvalidActiveOldVersionPreservesCachedOwner)
++{
++    Add(id, "1.0.0", InstanceStateEnum::eActive, false, false);
++    Add(id, "2.0.0", InstanceStateEnum::eCached, false);
++    ASSERT_TRUE(manager->Start().IsNone());
++    EXPECT_FALSE(rows.HasInstance(id, "1.0.0"));
++    EXPECT_TRUE(rows.HasInstance(id, "2.0.0"));
++    EXPECT_TRUE(state.GetRemovedInstances().empty());
++}
++
++TEST_F(CMStorageRetention, FailedRowRetirementRemainsOwnerForOtherCleanup)
++{
++    Add(id, "1.0.0", InstanceStateEnum::eCached, true);
++    Add(id, "2.0.0", InstanceStateEnum::eCached, true);
++    rows.failVersion = "1.0.0";
++    EXPECT_FALSE(manager->Start().IsNone());
++    EXPECT_TRUE(rows.HasInstance(id, "1.0.0"));
++    EXPECT_FALSE(rows.HasInstance(id, "2.0.0"));
++    EXPECT_EQ(manager->GetCachedInstances().Size(), 1U);
++    EXPECT_TRUE(state.GetRemovedInstances().empty());
++    rows.failVersion.clear();
++    Restart();
++    EXPECT_FALSE(rows.HasInstance(id, "1.0.0"));
++    EXPECT_EQ(state.GetRemovedInstances().size(), 1U);
++}
++
++TEST_F(CMStorageRetention, StorageRemovalFailureKeepsFinalOwnerRetryable)
++{
++    Add(id, "1.0.0", InstanceStateEnum::eCached, true);
++    state.failRemove = true;
++    EXPECT_FALSE(manager->Start().IsNone());
++    EXPECT_TRUE(rows.HasInstance(id, "1.0.0"));
++    EXPECT_EQ(manager->GetCachedInstances().Size(), 1U);
++    state.failRemove = false;
++    Restart();
++    EXPECT_FALSE(rows.HasInstance(id, "1.0.0"));
++    EXPECT_EQ(state.GetRemovedInstances().size(), 1U);
++}
++
++TEST_F(CMStorageRetention, FailedInvalidActiveRetirementProtectsCachedOwner)
++{
++    Add(id, "1.0.0", InstanceStateEnum::eActive, false, false);
++    Add(id, "2.0.0", InstanceStateEnum::eCached, false, false);
++    rows.failVersion = "1.0.0";
++    EXPECT_FALSE(manager->Start().IsNone());
++    EXPECT_TRUE(rows.HasInstance(id, "1.0.0"));
++    EXPECT_FALSE(rows.HasInstance(id, "2.0.0"));
++    EXPECT_EQ(manager->GetActiveInstances().Size(), 1U);
++    EXPECT_TRUE(state.GetRemovedInstances().empty());
++    rows.failVersion.clear();
++    Restart();
++    EXPECT_FALSE(rows.HasInstance(id, "1.0.0"));
++    EXPECT_EQ(state.GetRemovedInstances().size(), 1U);
++}
++
++TEST_F(CMStorageRetention, EmptyStartupIsIdempotent)
++{
++    ASSERT_TRUE(manager->Start().IsNone());
++    Restart();
++    EXPECT_TRUE(state.GetRemovedInstances().empty());
++}
++
++class CMIdentityRetention : public CMStorageRetention {
++protected:
++    void SetUp() override
++    {
++        CMStorageRetention::SetUp();
++        ASSERT_TRUE(uidPool.Init([](size_t) { return true; }).IsNone());
++        ASSERT_TRUE(gidPool.Init([](size_t) { return true; }).IsNone());
++        storageState.Init(allocator, state);
++        imageInfo.Init(allocator, images, images);
++    }
++    std::unique_ptr<ServiceInstance> Instance(const InstanceIdent& identity,
++        const char* version, uint32_t requestedUID = 0)
++    {
++        InstanceInfo info;
++        info.mInstanceIdent = identity;
++        info.mVersion = version;
++        info.mUID = requestedUID;
++        return std::make_unique<ServiceInstance>(allocator, info, uidPool, gidPool, rows, storageState, imageInfo);
++    }
++    UIDPool uidPool;
++    GIDPool gidPool;
++    StorageState storageState;
++    ImageInfoProvider imageInfo;
++};
++
++TEST_F(CMIdentityRetention, ThreeVersionsKeepUidUntilFinalSuccessfulRetirement)
++{
++    auto v1 = Instance(id, "1.0.0");
++    auto v2 = Instance(id, "2.0.0");
++    auto v3 = Instance(id, "3.0.0");
++    ASSERT_TRUE(v1->Init().IsNone());
++    ASSERT_TRUE(v2->Init().IsNone());
++    ASSERT_TRUE(v3->Init().IsNone());
++    const auto originalUID = v1->GetInfo().mUID;
++    EXPECT_EQ(v2->GetInfo().mUID, originalUID);
++    EXPECT_EQ(v3->GetInfo().mUID, originalUID);
++    rows.failVersion = "1.0.0";
++    EXPECT_FALSE(v1->Remove(false).IsNone());
++    EXPECT_FALSE(v1->Remove(false).IsNone());
++    ASSERT_TRUE(v2->Remove(false).IsNone());
++    auto other = id;
++    other.mSubjectID = "another-subject";
++    auto foreign = Instance(other, "1.0.0");
++    ASSERT_TRUE(foreign->Init().IsNone());
++    EXPECT_NE(foreign->GetInfo().mUID, originalUID);
++    rows.failVersion.clear();
++    ASSERT_TRUE(v1->Remove(false).IsNone());
++    auto v4 = Instance(id, "4.0.0");
++    ASSERT_TRUE(v4->Init().IsNone());
++    EXPECT_EQ(v4->GetInfo().mUID, originalUID);
++    ASSERT_TRUE(v3->Remove(false).IsNone());
++    ASSERT_TRUE(v4->Remove(true).IsNone());
++    ASSERT_EQ(state.GetRemovedInstances().size(), 1U);
++}
++
++TEST_F(CMIdentityRetention, RejectedLegacyUidMustNotReleaseSurvivorReference)
++{
++    auto owner = Instance(id, "3.0.0", 5000);
++    ASSERT_TRUE(owner->Init().IsNone());
++    auto rejected = Instance(id, "1.0.0", 5001);
++    ASSERT_FALSE(rejected->Init().IsNone());
++    ASSERT_TRUE(rejected->Remove(false).IsNone());
++    auto other = id;
++    other.mSubjectID = "another-subject";
++    auto foreign = Instance(other, "1.0.0");
++    ASSERT_TRUE(foreign->Init().IsNone());
++    EXPECT_NE(foreign->GetInfo().mUID, owner->GetInfo().mUID);
++}
++
++} // namespace
++} // namespace aos::cm::launcher

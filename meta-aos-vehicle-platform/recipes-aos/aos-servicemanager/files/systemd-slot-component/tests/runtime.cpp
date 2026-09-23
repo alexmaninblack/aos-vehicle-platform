@@ -661,6 +661,25 @@ TEST_F(SystemdSlotComponentRuntimeTest, FactoryDemoInputsRespectPersistentRole) 
   EXPECT_TRUE(ParseConfig(config, parsed).Is(ErrorEnum::eInvalidArgument));
 }
 
+TEST_F(SystemdSlotComponentRuntimeTest, MainlineInitHookCannotInstallOrActivate) {
+  auto runtime = StartEmptyRuntime(CreateConfig());
+  EXPECT_CALL(mProfile, StopProvider()).Times(0);
+  EXPECT_CALL(mProfile, StartProvider()).Times(0);
+  EXPECT_CALL(mProfile, OfflineSelfTest(_)).Times(0);
+  EXPECT_CALL(mStatusReceiver, OnInstancesStatusesReceived(_)).Times(0);
+  InstanceInfo stored;
+  stored.mItemID = cComponentType;
+  stored.mVersion = "99.0.0";
+  stored.mType = UpdateItemTypeEnum::eComponent;
+  const Array<InstanceInfo> instances(&stored, 1);
+  EXPECT_TRUE(runtime->InitInstances(instances).IsNone());
+  EXPECT_TRUE(runtime->InitInstances(instances).IsNone());
+  EXPECT_TRUE(runtime->InitInstances({}).IsNone());
+  EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "active"));
+  EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "state/transaction.json"));
+  EXPECT_FALSE(std::filesystem::exists(mWorkingDir / "state/installed.json"));
+}
+
 TEST_F(SystemdSlotComponentRuntimeTest, StartsWithAnEmptyPersistentStore) {
   InstanceStatus factoryStatus;
   EXPECT_CALL(mStatusReceiver, OnInstancesStatusesReceived(_))

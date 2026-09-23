@@ -1,14 +1,66 @@
-From: AosEdge SDV Demo <demo@example.invalid>
-Subject: [PATCH] iamserver: size permission reply by functions, not services
+From: Demo Solution Team <noreply@example.invalid>
+Subject: [PATCH] iam: use function map capacity for permission replies
 
-GetPermissions returns functions within one functional service. Using the
-functional-service count (16) rejects valid permission sets of 17..32 entries
-that RegisterInstance accepts. Keep all permission contents and policy intact.
+Match the registered map capacity without changing permission semantics.
+Exercise 17 and 32 keys of 256 characters through the real server.
 
-Upstream-Status: Pending
+Upstream-Status: Pending [native regression proof; mainline migration]
+Base: aos_core_cpp 9d613a46df3c7f550062e2f19ae3406c57715694
 
+diff --git a/src/iam/iamserver/publicmessagehandler.cpp b/src/iam/iamserver/publicmessagehandler.cpp
+index ea08e494..6aac92a0 100644
 --- a/src/iam/iamserver/publicmessagehandler.cpp
 +++ b/src/iam/iamserver/publicmessagehandler.cpp
-@@ -1,1 +1,1 @@
+@@ -329,7 +329,7 @@ grpc::Status PublicMessageHandler::GetPermissions([[maybe_unused]] grpc::ServerC
+     LOG_DBG() << "Process get permissions: funcServerID=" << request->functional_server_id().c_str();
+ 
+     InstanceIdent aosInstanceIdent;
 -    auto          aosInstancePerm = std::make_unique<StaticArray<FunctionPermissions, cFuncServiceMaxCount>>();
 +    auto          aosInstancePerm = std::make_unique<StaticArray<FunctionPermissions, cFunctionsMaxCount>>();
+ 
+     if (auto err = GetPermHandler()->GetPermissions(
+             request->secret().c_str(), request->functional_server_id().c_str(), aosInstanceIdent, *aosInstancePerm);
+diff --git a/src/iam/iamserver/tests/publicmessagehandler.cpp b/src/iam/iamserver/tests/publicmessagehandler.cpp
+index 989445bb..d34aa6b3 100644
+--- a/src/iam/iamserver/tests/publicmessagehandler.cpp
++++ b/src/iam/iamserver/tests/publicmessagehandler.cpp
+@@ -490,6 +490,39 @@ TEST_F(PublicMessageHandlerTest, GetPermissionsSucceeds)
+                              << ", message = " << status.error_message();
+ }
+ 
++TEST_F(PublicMessageHandlerTest, RepliesWithAll32LongFunctionKeysWithoutTruncation)
++{
++    auto clientStub = CreateClientStub<iamproto::IAMPublicPermissionsService>();
++    ASSERT_NE(clientStub, nullptr);
++    for (size_t count : {17U, 32U}) {
++        grpc::ClientContext context;
++        context.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(3));
++        iamproto::PermissionsRequest request;
++        iamproto::PermissionsResponse response;
++        std::vector<std::string> keys;
++        for (size_t i = 0; i < count; ++i) {
++            auto suffix = std::to_string(i);
++            keys.push_back(std::string(256 - suffix.size(), 'x') + suffix);
++        }
++        EXPECT_CALL(mPermHandler, GetPermissions)
++            .WillOnce(Invoke([&](const String&, const String&, InstanceIdent&, Array<FunctionPermissions>& permissions) {
++                for (const auto& key : keys) {
++                    if (auto err = permissions.PushBack({key.c_str(), "r"}); !err.IsNone()) {
++                        return err;
++                    }
++                }
++                return Error(ErrorEnum::eNone);
++            }));
++        ASSERT_TRUE(clientStub->GetPermissions(&context, request, &response).ok());
++        const auto& result = response.permissions().permissions();
++        ASSERT_EQ(result.size(), count);
++        for (const auto& key : keys) {
++            ASSERT_NE(result.find(key), result.end());
++            EXPECT_EQ(result.at(key), "r");
++        }
++    }
++}
++
+ TEST_F(PublicMessageHandlerTest, GetPermissionsFails)
+ {
+     auto clientStub = CreateClientStub<iamproto::IAMPublicPermissionsService>();

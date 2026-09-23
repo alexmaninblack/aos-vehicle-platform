@@ -1,3 +1,12 @@
+From: Demo Solution Team <noreply@example.invalid>
+Subject: [PATCH] cm: refresh idle full status on the existing worker
+
+Retain the accepted opt-in idle recovery with the injected allocator.
+No additional reconnect, worker or daemon.
+
+Upstream-Status: Pending [native regression proof; mainline migration]
+Base: aos_core_lib_cpp 5560291ba6914e36a5b841ade4d8fc54134a9e91
+
 diff --git a/src/core/cm/updatemanager/config.hpp b/src/core/cm/updatemanager/config.hpp
 index 51037cb5..f8478e74 100644
 --- a/src/core/cm/updatemanager/config.hpp
@@ -24,10 +33,10 @@ index 51037cb5..f8478e74 100644
      /**
       * Compares config.
 diff --git a/src/core/cm/updatemanager/desiredstatushandler.cpp b/src/core/cm/updatemanager/desiredstatushandler.cpp
-index 7c8ce5f3..6e605988 100644
+index 617d013f..bae06fbf 100644
 --- a/src/core/cm/updatemanager/desiredstatushandler.cpp
 +++ b/src/core/cm/updatemanager/desiredstatushandler.cpp
-@@ -181,10 +181,22 @@ void DesiredStatusHandler::Run()
+@@ -182,10 +182,22 @@ void DesiredStatusHandler::Run()
          {
              UniqueLock lock {mMutex};
  
@@ -100,7 +109,7 @@ index 3e539c06..72f2971c 100644
      std::condition_variable mCondVar;
  };
 diff --git a/src/core/cm/updatemanager/tests/updatemanager.cpp b/src/core/cm/updatemanager/tests/updatemanager.cpp
-index 6e551220..936aa7e8 100644
+index 4969cccc..94812974 100644
 --- a/src/core/cm/updatemanager/tests/updatemanager.cpp
 +++ b/src/core/cm/updatemanager/tests/updatemanager.cpp
 @@ -5,6 +5,7 @@
@@ -111,25 +120,25 @@ index 6e551220..936aa7e8 100644
  
  #include <core/common/tests/mocks/cloudconnectionmock.hpp>
  #include <core/common/tests/mocks/identprovidermock.hpp>
-@@ -324,7 +325,7 @@ protected:
- 
-     void SetUp() override
+@@ -342,7 +343,7 @@ protected:
      {
+         ResetInstanceStatusStorage();
+ 
 -        Config config {cUnitStatusSendTimeout};
 +        Config config {cUnitStatusSendTimeout, IdleRefreshInterval()};
  
-         auto err = mUpdateManager.Init(config, mIdentProviderMock, mNodeHandlerMock, mUnitConfigMock,
+         auto err = mUpdateManager.Init(mAllocator, config, mIdentProviderMock, mNodeHandlerMock, mUnitConfigMock,
              mNodeInfoProviderMock, mImageManagerMock, mLauncherMock, mCloudConnectionMock, mSenderStub, mStorageStub);
-@@ -412,6 +413,8 @@ protected:
-         EXPECT_TRUE(err.IsNone()) << "Failed to stop update manager: " << tests::utils::ErrorToStr(err);
-     }
+@@ -432,6 +433,8 @@ protected:
  
+     // mAllocator must be declared (and therefore destroyed) after any member that allocates from it, since
+     // members are destroyed in reverse declaration order.
 +    virtual Duration IdleRefreshInterval() const { return {}; }
 +
+     HeapAllocator mAllocator;
+ 
      UpdateManager                                    mUpdateManager;
-     NiceMock<iamclient::IdentProviderMock>           mIdentProviderMock;
-     NiceMock<iamclient::NodeHandlerMock>             mNodeHandlerMock;
-@@ -434,6 +437,50 @@ protected:
+@@ -456,6 +459,50 @@ protected:
   * Tests
   **********************************************************************************************************************/
  
@@ -181,10 +190,10 @@ index 6e551220..936aa7e8 100644
  {
      auto expectedUnitStatus = std::make_unique<UnitStatus>();
 diff --git a/src/core/cm/updatemanager/unitstatushandler.cpp b/src/core/cm/updatemanager/unitstatushandler.cpp
-index 8d04069c..a74a454f 100644
+index f7dbff43..eac59df3 100644
 --- a/src/core/cm/updatemanager/unitstatushandler.cpp
 +++ b/src/core/cm/updatemanager/unitstatushandler.cpp
-@@ -28,6 +28,7 @@ Error UnitStatusHandler::Init(const Config& config, iamclient::IdentProviderItf&
+@@ -29,6 +29,7 @@ Error UnitStatusHandler::Init(AllocatorItf& allocator, const Config& config, iam
      mCloudConnection        = &cloudConnection;
      mSender                 = &sender;
      mUnitStatusSendTimeout  = config.mUnitStatusSendTimeout;
@@ -192,7 +201,7 @@ index 8d04069c..a74a454f 100644
  
      LOG_DBG() << "Init unit status handler";
  
-@@ -92,64 +93,64 @@ Error UnitStatusHandler::Stop()
+@@ -93,64 +94,64 @@ Error UnitStatusHandler::Stop()
      return ErrorEnum::eNone;
  }
  
@@ -210,7 +219,7 @@ index 8d04069c..a74a454f 100644
          mIsStatusProcessing = true;
      }
  
--    LOG_INF() << "Send full unit status";
+-    LOG_INF() << "[profiling] Send full unit status";
 -
 -    mUnitStatus.mIsDeltaInfo = false;
 -
@@ -295,7 +304,7 @@ index 8d04069c..a74a454f 100644
  }
  
  Error UnitStatusHandler::SetUpdateUnitConfigStatus(const UnitConfigStatus& status)
-@@ -579,6 +580,10 @@ void UnitStatusHandler::StartTimer()
+@@ -597,6 +598,10 @@ void UnitStatusHandler::StartTimer()
      mTimer.Start(mUnitStatusSendTimeout, [this](void*) {
          LockGuard lock {mMutex};
  
@@ -307,10 +316,10 @@ index 8d04069c..a74a454f 100644
  
          LOG_INF() << "Send delta unit status";
 diff --git a/src/core/cm/updatemanager/unitstatushandler.hpp b/src/core/cm/updatemanager/unitstatushandler.hpp
-index 413d974a..94b8009f 100644
+index 50692f49..77d0ce4e 100644
 --- a/src/core/cm/updatemanager/unitstatushandler.hpp
 +++ b/src/core/cm/updatemanager/unitstatushandler.hpp
-@@ -73,7 +73,9 @@ public:
+@@ -75,7 +75,9 @@ public:
       *
       * @return Error
       */

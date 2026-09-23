@@ -538,6 +538,15 @@ Error SystemdSlotComponentRuntime::GetRuntimeInfo(
   return ErrorEnum::eNone;
 }
 
+Error SystemdSlotComponentRuntime::InitInstances(
+    const Array<InstanceInfo> &instancesInfo) {
+  // Like upstream Boot/Rootfs component runtimes, the fixed component slot
+  // recovers from its durable transaction in Start(), not container discovery.
+  // This new startup hook must not activate/remove a release or bypass Safe Stop.
+  (void)instancesInfo;
+  return ErrorEnum::eNone;
+}
+
 Error SystemdSlotComponentRuntime::StartInstance(const InstanceInfo &instance,
                                                  InstanceStatus &status) {
   std::lock_guard operationLock{mInstanceOperationMutex};

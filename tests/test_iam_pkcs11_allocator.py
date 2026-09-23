@@ -34,7 +34,7 @@ class IamPkcs11AllocatorTests(unittest.TestCase):
             ),
         )
 
-    def test_upstream_two_three_pair_reproduces_the_failure(self) -> None:
+    def test_legacy_two_three_pair_reproduces_the_failure(self) -> None:
         with self.assertRaisesRegex(MemoryError, "allocator exhausted"):
             validator.replay_access_order(cache_capacity=2, allocator_capacity=3)
 
@@ -47,6 +47,18 @@ class IamPkcs11AllocatorTests(unittest.TestCase):
     def test_cache_two_allocator_four_is_not_accepted(self) -> None:
         with self.assertRaisesRegex(AssertionError, "must not invoke LRU"):
             validator.replay_access_order(cache_capacity=2, allocator_capacity=4)
+
+    def test_mainline_source_check_requires_application_allocator_owner(self) -> None:
+        with self.assertRaisesRegex(validator.ValidationError, "app-root is required"):
+            validator.validate(source_root=Path('/not-read'))
+
+    def test_obsolete_fixed_allocator_override_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            recipe = Path(directory) / 'iam.bbappend'
+            recipe.write_text(validator.IAM_APPEND.read_text() + '\nCXXFLAGS:append = " -DAOS_CONFIG_PKCS11_SESSIONS_PER_LIB=4"\n')
+            with patch.object(validator, 'IAM_APPEND', recipe), patch.object(validator, 'ROOT', Path(directory)):
+                with self.assertRaisesRegex(validator.ValidationError, 'unexpected recipe scope'):
+                    validator.validate_recipe_scope()
 
 
 if __name__ == "__main__":

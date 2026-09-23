@@ -1,7 +1,16 @@
-Upstream-Status: Pending [live qualification before upstream review]
+From: Demo Solution Team <noreply@example.invalid>
+Subject: [PATCH] sm: preserve real teardown failures and normalize confirmed absence
+
+Only confirmed missing container state is idempotent. Preserve errno
+and managed ownership on real errors; verify the actual crun adapter.
+Empty unmounted namespace placeholders and absent veth cleanup remain
+idempotent. Do not hide permission, I/O or internal-file failures.
+
+Upstream-Status: Pending [native regression proof; mainline migration]
+Base: aos_core_cpp 9d613a46df3c7f550062e2f19ae3406c57715694
 
 diff --git a/src/common/network/namespacemanager.cpp b/src/common/network/namespacemanager.cpp
-index a7db0e45..eda0e934 100644
+index e60af9db..a61ea656 100644
 --- a/src/common/network/namespacemanager.cpp
 +++ b/src/common/network/namespacemanager.cpp
 @@ -15,6 +15,9 @@
@@ -14,7 +23,7 @@ index a7db0e45..eda0e934 100644
  
  namespace aos::common::network {
  
-@@ -127,12 +130,21 @@ Error NamespaceManager::DeleteNetworkNamespace(const String& ns)
+@@ -141,12 +144,21 @@ Error NamespaceManager::DeleteNetworkNamespace(const String& ns)
      }
  
      if (umount2(path.c_str(), MNT_DETACH) != 0) {
@@ -40,9 +49,217 @@ index a7db0e45..eda0e934 100644
          LOG_ERR() << "Failed to remove namespace file: err=" << strerror(errno);
  
          return Error(ErrorEnum::eFailed, "failed to remove namespace file");
+diff --git a/src/sm/launcher/runtimes/container/crunrunner.cpp b/src/sm/launcher/runtimes/container/crunrunner.cpp
+index 9d50c9b0..f848501f 100644
+--- a/src/sm/launcher/runtimes/container/crunrunner.cpp
++++ b/src/sm/launcher/runtimes/container/crunrunner.cpp
+@@ -5,10 +5,12 @@
+  */
+ 
+ #include <core/common/tools/logger.hpp>
++#include <sys/stat.h>
+ 
+ #include <common/utils/exec.hpp>
+ 
+ #include "crunrunner.hpp"
++#include "cleanuperror.hpp"
+ #include "libcrun.hpp"
+ 
+ namespace aos::sm::launcher {
+@@ -37,7 +39,8 @@ Error ReleaseLibcrunError(libcrun_error_t& err)
+     const char* msg = (err && err->msg) ? err->msg : "unknown error";
+ 
+     if (err) {
+-        return Error((err->status == ENOENT || err->status == ESRCH) ? ErrorEnum::eNotFound : ErrorEnum::eFailed, msg);
++        // Preserve errno until the caller checks the exact container state.
++        return err->status ? Error(err->status, msg) : Error(ErrorEnum::eFailed, msg);
+     }
+ 
+     return Error(ErrorEnum::eFailed, msg);
+@@ -135,7 +138,8 @@ Error CRunRunner::StopContainer(const std::string& instanceID)
+     libcrun_context_t ctx = MakeContext(mStateRoot, instanceID);
+ 
+     if (libcrun_container_kill(&ctx, instanceID.c_str(), "SIGKILL", &err) < 0) {
+-        return AOS_ERROR_WRAP(ReleaseLibcrunError(err));
++        const auto stopError = ReleaseLibcrunError(err);
++        return AOS_ERROR_WRAP(detail::NormalizeCleanupError(stopError, IsMissingState(instanceID, stopError), true));
+     }
+ 
+     return ErrorEnum::eNone;
+@@ -145,17 +149,20 @@ Error CRunRunner::RemoveContainer(const std::string& instanceID)
+ {
+     LOG_DBG() << "Remove crun container" << Log::Field("instanceID", instanceID.c_str());
+ 
+-    {
+-        std::lock_guard lock {mMutex};
+-
+-        mManagedInstances.erase(instanceID);
+-    }
+-
+     libcrun_error_t   err = nullptr;
+     libcrun_context_t ctx = MakeContext(mStateRoot, instanceID);
+ 
+     if (libcrun_container_delete(&ctx, nullptr, instanceID.c_str(), true, &err) < 0) {
+-        return AOS_ERROR_WRAP(ReleaseLibcrunError(err));
++        const auto removeError = ReleaseLibcrunError(err);
++        const auto normalized = detail::NormalizeCleanupError(removeError, IsMissingState(instanceID, removeError), false);
++        if (!normalized.Is(ErrorEnum::eNotFound)) {
++            return AOS_ERROR_WRAP(normalized);
++        }
++    }
++
++    {
++        std::lock_guard lock {mMutex};
++        mManagedInstances.erase(instanceID);
+     }
+ 
+     return ErrorEnum::eNone;
+@@ -165,6 +172,16 @@ Error CRunRunner::RemoveContainer(const std::string& instanceID)
+  * Private
+  **********************************************************************************************************************/
+ 
++bool CRunRunner::IsMissingState(const std::string& instanceID, const Error& error) const
++{
++    if (error.Errno() != ENOENT) {
++        return false;
++    }
++    struct stat state {};
++    const auto path = mStateRoot + "/" + instanceID;
++    return lstat(path.c_str(), &state) < 0 && errno == ENOENT;
++}
++
+ RetWithError<ContainerStatus> CRunRunner::CheckProcessAlive(const std::string& instanceID) const
+ {
+     ContainerStatus status;
+diff --git a/src/sm/launcher/runtimes/container/crunrunner.hpp b/src/sm/launcher/runtimes/container/crunrunner.hpp
+index 507160f2..7bb9a6b1 100644
+--- a/src/sm/launcher/runtimes/container/crunrunner.hpp
++++ b/src/sm/launcher/runtimes/container/crunrunner.hpp
+@@ -78,6 +78,7 @@ public:
+ 
+ private:
+     RetWithError<ContainerStatus> CheckProcessAlive(const std::string& instanceID) const;
++    bool IsMissingState(const std::string& instanceID, const Error& error) const;
+ 
+     std::string           mRuntimeDir;
+     std::string           mStateRoot;
+diff --git a/src/sm/launcher/runtimes/container/tests/CMakeLists.txt b/src/sm/launcher/runtimes/container/tests/CMakeLists.txt
+index 5d0e0c22..342ed4b7 100644
+--- a/src/sm/launcher/runtimes/container/tests/CMakeLists.txt
++++ b/src/sm/launcher/runtimes/container/tests/CMakeLists.txt
+@@ -10,7 +10,7 @@ set(TARGET_NAME container_test)
+ # Sources
+ # ######################################################################################################################
+ 
+-set(SOURCES config.cpp container.cpp filesystem.cpp runner.cpp)
++set(SOURCES config.cpp container.cpp filesystem.cpp runner.cpp cleanuperror.cpp)
+ 
+ # ######################################################################################################################
+ # Libraries
+@@ -31,3 +31,11 @@ add_test(
+     LIBRARIES
+     ${LIBRARIES}
+ )
++
++add_test(
++    TARGET_NAME crunadapter_test
++    LOG_MODULE
++    SOURCES crunadapter.cpp
++    LIBRARIES ${LIBRARIES}
++    LINK_OPTIONS -Wl,--wrap=libcrun_container_kill -Wl,--wrap=libcrun_container_delete
++)
+diff --git a/src/sm/launcher/runtimes/container/tests/runner.cpp b/src/sm/launcher/runtimes/container/tests/runner.cpp
+index f6d8de15..32361e34 100644
+--- a/src/sm/launcher/runtimes/container/tests/runner.cpp
++++ b/src/sm/launcher/runtimes/container/tests/runner.cpp
+@@ -89,6 +89,27 @@ TEST_F(ContainerRunnerTest, StartContainerFailed)
+     mRunner.Stop();
+ }
+ 
++TEST_F(ContainerRunnerTest, StopAlreadyAbsentStillRemovesContainer)
++{
++    EXPECT_CALL(mContainerRunnerMock, StopContainer("service0")).WillOnce(Return(ErrorEnum::eNotFound));
++    EXPECT_CALL(mContainerRunnerMock, RemoveContainer("service0")).WillOnce(Return(ErrorEnum::eNotFound));
++    EXPECT_TRUE(mRunner.StopInstance("service0").IsNone());
++}
++
++TEST_F(ContainerRunnerTest, StopAbsentPreservesRemovalFailure)
++{
++    EXPECT_CALL(mContainerRunnerMock, StopContainer("service0")).WillOnce(Return(ErrorEnum::eNotFound));
++    EXPECT_CALL(mContainerRunnerMock, RemoveContainer("service0")).WillOnce(Return(Error(EPERM)));
++    EXPECT_EQ(mRunner.StopInstance("service0").Errno(), EPERM);
++}
++
++TEST_F(ContainerRunnerTest, StopFailureStillAttemptsRemoval)
++{
++    EXPECT_CALL(mContainerRunnerMock, StopContainer("service0")).WillOnce(Return(Error(EIO)));
++    EXPECT_CALL(mContainerRunnerMock, RemoveContainer("service0")).WillOnce(Return(ErrorEnum::eNone));
++    EXPECT_EQ(mRunner.StopInstance("service0").Errno(), EIO);
++}
++
+ TEST_F(ContainerRunnerTest, GetContainerStatusFailed)
+ {
+     mRunner.Start();
+diff --git a/src/sm/networkmanager/bridgenetwork.cpp b/src/sm/networkmanager/bridgenetwork.cpp
+index b34d497b..0c727d95 100644
+--- a/src/sm/networkmanager/bridgenetwork.cpp
++++ b/src/sm/networkmanager/bridgenetwork.cpp
+@@ -77,7 +77,7 @@ Error BridgeNetwork::Detach(const String& instanceID, const String& bridgeIfName
+ 
+     const auto hostName = VethName(instanceID, "veth");
+ 
+-    if (auto errDel = mNetIf->DeleteLink(hostName); !errDel.IsNone()) {
++    if (auto errDel = mNetIf->DeleteLink(hostName); !errDel.IsNone() && !errDel.Is(ErrorEnum::eNotFound)) {
+         LOG_ERR() << "Failed to delete host veth" << Log::Field(errDel);
+ 
+         return AOS_ERROR_WRAP(errDel);
+diff --git a/src/sm/networkmanager/tests/CMakeLists.txt b/src/sm/networkmanager/tests/CMakeLists.txt
+index 83b425ba..b3c95297 100644
+--- a/src/sm/networkmanager/tests/CMakeLists.txt
++++ b/src/sm/networkmanager/tests/CMakeLists.txt
+@@ -10,7 +10,7 @@ set(TARGET_NAME networkmanager_test)
+ # Sources
+ # ######################################################################################################################
+ 
+-set(SOURCES bandwidth.cpp bridgenetwork.cpp dnsserver.cpp dnsname.cpp firewall.cpp trafficmonitor.cpp)
++set(SOURCES bandwidth.cpp bridgenetwork.cpp dnsserver.cpp dnsname.cpp firewall.cpp trafficmonitor.cpp namespacecleanup.cpp)
+ 
+ # ######################################################################################################################
+ # Includes
+@@ -22,7 +22,7 @@ set(INCLUDES ${CMAKE_CURRENT_SOURCE_DIR})
+ # Libraries
+ # ######################################################################################################################
+ 
+-set(LIBRARIES aos::sm::networkmanager aos::sm::tests::mocks aos::common::tests::mocks aos::core::sm::tests::mocks
++set(LIBRARIES aos::sm::networkmanager aos::common::network aos::sm::tests::mocks aos::common::tests::mocks aos::core::sm::tests::mocks
+               GTest::gmock_main
+ )
+ 
+diff --git a/src/sm/networkmanager/tests/bridgenetwork.cpp b/src/sm/networkmanager/tests/bridgenetwork.cpp
+index bbf25582..aead5b91 100644
+--- a/src/sm/networkmanager/tests/bridgenetwork.cpp
++++ b/src/sm/networkmanager/tests/bridgenetwork.cpp
+@@ -129,6 +129,18 @@ TEST_F(BridgeNetworkTest, DetachHappyPath)
+     EXPECT_TRUE(mBridge.Detach(mInstanceID, String("br-test")).IsNone());
+ }
+ 
++TEST_F(BridgeNetworkTest, DetachAlreadyAbsentLink)
++{
++    EXPECT_CALL(mNetIf, DeleteLink(_)).WillOnce(Return(Error(ErrorEnum::eNotFound, "link not found")));
++    EXPECT_TRUE(mBridge.Detach(mInstanceID, String("br-test")).IsNone());
++}
++
++TEST_F(BridgeNetworkTest, DetachPreservesPermissionFailure)
++{
++    EXPECT_CALL(mNetIf, DeleteLink(_)).WillOnce(Return(Error(EPERM)));
++    EXPECT_EQ(mBridge.Detach(mInstanceID, String("br-test")).Errno(), EPERM);
++}
++
+ TEST_F(BridgeNetworkTest, DetachFailsOnDeleteLinkError)
+ {
+     EXPECT_CALL(mNetIf, DeleteLink(_)).WillOnce(Return(Error(ErrorEnum::eFailed)));
 diff --git a/src/sm/launcher/runtimes/container/cleanuperror.hpp b/src/sm/launcher/runtimes/container/cleanuperror.hpp
 new file mode 100644
-index 00000000..321fcdf7
 --- /dev/null
 +++ b/src/sm/launcher/runtimes/container/cleanuperror.hpp
 @@ -0,0 +1,23 @@
@@ -69,88 +286,8 @@ index 00000000..321fcdf7
 +
 +} // namespace aos::sm::launcher::detail
 +#endif
-diff --git a/src/sm/launcher/runtimes/container/crunrunner.cpp b/src/sm/launcher/runtimes/container/crunrunner.cpp
-index aa4e306e..8236ab5c 100644
---- a/src/sm/launcher/runtimes/container/crunrunner.cpp
-+++ b/src/sm/launcher/runtimes/container/crunrunner.cpp
-@@ -5,8 +5,10 @@
-  */
- 
- #include <core/common/tools/logger.hpp>
-+#include <sys/stat.h>
- 
- #include "crunrunner.hpp"
-+#include "cleanuperror.hpp"
- #include "libcrun.hpp"
- 
- namespace aos::sm::launcher {
-@@ -136,7 +138,8 @@ Error CRunRunner::StopContainer(const std::string& instanceID)
-     ctx.pid_file = pidFile.c_str();
- 
-     if (libcrun_container_kill(&ctx, instanceID.c_str(), "SIGKILL", &err) < 0) {
--        return AOS_ERROR_WRAP(ReleaseLibcrunError(err));
-+        auto stopError = ReleaseLibcrunError(err);
-+        return AOS_ERROR_WRAP(detail::NormalizeCleanupError(stopError, IsMissingState(instanceID, stopError), true));
-     }
- 
-     return ErrorEnum::eNone;
-@@ -156,7 +159,8 @@ Error CRunRunner::RemoveContainer(const std::string& instanceID)
-     libcrun_context_t ctx = MakeContext(cStateRoot, instanceID);
- 
-     if (libcrun_container_delete(&ctx, nullptr, instanceID.c_str(), true, &err) < 0) {
--        return AOS_ERROR_WRAP(ReleaseLibcrunError(err));
-+        auto removeError = ReleaseLibcrunError(err);
-+        return AOS_ERROR_WRAP(detail::NormalizeCleanupError(removeError, IsMissingState(instanceID, removeError), false));
-     }
- 
-     return ErrorEnum::eNone;
-@@ -166,6 +170,18 @@ Error CRunRunner::RemoveContainer(const std::string& instanceID)
-  * Private
-  **********************************************************************************************************************/
- 
-+bool CRunRunner::IsMissingState(const std::string& instanceID, const Error& error) const
-+{
-+    if (error.Errno() != ENOENT) {
-+        return false;
-+    }
-+
-+    // Do not turn an internal missing file or an inaccessible state into success.
-+    struct stat state {};
-+    const auto path = std::string(cStateRoot) + "/" + instanceID;
-+    return lstat(path.c_str(), &state) < 0 && errno == ENOENT;
-+}
-+
- RetWithError<ContainerStatus> CRunRunner::CheckProcessAlive(const std::string& instanceID) const
- {
-     ContainerStatus status;
-diff --git a/src/sm/launcher/runtimes/container/crunrunner.hpp b/src/sm/launcher/runtimes/container/crunrunner.hpp
-index 7a9b5df2..b69adf25 100644
---- a/src/sm/launcher/runtimes/container/crunrunner.hpp
-+++ b/src/sm/launcher/runtimes/container/crunrunner.hpp
-@@ -70,6 +70,7 @@ private:
-     static constexpr auto cStateRoot = "/run/crun";
- 
-     RetWithError<ContainerStatus> CheckProcessAlive(const std::string& instanceID) const;
-+    bool IsMissingState(const std::string& instanceID, const Error& error) const;
- 
-     std::string           mRuntimeDir;
-     std::mutex            mMutex;
-diff --git a/src/sm/launcher/runtimes/container/tests/CMakeLists.txt b/src/sm/launcher/runtimes/container/tests/CMakeLists.txt
-index 5d0e0c22..2e43f07a 100644
---- a/src/sm/launcher/runtimes/container/tests/CMakeLists.txt
-+++ b/src/sm/launcher/runtimes/container/tests/CMakeLists.txt
-@@ -10,7 +10,7 @@ set(TARGET_NAME container_test)
- # Sources
- # ######################################################################################################################
- 
--set(SOURCES config.cpp container.cpp filesystem.cpp runner.cpp)
-+set(SOURCES config.cpp container.cpp filesystem.cpp runner.cpp cleanuperror.cpp)
- 
- # ######################################################################################################################
- # Libraries
 diff --git a/src/sm/launcher/runtimes/container/tests/cleanuperror.cpp b/src/sm/launcher/runtimes/container/tests/cleanuperror.cpp
 new file mode 100644
-index 00000000..210f238a
 --- /dev/null
 +++ b/src/sm/launcher/runtimes/container/tests/cleanuperror.cpp
 @@ -0,0 +1,32 @@
@@ -186,99 +323,122 @@ index 00000000..210f238a
 +        }
 +    }
 +}
-diff --git a/src/sm/launcher/runtimes/container/tests/runner.cpp b/src/sm/launcher/runtimes/container/tests/runner.cpp
-index f1b846bf..421dbc8e 100644
---- a/src/sm/launcher/runtimes/container/tests/runner.cpp
-+++ b/src/sm/launcher/runtimes/container/tests/runner.cpp
-@@ -89,6 +89,27 @@ TEST_F(ContainerRunnerTest, StartContainerFailed)
-     mRunner.Stop();
- }
- 
-+TEST_F(ContainerRunnerTest, StopAlreadyAbsentStillRemovesContainer)
+diff --git a/src/sm/launcher/runtimes/container/tests/crunadapter.cpp b/src/sm/launcher/runtimes/container/tests/crunadapter.cpp
+new file mode 100644
+--- /dev/null
++++ b/src/sm/launcher/runtimes/container/tests/crunadapter.cpp
+@@ -0,0 +1,109 @@
++/*
++ * SPDX-FileCopyrightText: 2026 maninblack
++ * SPDX-License-Identifier: Apache-2.0
++ */
++#include <cstdlib>
++#include <cstring>
++#include <filesystem>
++#include <unistd.h>
++#include <gtest/gtest.h>
++#include <core/common/tests/utils/log.hpp>
++#include <sm/launcher/runtimes/container/crunrunner.hpp>
++#include <sm/launcher/runtimes/container/libcrun.hpp>
++
++namespace {
++int injectedError = EIO;
++bool failCall = true;
++int FailOrSucceed(libcrun_error_t* error)
 +{
-+    EXPECT_CALL(mContainerRunnerMock, StopContainer("service0")).WillOnce(Return(ErrorEnum::eNotFound));
-+    EXPECT_CALL(mContainerRunnerMock, RemoveContainer("service0")).WillOnce(Return(ErrorEnum::eNotFound));
-+    EXPECT_TRUE(mRunner.StopInstance("service0").IsNone());
++    if (!failCall) {
++        return 0;
++    }
++    *error = static_cast<libcrun_error_t>(std::calloc(1, sizeof(libcrun_error_s)));
++    (*error)->status = injectedError;
++    (*error)->msg = ::strdup("isolated crun error injection");
++    return -1;
++}
 +}
 +
-+TEST_F(ContainerRunnerTest, StopAbsentPreservesRemovalFailure)
++extern "C" int __wrap_libcrun_container_kill(libcrun_context_t*, const char*, const char*, libcrun_error_t* error)
 +{
-+    EXPECT_CALL(mContainerRunnerMock, StopContainer("service0")).WillOnce(Return(ErrorEnum::eNotFound));
-+    EXPECT_CALL(mContainerRunnerMock, RemoveContainer("service0")).WillOnce(Return(Error(EPERM)));
-+    EXPECT_EQ(mRunner.StopInstance("service0").Errno(), EPERM);
++    return FailOrSucceed(error);
++}
++extern "C" int __wrap_libcrun_container_delete(
++    libcrun_context_t*, runtime_spec_schema_config_schema*, const char*, bool, libcrun_error_t* error)
++{
++    return FailOrSucceed(error);
 +}
 +
-+TEST_F(ContainerRunnerTest, StopFailureStillAttemptsRemoval)
++class CrunAdapterTest : public testing::Test {
++protected:
++    void SetUp() override
++    {
++        aos::tests::utils::InitLog();
++        char pattern[] = "/tmp/mainline-crun-adapter-XXXXXX";
++        auto* directory = ::mkdtemp(pattern);
++        ASSERT_NE(directory, nullptr);
++        root = directory;
++        failCall = true;
++        injectedError = EIO;
++        ASSERT_TRUE(runner.Init(root.string(), root.string(), "/not-executed").IsNone());
++        ASSERT_TRUE(runner.AddContainer("service").IsNone());
++    }
++    void TearDown() override
++    {
++        if (!root.empty()) {
++            std::filesystem::remove_all(root);
++        }
++    }
++    aos::sm::launcher::CRunRunner runner;
++    std::filesystem::path root;
++};
++
++TEST_F(CrunAdapterTest, AbsentStateIsIdempotent)
 +{
-+    EXPECT_CALL(mContainerRunnerMock, StopContainer("service0")).WillOnce(Return(Error(EIO)));
-+    EXPECT_CALL(mContainerRunnerMock, RemoveContainer("service0")).WillOnce(Return(ErrorEnum::eNone));
-+    EXPECT_EQ(mRunner.StopInstance("service0").Errno(), EIO);
++    injectedError = ENOENT;
++    EXPECT_TRUE(runner.StopContainer("service").Is(aos::ErrorEnum::eNotFound));
++    EXPECT_TRUE(runner.RemoveContainer("service").IsNone());
++    EXPECT_TRUE(runner.ListContainers().mValue.empty());
 +}
 +
- TEST_F(ContainerRunnerTest, GetContainerStatusFailed)
- {
-     mRunner.Start();
-diff --git a/src/sm/networkmanager/bridgenetwork.cpp b/src/sm/networkmanager/bridgenetwork.cpp
-index 0e3f5f80..a87f3389 100644
---- a/src/sm/networkmanager/bridgenetwork.cpp
-+++ b/src/sm/networkmanager/bridgenetwork.cpp
-@@ -101,7 +101,7 @@ Error BridgeNetwork::Detach(const String& instanceID, const String& bridgeIfName
- 
-     const auto hostName = VethName(instanceID, "veth");
- 
--    if (auto errDel = mNetIf->DeleteLink(hostName); !errDel.IsNone()) {
-+    if (auto errDel = mNetIf->DeleteLink(hostName); !errDel.IsNone() && !errDel.Is(ErrorEnum::eNotFound)) {
-         LOG_ERR() << "Failed to delete host veth" << Log::Field(errDel);
- 
-         return AOS_ERROR_WRAP(errDel);
-diff --git a/src/sm/networkmanager/tests/CMakeLists.txt b/src/sm/networkmanager/tests/CMakeLists.txt
-index 83b425ba..b3c95297 100644
---- a/src/sm/networkmanager/tests/CMakeLists.txt
-+++ b/src/sm/networkmanager/tests/CMakeLists.txt
-@@ -10,7 +10,7 @@ set(TARGET_NAME networkmanager_test)
- # Sources
- # ######################################################################################################################
- 
--set(SOURCES bandwidth.cpp bridgenetwork.cpp dnsserver.cpp dnsname.cpp firewall.cpp trafficmonitor.cpp)
-+set(SOURCES bandwidth.cpp bridgenetwork.cpp dnsserver.cpp dnsname.cpp firewall.cpp trafficmonitor.cpp namespacecleanup.cpp)
- 
- # ######################################################################################################################
- # Includes
-@@ -22,7 +22,7 @@ set(INCLUDES ${CMAKE_CURRENT_SOURCE_DIR})
- # Libraries
- # ######################################################################################################################
- 
--set(LIBRARIES aos::sm::networkmanager aos::sm::tests::mocks aos::common::tests::mocks aos::core::sm::tests::mocks
-+set(LIBRARIES aos::sm::networkmanager aos::common::network aos::sm::tests::mocks aos::common::tests::mocks aos::core::sm::tests::mocks
-               GTest::gmock_main
- )
- 
-diff --git a/src/sm/networkmanager/tests/bridgenetwork.cpp b/src/sm/networkmanager/tests/bridgenetwork.cpp
-index 7a41e418..babe73b8 100644
---- a/src/sm/networkmanager/tests/bridgenetwork.cpp
-+++ b/src/sm/networkmanager/tests/bridgenetwork.cpp
-@@ -141,6 +141,18 @@ TEST_F(BridgeNetworkTest, DetachHappyPath)
-     EXPECT_TRUE(mBridge.Detach(mInstanceID, String("br-test")).IsNone());
- }
- 
-+TEST_F(BridgeNetworkTest, DetachAlreadyAbsentLink)
++TEST_F(CrunAdapterTest, MissingInternalFileDoesNotMeanMissingContainer)
 +{
-+    EXPECT_CALL(mNetIf, DeleteLink(_)).WillOnce(Return(Error(ErrorEnum::eNotFound, "link not found")));
-+    EXPECT_TRUE(mBridge.Detach(mInstanceID, String("br-test")).IsNone());
++    std::filesystem::create_directory(root / "service");
++    injectedError = ENOENT;
++    EXPECT_EQ(runner.StopContainer("service").Errno(), ENOENT);
++    EXPECT_EQ(runner.RemoveContainer("service").Errno(), ENOENT);
++    EXPECT_EQ(runner.ListContainers().mValue.size(), 1U);
 +}
 +
-+TEST_F(BridgeNetworkTest, DetachPreservesPermissionFailure)
++TEST_F(CrunAdapterTest, FailureRetainsOwnershipUntilSuccessfulRetry)
 +{
-+    EXPECT_CALL(mNetIf, DeleteLink(_)).WillOnce(Return(Error(EPERM)));
-+    EXPECT_EQ(mBridge.Detach(mInstanceID, String("br-test")).Errno(), EPERM);
++    std::filesystem::create_directory(root / "service");
++    for (int code : {EPERM, EACCES, EIO, EINVAL}) {
++        injectedError = code;
++        EXPECT_EQ(runner.StopContainer("service").Errno(), code);
++        EXPECT_EQ(runner.RemoveContainer("service").Errno(), code);
++        EXPECT_EQ(runner.ListContainers().mValue.size(), 1U);
++    }
++    failCall = false;
++    EXPECT_TRUE(runner.RemoveContainer("service").IsNone());
++    EXPECT_TRUE(runner.ListContainers().mValue.empty());
 +}
 +
- TEST_F(BridgeNetworkTest, DetachFailsOnDeleteLinkError)
- {
-     EXPECT_CALL(mNetIf, DeleteLink(_)).WillOnce(Return(Error(ErrorEnum::eFailed)));
++TEST_F(CrunAdapterTest, ExitedProcessIsAbsentOnlyForStop)
++{
++    std::filesystem::create_directory(root / "service");
++    injectedError = ESRCH;
++    EXPECT_TRUE(runner.StopContainer("service").Is(aos::ErrorEnum::eNotFound));
++    EXPECT_EQ(runner.RemoveContainer("service").Errno(), ESRCH);
++    EXPECT_EQ(runner.ListContainers().mValue.size(), 1U);
++}
++
++TEST_F(CrunAdapterTest, ErrorWithoutErrnoIsStillFailure)
++{
++    injectedError = 0;
++    EXPECT_TRUE(runner.StopContainer("service").Is(aos::ErrorEnum::eFailed));
++    EXPECT_TRUE(runner.RemoveContainer("service").Is(aos::ErrorEnum::eFailed));
++    EXPECT_EQ(runner.ListContainers().mValue.size(), 1U);
++}
 diff --git a/src/sm/networkmanager/tests/namespacecleanup.cpp b/src/sm/networkmanager/tests/namespacecleanup.cpp
 new file mode 100644
-index 00000000..481433df
 --- /dev/null
 +++ b/src/sm/networkmanager/tests/namespacecleanup.cpp
 @@ -0,0 +1,63 @@

@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 maninblack
 # SPDX-License-Identifier: Apache-2.0
 
-"""Validate the bounded Aos IAM PKCS#11 session-cache closure."""
+"""Validate the three-key cache and mainline injected-allocator contract."""
 
 from __future__ import annotations
 
@@ -26,8 +26,6 @@ IAM_TRANSFORM = (
 SESSION_POOL_MACRO = "AOS_CONFIG_PKCS11_SESSION_POOL_MAX_SIZE"
 SESSIONS_PER_LIB_MACRO = "AOS_CONFIG_PKCS11_SESSIONS_PER_LIB"
 SESSION_POOL_MAX_SIZE = 3
-SESSIONS_PER_LIB = 4
-SESSION_CONTEXT_BYTES = 64
 FLAGS = "CKF_RW_SESSION | CKF_SERIAL_SESSION"
 SOFTHSM_LIBRARY = "/usr/lib/softhsm/libsofthsm2.so"
 
@@ -89,17 +87,17 @@ def validate_recipe_scope() -> None:
     text = _read(IAM_APPEND)
     exact = (
         'CXXFLAGS:append = " '
-        f'-D{SESSION_POOL_MACRO}={SESSION_POOL_MAX_SIZE} '
-        f'-D{SESSIONS_PER_LIB_MACRO}={SESSIONS_PER_LIB}"'
+        f'-D{SESSION_POOL_MACRO}={SESSION_POOL_MAX_SIZE}"'
     )
     if text.count(exact) != 1:
         raise ValidationError("IAM allocator override must occur exactly once")
     occurrences = _macro_occurrences()
     for macro, paths in occurrences.items():
-        if paths != [IAM_APPEND]:
+        expected = [IAM_APPEND] if macro == SESSION_POOL_MACRO else []
+        if paths != expected:
             rendered = ", ".join(str(path.relative_to(ROOT)) for path in paths)
             raise ValidationError(
-                f"{macro} must be recipe-scoped to aos-iamanager, found: {rendered}"
+                f"{macro} has unexpected recipe scope: {rendered}"
             )
 
 
@@ -114,13 +112,11 @@ def validate_topology() -> None:
         raise ValidationError(f"expected exact three session keys, got {keys!r}")
     if SESSION_POOL_MAX_SIZE < len(keys):
         raise ValidationError("session cache cannot retain every accepted key")
-    if SESSIONS_PER_LIB < SESSION_POOL_MAX_SIZE + 1:
-        raise ValidationError("allocator must preserve cache-plus-one headroom")
-    if SESSION_POOL_MAX_SIZE != len(keys) or SESSIONS_PER_LIB != len(keys) + 1:
-        raise ValidationError("allocator closure must remain exact, not merely sufficient")
+    if SESSION_POOL_MAX_SIZE != len(keys):
+        raise ValidationError("cache capacity must match the exact accepted topology")
 
 
-def validate_pinned_source(source_root: Path) -> None:
+def validate_pinned_source(source_root: Path, app_root: Path) -> None:
     source_root = source_root.resolve()
     config = source_root / "src/core/common/config.hpp"
     pkcs11 = source_root / "src/core/common/pkcs11/pkcs11.cpp"
@@ -167,8 +163,20 @@ def validate_pinned_source(source_root: Path) -> None:
         raise ValidationError(
             "pinned OpenSession no longer allocates before cache insertion/replacement"
         )
-    if "MakeShared<SessionContext>(&mAllocator" not in low_level_body:
-        raise ValidationError("pinned low-level session allocation changed")
+    if "MakeShared<SessionContext>(mAllocator" not in low_level_body:
+        raise ValidationError("session must use the injected allocator")
+    if "Error LibraryContext::Init(AllocatorItf& allocator)" not in pkcs11_text:
+        raise ValidationError("library allocator injection is missing")
+    if "ctx->Init(*mAllocator)" not in pkcs11_text:
+        raise ValidationError("manager must forward its allocator to each library")
+    header = _read(source_root / "src/core/common/pkcs11/pkcs11.hpp")
+    library = header.split("class LibraryContext", 1)[1].split("class PKCS11Manager", 1)[0]
+    if re.search(r"AllocatorItf\s*\*\s*mAllocator", library) is None or "StaticAllocator<" in library:
+        raise ValidationError("library must not own a fixed session allocator")
+    app_header = _read(app_root / "src/iam/app/aoscore.hpp")
+    app_source = _read(app_root / "src/iam/app/aoscore.cpp")
+    if "aos::HeapAllocator mAllocator" not in app_header or "mPKCS11Manager.Init(mAllocator)" not in app_source:
+        raise ValidationError("IAM must inject its mainline HeapAllocator")
 
     # CertLoader names its slot argument `slotID`; the cert module uses
     # `mSlotID`.  There must be exactly one low-level production call in each
@@ -187,7 +195,7 @@ def validate_pinned_source(source_root: Path) -> None:
 
 
 def replay_access_order(cache_capacity: int, allocator_capacity: int) -> int:
-    """Replay the pinned sequence and return peak live SessionContexts.
+    """Historical fixed-allocator negative control, not mainline runtime proof.
 
     Native self-signed certificate modules retain their session.  KUKSA
     SetOwner clears the cache, but the diskencryption module still owns its
@@ -230,29 +238,31 @@ def replay_access_order(cache_capacity: int, allocator_capacity: int) -> int:
     return high_water
 
 
-def validate_access_order() -> None:
+def validate_legacy_negative_control() -> None:
     try:
         replay_access_order(cache_capacity=2, allocator_capacity=3)
     except MemoryError:
         pass
     else:
-        raise ValidationError("upstream 2/3 defaults did not reproduce exhaustion")
+        raise ValidationError("legacy 2/3 defaults did not reproduce exhaustion")
     high_water = replay_access_order(
         cache_capacity=SESSION_POOL_MAX_SIZE,
-        allocator_capacity=SESSIONS_PER_LIB,
+        allocator_capacity=4,
     )
-    if high_water != SESSIONS_PER_LIB:
+    if high_water != 4:
         raise ValidationError(f"unexpected SessionContext high-water: {high_water}")
-    if high_water * SESSION_CONTEXT_BYTES != 256:
-        raise ValidationError("accepted static SessionContext allocation is not 256 bytes")
 
 
-def validate(source_root: Path | None = None) -> None:
+def validate(source_root: Path | None = None, app_root: Path | None = None) -> None:
     validate_recipe_scope()
     validate_topology()
-    validate_access_order()
+    validate_legacy_negative_control()
     if source_root is not None:
-        validate_pinned_source(source_root)
+        if app_root is None:
+            raise ValidationError("--app-root is required with --source-root to check allocator ownership")
+        validate_pinned_source(source_root, app_root)
+    elif app_root is not None:
+        raise ValidationError("--source-root is required with --app-root")
 
 
 def main() -> int:
@@ -262,9 +272,10 @@ def main() -> int:
         type=Path,
         help="pinned aos_core_lib_cpp root for production-source assertions",
     )
+    parser.add_argument("--app-root", type=Path, help="matching mainline aos_core_cpp root")
     args = parser.parse_args()
     try:
-        validate(args.source_root)
+        validate(args.source_root, args.app_root)
     except (OSError, ValidationError, ValueError) as error:
         print(f"IAM PKCS11 allocator validation failed: {error}")
         return 1

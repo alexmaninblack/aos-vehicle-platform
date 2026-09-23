@@ -5,7 +5,7 @@
 
 #include "providerprofile.hpp"
 
-#include <common/utils/utils.hpp>
+#include <common/utils/exec.hpp>
 
 namespace aos::sm::launcher {
 

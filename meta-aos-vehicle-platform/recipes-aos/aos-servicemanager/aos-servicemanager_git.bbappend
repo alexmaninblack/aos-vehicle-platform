@@ -8,6 +8,10 @@ FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 # This changes storage capacity only, never scopes or authorization decisions.
 CXXFLAGS:append = " -DAOS_CONFIG_TYPES_FUNCTION_LEN=256"
 
+# Upgrade the application and private Core dependencies as one pinned triplet.
+SRCREV = "9d613a46df3c7f550062e2f19ae3406c57715694"
+SRCREV_default = "9d613a46df3c7f550062e2f19ae3406c57715694"
+
 # Build-only dependency required by the upstream ARM64 test targets. It is not
 # a runtime dependency and is not installed into aos-image-vm.
 DEPENDS:append = " softhsm"
@@ -17,8 +21,7 @@ SRC_URI += " \
     file://0002-idempotent-service-container-teardown.patch \
     git://github.com/aosedge/aos_core_lib_cpp.git;protocol=https;nobranch=1;name=serviceupdatelib;destsuffix=service-update-deps/aos_core_lib_cpp \
     git://github.com/aosedge/aos_core_api.git;protocol=https;nobranch=1;name=serviceupdateapi;destsuffix=service-update-deps/aos_core_api \
-    file://0003-preserve-failed-service-replacement.patch;patchdir=../service-update-deps/aos_core_lib_cpp \
-    file://0004-retry-failed-service-preparation.patch;patchdir=../service-update-deps/aos_core_lib_cpp \
+    file://0003-mainline-service-replacement.patch;patchdir=../service-update-deps/aos_core_lib_cpp \
     file://systemd-slot-component \
     file://resources-demo-services.cfg \
     file://aos-demo-service-inputs.py \
@@ -30,7 +33,7 @@ SRC_URI += " \
 RDEPENDS:${PN}:append = " python3-modules openssl"
 
 # Private, recipe-owned dependencies: do not patch the shared warm source cache.
-SRCREV_serviceupdatelib = "60cb83535f773762c61ac5f544b31b7b88c502e3"
+SRCREV_serviceupdatelib = "5560291ba6914e36a5b841ade4d8fc54134a9e91"
 SRCREV_serviceupdateapi = "af3552a0a5eb0237eff7f5f183780ca46c339cd3"
 SRCREV_FORMAT = "default_serviceupdatelib_serviceupdateapi"
 

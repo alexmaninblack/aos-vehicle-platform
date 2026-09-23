@@ -1,20 +1,14 @@
-Subject: [PATCH] cm: notify connection subscribers outside the transport lock
+From: Demo Solution Team <noreply@example.invalid>
+Subject: [PATCH] cm: notify disconnect outside transport locks
 
-Monitoring and Alerts hold their own mutex while enqueuing messages. Calling
-their disconnect listeners under Communication::mMutex inverts that order.
-Serialize connection transitions separately, retain subscriber lifetime
-protection, and release the transport mutex before callbacks on Disconnect
-and Stop. Keep the transition guard through notification, but not worker join.
-Make connection-state reads atomic and suppress duplicate transition events.
-Always notify disconnect after a shutdown error or an already absent socket.
+Preserve one-shot connection loss notification without a callback under
+the transport lock. Upstream shared stream write serialization remains.
 
-Upstream-Status: Pending
-
-Validated with the deterministic native lock/reconnect harness in the demo
-solution. No storage, protocol, retry interval or authentication changes.
+Upstream-Status: Pending [native regression proof; mainline migration]
+Base: aos_core_cpp 9d613a46df3c7f550062e2f19ae3406c57715694
 
 diff --git a/src/cm/communication/communication.cpp b/src/cm/communication/communication.cpp
-index f9bd66443..8634df6d7 100644
+index 068913dc..dd40a7e8 100644
 --- a/src/cm/communication/communication.cpp
 +++ b/src/cm/communication/communication.cpp
 @@ -272,21 +272,29 @@ Error Communication::Start()
@@ -79,7 +73,7 @@ index f9bd66443..8634df6d7 100644
      auto serviceDiscoveryURLs = std::make_unique<StaticArray<StaticString<cURLLen>, cMaxServiceDiscoveryURLs>>();
  
      if (auto err = mCryptoHelper->GetServiceDiscoveryURLs(*serviceDiscoveryURLs); !err.IsNone()) {
-@@ -701,8 +713,6 @@ Error Communication::CloseConnection()
+@@ -704,8 +716,6 @@ Error Communication::CloseConnection()
          if (mClientSession) {
              mClientSession->reset();
          }
@@ -88,7 +82,7 @@ index f9bd66443..8634df6d7 100644
      } catch (const std::exception& e) {
          return common::utils::ToAosError(e);
      }
-@@ -712,14 +722,24 @@ Error Communication::CloseConnection()
+@@ -715,14 +725,24 @@ Error Communication::CloseConnection()
  
  Error Communication::Disconnect()
  {
@@ -118,7 +112,7 @@ index f9bd66443..8634df6d7 100644
  
      return err;
  }
-@@ -728,7 +748,9 @@ void Communication::NotifyConnectionEstablished()
+@@ -731,7 +751,9 @@ void Communication::NotifyConnectionEstablished()
  {
      std::lock_guard lock {mSubscribersMutex};
  
@@ -129,7 +123,7 @@ index f9bd66443..8634df6d7 100644
  
      LOG_INF() << "Connection established";
  
-@@ -741,7 +763,9 @@ void Communication::NotifyConnectionLost()
+@@ -744,7 +766,9 @@ void Communication::NotifyConnectionLost()
  {
      std::lock_guard lock {mSubscribersMutex};
  
@@ -141,7 +135,7 @@ index f9bd66443..8634df6d7 100644
      LOG_INF() << "Connection lost";
  
 diff --git a/src/cm/communication/communication.hpp b/src/cm/communication/communication.hpp
-index a95253720..220f70e21 100644
+index a9525372..220f70e2 100644
 --- a/src/cm/communication/communication.hpp
 +++ b/src/cm/communication/communication.hpp
 @@ -307,12 +307,15 @@ private:
@@ -161,4 +155,3 @@ index a95253720..220f70e21 100644
  
      SessionPtr                          mClientSession;
      std::optional<Poco::Net::WebSocket> mWebSocket;
-

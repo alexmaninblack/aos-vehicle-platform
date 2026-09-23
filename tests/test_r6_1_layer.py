@@ -118,10 +118,10 @@ class R61LayerTests(unittest.TestCase):
     def test_iam_pkcs11_allocator_is_recipe_scoped_and_exact(self) -> None:
         content = validate_r6_1_layer.IAM_APPEND.read_text(encoding="utf-8")
         self.assertIn(
-            "-DAOS_CONFIG_PKCS11_SESSION_POOL_MAX_SIZE=3 "
-            "-DAOS_CONFIG_PKCS11_SESSIONS_PER_LIB=4",
+            'CXXFLAGS:append = " -DAOS_CONFIG_PKCS11_SESSION_POOL_MAX_SIZE=3"',
             content,
         )
+        self.assertNotIn("AOS_CONFIG_PKCS11_SESSIONS_PER_LIB", content)
 
     def test_safe_stop_separates_capture_freshness_from_gate_freshness(self) -> None:
         evaluator = validate_r6_1_layer.SAFE_STOP.read_text(encoding="utf-8")
