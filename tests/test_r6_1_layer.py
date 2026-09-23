@@ -10,11 +10,37 @@ import runpy
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from tools import validate_r6_1_layer
 
 
 class R61LayerTests(unittest.TestCase):
+    def test_layer_scan_skips_only_generated_python_bytecode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cache = root / "__pycache__"
+            cache.mkdir()
+            (cache / "configure.cpython-312.pyc").write_bytes(b"\xff\x00")
+            source = root / "configure.py"
+            source.write_text("# source\n", encoding="utf-8")
+            nested_text = cache / "unexpected.txt"
+            nested_text.write_text("BEGIN PRIVATE KEY", encoding="utf-8")
+            with patch.object(validate_r6_1_layer, "LAYER", root):
+                files = validate_r6_1_layer.layer_source_files()
+            self.assertEqual(set(files), {source, nested_text})
+            with self.assertRaises(validate_r6_1_layer.LayerError):
+                validate_r6_1_layer.validate_data_hygiene({str(p): p.read_text() for p in files})
+
+    def test_unexpected_binary_is_an_explicit_layer_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / "unexpected.bin"
+            binary.write_bytes(b"\xff\x00")
+            with patch.object(validate_r6_1_layer, "ROOT", root):
+                with self.assertRaisesRegex(validate_r6_1_layer.LayerError, "not UTF-8 source"):
+                    validate_r6_1_layer.read(binary)
+
     def test_tracked_layer_passes(self) -> None:
         validate_r6_1_layer.validate_layer()
 
@@ -23,7 +49,7 @@ class R61LayerTests(unittest.TestCase):
         expression = 'raw.count(b"-----BEGIN CERTIFICATE-----")'
         validate_r6_1_layer.validate_data_hygiene({parser: expression})
         for files in ({"foreign.py": expression}, {parser: expression + '\n-----BEGIN CERTIFICATE-----'},
-                      {parser: expression + '\n-----BEGIN PRIVATE KEY-----'}):
+                      {parser: expression + '\n-----BEGIN ' + 'PRIVATE KEY-----'}):
             with self.assertRaises(validate_r6_1_layer.LayerError):
                 validate_r6_1_layer.validate_data_hygiene(files)
 

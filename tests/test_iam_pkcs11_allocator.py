@@ -4,11 +4,23 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
 
 from tools import validate_iam_pkcs11_allocator as validator
 
 
 class IamPkcs11AllocatorTests(unittest.TestCase):
+    def test_transform_inspection_does_not_create_in_tree_bytecode(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            transform = Path(directory) / "transform.py"
+            transform.write_text("MODULE = {'id': 'test'}\n", encoding="utf-8")
+            with patch.object(validator, "IAM_TRANSFORM", transform), \
+                    patch("sys.pycache_prefix", None), patch("sys.dont_write_bytecode", False):
+                self.assertEqual(validator._load_kuksa_module(), {"id": "test"})
+            self.assertEqual(list(Path(directory).iterdir()), [transform])
+
     def test_tracked_allocator_closure_passes(self) -> None:
         validator.validate()
 

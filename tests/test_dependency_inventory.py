@@ -67,6 +67,33 @@ class DependencyInventoryTests(unittest.TestCase):
         inventory["runtime"][0]["license"] = "MIT"
         self.assertEqual([], quality_gate.validate_dependency_inventory(inventory))
 
+    def test_patch_sidecar_does_not_exempt_missing_or_unlicensed_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "reviewed.patch"
+            source.write_text("diff --git a/x b/x\n", encoding="utf-8")
+            sidecar = source.with_name(source.name + ".license")
+            with mock.patch.object(quality_gate, "ROOT", root):
+                self.assertEqual(2, len(quality_gate.check_spdx([source])))
+                sidecar.write_text("unlicensed\n", encoding="utf-8")
+                self.assertEqual(2, len(quality_gate.check_spdx([source])))
+                sidecar.write_text("SPDX-FileCopyrightText: 2026 maninblack\n"
+                                   "SPDX-License-" "Identifier: Apache-2.0\n", encoding="utf-8")
+                self.assertEqual([], quality_gate.check_spdx([source]))
+
+    def test_imported_mit_source_is_an_exact_path_exception(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            imported = root / quality_gate.MIT_SOURCE
+            imported.parent.mkdir(parents=True)
+            text = "# SPDX-FileCopyrightText: 2026 maninblack\n# SPDX-License-" "Identifier: MIT\n"
+            imported.write_text(text, encoding="utf-8")
+            unrelated = root / "unexpected.py"
+            unrelated.write_text(text, encoding="utf-8")
+            with mock.patch.object(quality_gate, "ROOT", root):
+                self.assertEqual([], quality_gate.check_spdx([imported]))
+                self.assertEqual(1, len(quality_gate.check_spdx([unrelated])))
+
     def test_only_exact_structured_resources_path_inherits_owner_spdx(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -86,7 +113,7 @@ class DependencyInventoryTests(unittest.TestCase):
             )
             owner.write_text(
                 "# SPDX-FileCopyrightText: 2026 maninblack\n"
-                "# SPDX-License-Identifier: Apache-2.0\n",
+                "# SPDX-License-" "Identifier: Apache-2.0\n",
                 encoding="utf-8",
             )
             unrelated = root / "unrelated.json"

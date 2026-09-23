@@ -27,7 +27,13 @@ downloaded only while creating an ignored build artifact and are not committed
 to this repository.
 
 AosEdge, COVESA VSS, CARLA, and their protocols are also referenced for
-architecture and compatibility. Their code isn't copied into this repository.
+architecture and compatibility. Runtime dependencies are not vendored wholesale.
+The Yocto layer does carry bounded patches to pinned upstream sources, including
+Apache-2.0 AosCore. Original patch work is Apache-2.0; upstream context retains
+its original copyright and license. REUSE sidecars describe patch work without
+changing accepted patch bytes. They do not relicense upstream code. The imported
+`aos-demo-service-inputs.py` engineering projection retains its MIT license;
+the corresponding text is included under `LICENSES/MIT.txt`.
 
 ## KUKSA authorization compatibility package
 

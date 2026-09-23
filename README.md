@@ -7,7 +7,25 @@ Vehicle-computer integration for AosEdge, KUKSA, and automotive data
 providers. This repository follows the OEM platform/FOTA lifecycle and does
 not contain cloud-managed business services or CARLA simulator runtime code.
 
-## Current Baseline
+## Current baseline — 23 September 2026 source audit
+
+The retained integration Factory is **6.1.1-maninblack.36**. Its exact image
+source/digest and qualification exclusions are recorded in the integration
+[working baseline](../aosedge-sdv-demo/docs/qualification/current-baseline.md).
+Factory integrates AosCore, KUKSA, native IAM permissions and the separately
+packaged KAC helper. VDP V1/V2/V3 are independently prepared and signed for the
+selected OEM environment; their FOTA installation requires the Safe Stop gate.
+Brake/Tire service artifacts remain outside this platform repository.
+
+The latest repository-contained readiness correction has scoped live evidence
+for VDP98/V3 with Brake78/V3 and Tire44/V1; see
+[readiness publication](docs/advisory-readiness-publication.md) and the
+[integration receipt](../aosedge-sdv-demo/docs/qualification/advisory-readiness-renewal-2026-09-20.md).
+CI/documentation changes do not rebuild or promote Factory .36. Complete P8,
+calibration and remaining negative/reboot checks are still separate gates.
+The following .11/0.2.0 description is historical, not current runtime state.
+
+## Historical early platform baseline
 
 The current accepted implementation provides:
 
@@ -82,7 +100,7 @@ Read:
   launcher, health, and SELinux integration;
 - `config/kuksa/`: non-secret KUKSA platform configuration boundary;
 - `authorization/aos-kuksa-compat/`: target separately packaged removable
-  current-release Service authorization helper; not yet implemented;
+  current-release Service authorization helper, packaged separately from VDP;
 - `authorization/aos-kuksa/`: superseded historical design notes retained only
   to prevent accidental reuse of the former VDP-owned broker model;
 - `tests/` and `tools/`: repository, contract, packaging, and layer gates.

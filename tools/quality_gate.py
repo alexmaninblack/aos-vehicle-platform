@@ -14,7 +14,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXCLUDED_FROM_HEADER = {"LICENSE", "NOTICE", "LICENSES/Apache-2.0.txt"}
+EXCLUDED_FROM_HEADER = {"LICENSE", "NOTICE", "LICENSES/Apache-2.0.txt", "LICENSES/MIT.txt"}
+MIT_SOURCE = "meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/files/aos-demo-service-inputs.py"
 STRUCTURED_SPDX_OWNERS = {
     "meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/files/resources.cfg":
         "meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/"
@@ -89,10 +90,18 @@ def check_spdx(files: list[Path]) -> list[str]:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
+        # REUSE sidecars preserve the exact bytes/digests of accepted patches.
+        # They declare only our patch licensing; upstream context stays under
+        # its existing license and copyright, as recorded in the notices.
+        sidecar = path.with_name(path.name + ".license")
+        if path.suffix == ".patch" and sidecar.is_file():
+            text += "\n" + sidecar.read_text(encoding="utf-8")
         if copyright_tag not in text:
             errors.append(f"{relative}: missing approved SPDX copyright")
-        if license_tag not in text:
-            errors.append(f"{relative}: missing Apache-2.0 SPDX identifier")
+        expected_license = ("SPDX-License-" + "Identifier: MIT"
+                            if relative == MIT_SOURCE else license_tag)
+        if expected_license not in text:
+            errors.append(f"{relative}: missing approved SPDX license identifier")
     return errors
 
 

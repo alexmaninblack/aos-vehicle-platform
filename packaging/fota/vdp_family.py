@@ -79,7 +79,7 @@ def compose(version: str, source_revision: str) -> tuple[bytes, dict[str, object
         ).read_bytes(),
         "python/carla_viss_kuksa_provider/__init__.py": (
             "# SPDX-FileCopyrightText: 2026 maninblack\n"
-            "# SPDX-License-Identifier: Apache-2.0\n\n"
+            "# SPDX-License-" "Identifier: Apache-2.0\n\n"
             f'__version__ = "{version}"\n'
         ).encode(),
         "python/carla_viss_kuksa_provider/__main__.py": (
@@ -94,7 +94,7 @@ def compose(version: str, source_revision: str) -> tuple[bytes, dict[str, object
         ): (package / "releases" / PROFILE_MODULE[version]).read_bytes(),
         "python/carla_viss_kuksa_provider/vdp_release_profile.py": (
             "# SPDX-FileCopyrightText: 2026 maninblack\n"
-            "# SPDX-License-Identifier: Apache-2.0\n\n"
+            "# SPDX-License-" "Identifier: Apache-2.0\n\n"
             f"from .releases.{PROFILE_MODULE[version][:-3]} import *  # noqa: F401,F403\n"
         ).encode(),
     }
@@ -130,7 +130,7 @@ def compose(version: str, source_revision: str) -> tuple[bytes, dict[str, object
     prebuild = {
         "$comment": (
             "SPDX-FileCopyrightText: 2026 maninblack; "
-            "SPDX-License-Identifier: Apache-2.0"
+            "SPDX-License-" "Identifier: Apache-2.0"
         ),
         "architecture": "arm64",
         "capabilityManifestSha256": manifest_sha,

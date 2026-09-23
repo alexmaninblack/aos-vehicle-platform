@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
+import runpy
 from pathlib import Path
 import re
 
@@ -53,12 +53,9 @@ def _read(path: Path) -> str:
 
 
 def _load_kuksa_module() -> dict[str, object]:
-    spec = importlib.util.spec_from_file_location("iam_transform", IAM_TRANSFORM)
-    if spec is None or spec.loader is None:
-        raise ValidationError("cannot load the tracked IAM transformer")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.MODULE
+    # Inspect the tracked script without writing an import cache into the layer.
+    # The result must be independent of the host's Python pycache policy.
+    return runpy.run_path(str(IAM_TRANSFORM), run_name="iam_transform")["MODULE"]
 
 
 def effective_session_keys() -> tuple[tuple[str, str, str], ...]:

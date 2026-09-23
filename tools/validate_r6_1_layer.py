@@ -197,8 +197,19 @@ def require(condition: bool, message: str) -> None:
 def read(path: Path) -> str:
     try:
         return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as error:
+        raise LayerError(f"not UTF-8 source: {path.relative_to(ROOT)}") from error
     except OSError as error:
         raise LayerError(f"cannot read {path.relative_to(ROOT)}: {error}") from error
+
+
+def layer_source_files() -> list[Path]:
+    # Earlier validator/test runs may have left import bytecode. Do not skip
+    # whole directories or arbitrary binary files: all other content still
+    # passes the strict text/data-hygiene gates. Tracked binaries are separately
+    # rejected by quality_gate.py, including bytecode under __pycache__.
+    return sorted(path for path in LAYER.rglob("*") if path.is_file()
+                  and not (path.parent.name == "__pycache__" and path.suffix == ".pyc"))
 
 
 def validate_layer() -> None:
@@ -805,8 +816,8 @@ def validate_layer() -> None:
     )
     active_layer_text = "\n".join(
         read(path)
-        for path in LAYER.rglob("*")
-        if path.is_file() and path != SM_CREDENTIAL_TEMPLATE
+        for path in layer_source_files()
+        if path != SM_CREDENTIAL_TEMPLATE
     )
     for directive in PLATFORM_UPDATE_RUNTIME_CREDENTIAL_DIRECTIVES:
         require(
@@ -1045,7 +1056,7 @@ def validate_layer() -> None:
     )
 
     validate_data_hygiene({path.relative_to(LAYER).as_posix(): read(path)
-                           for path in LAYER.rglob("*") if path.is_file()})
+                           for path in layer_source_files()})
 
 
 def validate_data_hygiene(files):

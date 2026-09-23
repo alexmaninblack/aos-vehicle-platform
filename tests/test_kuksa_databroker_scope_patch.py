@@ -66,7 +66,7 @@ class KuksaDatabrokerScopePatchTests(unittest.TestCase):
     def test_bbappend_has_only_bounded_patch_wiring(self) -> None:
         expected = (
             "# SPDX-FileCopyrightText: 2026 maninblack\n"
-            "# SPDX-License-Identifier: Apache-2.0\n\n"
+            "# SPDX-License-" "Identifier: Apache-2.0\n\n"
             'FILESEXTRAPATHS:prepend := "${THISDIR}/files:"\n\n'
             "SRC_URI += "
             '"file://0002-authorization-accept-decimal-digits-in-scope-path.patch"\n\n'
