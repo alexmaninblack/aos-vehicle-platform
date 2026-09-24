@@ -16,6 +16,7 @@ SRC_URI += " \
     git://github.com/aosedge/aos_core_lib_cpp.git;protocol=https;nobranch=1;name=serviceupdatelib;destsuffix=service-update-deps/aos_core_lib_cpp \
     git://github.com/aosedge/aos_core_api.git;protocol=https;nobranch=1;name=serviceupdateapi;destsuffix=service-update-deps/aos_core_api \
     file://0002-mainline-cm-instance-lifecycle.patch;patchdir=../service-update-deps/aos_core_lib_cpp \
+    file://0007-reconcile-generated-components-on-start.patch;patchdir=../service-update-deps/aos_core_lib_cpp \
     file://0003-refresh-idle-full-unit-status.patch;patchdir=../service-update-deps/aos_core_lib_cpp \
     file://0004-configure-idle-full-unit-status.patch \
     file://0006-notify-outside-transport-lock.patch \

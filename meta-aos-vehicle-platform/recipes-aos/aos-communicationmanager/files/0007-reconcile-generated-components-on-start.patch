@@ -1,0 +1,163 @@
+From: AosEdge Demo Integration
+Subject: [PATCH] Reconcile persisted generated components before cold-start resend
+
+Base: aos_core_lib_cpp 5560291ba6914e36a5b841ade4d8fc54134a9e91
+Upstream-Status: Pending
+
+A desired per-runtime component can survive in run-request storage while its
+instance row is missing after unavailable runtime discovery. Restore that plan
+once on startup before SM status reconciliation can stop the retained component.
+Do not manufacture intent from SM reports. Explicit removal and foreign/stale
+reports remain subject to normal reconciliation. Six native regressions cover
+retained/absent SM state, removal, version/subject mismatch and repeated startup.
+
+diff --git a/src/core/cm/launcher/launcher.cpp b/src/core/cm/launcher/launcher.cpp
+index 8e8da7099..910881cea 100644
+--- a/src/core/cm/launcher/launcher.cpp
++++ b/src/core/cm/launcher/launcher.cpp
+@@ -530,7 +530,10 @@ void Launcher::ProcessNotScheduledInstances()
+     bool hasNotScheduledInstance = mInstanceManager.GetActiveInstances().ContainsIf(
+         [](const SharedPtr<Instance>& instance) { return instance->GetInfo().mNodeID.IsEmpty(); });
+ 
+-    mForceRebalance = hasNotScheduledInstance;
++    // Generated component rows can be absent after a boot with no usable SM
++    // runtime snapshot. Rebuild the persisted desired plan once at startup,
++    // before comparing it with SM's recovered instances and issuing stops.
++    mForceRebalance = hasNotScheduledInstance || mRunRequestsLoader.HasGeneratedRequests();
+     mProcessUpdatesCondVar.NotifyAll();
+ }
+ 
+diff --git a/src/core/cm/launcher/runrequestsloader.cpp b/src/core/cm/launcher/runrequestsloader.cpp
+index 49752ac24..11f6fec7b 100644
+--- a/src/core/cm/launcher/runrequestsloader.cpp
++++ b/src/core/cm/launcher/runrequestsloader.cpp
+@@ -39,6 +39,13 @@ Error RunRequestsLoader::Load()
+     return mStorage->LoadRunRequests(mRunRequests);
+ }
+ 
++bool RunRequestsLoader::HasGeneratedRequests() const
++{
++    return mRunRequests.ContainsIf([](const RunInstanceRequest& request) {
++        return request.mNumInstances == 0 && request.mUpdateItemType == UpdateItemTypeEnum::eComponent;
++    });
++}
++
+ void RunRequestsLoader::CreateInstances(const Array<Node>& nodes, Array<SharedPtr<Instance>>& instances)
+ {
+     instances.Clear();
+diff --git a/src/core/cm/launcher/runrequestsloader.hpp b/src/core/cm/launcher/runrequestsloader.hpp
+index 56b3cd4b2..474c6ab76 100644
+--- a/src/core/cm/launcher/runrequestsloader.hpp
++++ b/src/core/cm/launcher/runrequestsloader.hpp
+@@ -47,6 +47,9 @@ public:
+      */
+     Error Load();
+ 
++    /** Returns whether persisted requests require per-node/runtime generation. */
++    bool HasGeneratedRequests() const;
++
+     /**
+      * Creates instances from run requests.
+      *
+diff --git a/src/core/cm/launcher/tests/launcher.cpp b/src/core/cm/launcher/tests/launcher.cpp
+index c64bc6c3a..b4da89da9 100644
+--- a/src/core/cm/launcher/tests/launcher.cpp
++++ b/src/core/cm/launcher/tests/launcher.cpp
+@@ -2347,6 +2347,97 @@ TEST_F(CMLauncherTest, MultiNodeInstance)
+     ASSERT_TRUE(mLauncher.Stop().IsNone());
+ }
+ 
++// 0 retained desired, 1 absent SM instance, 2 explicit removal, 3 stale version,
++// 4 foreign subject, 5 repeated CM startup with the same persisted request.
++class CMColdGeneratedComponentTest : public CMLauncherTest, public WithParamInterface<int> { };
++
++TEST_P(CMColdGeneratedComponentTest, ReconcilesPersistedIntentBeforeResending)
++{
++    using namespace std::chrono_literals;
++    const bool desired = GetParam() != 2;
++    const bool reported = GetParam() != 1;
++    const bool stale = GetParam() == 3;
++    const bool foreign = GetParam() == 4;
++    mStorageState.Init();
++    mStorageState.SetTotalStateSize(1024);
++    mStorageState.SetTotalStorageSize(1024);
++    mNodeInfoProvider.Init();
++    mNodeInfoProvider.AddNodeInfo(cNodeIDLocalSM,
++        CreateNodeInfo(cNodeIDLocalSM, 1000, 1024, {CreateRuntime(cRunnerRunc)}, {}));
++    mImageStore.Init();
++    mInstanceStatusProvider.Init();
++    mMonitoringProvider.Init();
++    mAlertsProvider.Init();
++    mResourceManager.Init();
++    mInstanceRunner.Init(mLauncher, true, aos::InstanceStateEnum::eActive);
++    auto requests = std::make_unique<StaticArray<RunInstanceRequest, cMaxNumInstances>>();
++    if (desired) {
++        requests->PushBack(CreateRunRequest(cComponent1, cSubject1, 50, 0, "", {}, UpdateItemTypeEnum::eComponent));
++    }
++    // Exact cold-boot failure: desired request survives, generated instance row does not.
++    mStorage.Init({}, *requests);
++    auto config = std::make_unique<oci::ItemConfig>();
++    CreateItemConfig(*config, {cRunnerRunc});
++    AddItem(cComponent1, cImageID1, *config, CreateImageConfig());
++    NodeConfig nodeConfig;
++    CreateNodeConfig(nodeConfig, cNodeIDLocalSM);
++    mResourceManager.SetNodeConfig(cNodeIDLocalSM, cNodeTypeVM, nodeConfig);
++    auto monitoring = std::make_unique<monitoring::NodeMonitoringData>();
++    CreateNodeMonitoring(*monitoring, cNodeIDLocalSM, 0.0);
++    mMonitoringProvider.SetAverageMonitoring(cNodeIDLocalSM, *monitoring);
++    ASSERT_TRUE(mLauncher.Init(mAllocator, CreateConfig(), mNodeInfoProvider, mInstanceRunner, mImageStore,
++        mImageStore, mResourceManager, mStorageState, mMonitoringProvider, mAlertsProvider, mIdentProvider,
++        ValidateGID, ValidateUID, mStorage, mSender).IsNone());
++    std::mutex mutex;
++    std::condition_variable changed;
++    bool received = false;
++    EXPECT_CALL(mInstanceRunner, OnRunRequest()).WillRepeatedly([&]() {
++        const auto& request = mInstanceRunner.GetRunRequests().at(cNodeIDLocalSM);
++        if (desired && !stale && !foreign) {
++            EXPECT_TRUE(request.mStopInstances.empty()) << "must not remove a still-desired component";
++        }
++        EXPECT_EQ(request.mStartInstances.size(), desired ? 1u : 0u);
++        for (const auto& instance : request.mStartInstances) {
++            EXPECT_EQ(instance.mSubjectID, cSubject1);
++            EXPECT_TRUE(instance.mVersion.IsEmpty());
++        }
++        std::lock_guard lock(mutex);
++        received = true;
++        changed.notify_all();
++    });
++    auto ident = CreateInstanceIdent(cComponent1, cSubject1, 0, UpdateItemTypeEnum::eComponent);
++    auto digest = BuildManifestDigest(cComponent1, cImageID1);
++    for (int cycle = 0; cycle < (GetParam() == 5 ? 2 : 1); ++cycle) {
++        received = false;
++        ASSERT_TRUE(mLauncher.Start().IsNone());
++        std::vector<InstanceStatus> running;
++        if (reported) {
++            auto reportedIdent = ident;
++            if (foreign) {
++                reportedIdent.mSubjectID = "foreign-subject";
++            }
++            running.push_back(CreateInstanceStatus(reportedIdent, cNodeIDLocalSM, cRunnerRunc,
++                aos::InstanceStateEnum::eActive, ErrorEnum::eNone, stale ? "0.9.0" : "", false, digest.CStr()));
++        }
++        ASSERT_TRUE(static_cast<InstanceStatusReceiverItf&>(mLauncher).OnNodeInstancesStatusesReceived(cNodeIDLocalSM,
++            Array<InstanceStatus>(running.data(), running.size())).IsNone());
++        {
++            std::unique_lock lock(mutex);
++            EXPECT_TRUE(changed.wait_for(lock, 2s, [&]() { return received; }));
++        }
++        ASSERT_TRUE(mLauncher.Stop().IsNone());
++        EXPECT_EQ(mStorage.HasInstance(ident, ""), desired);
++        if (!desired || stale || foreign) {
++            const auto& request = mInstanceRunner.GetRunRequests().at(cNodeIDLocalSM);
++            ASSERT_EQ(request.mStopInstances.size(), 1u);
++            EXPECT_EQ(request.mStopInstances.front().mVersion, stale ? "0.9.0" : "");
++            EXPECT_EQ(request.mStopInstances.front().mSubjectID, foreign ? "foreign-subject" : cSubject1);
++        }
++    }
++}
++
++INSTANTIATE_TEST_SUITE_P(ColdStart, CMColdGeneratedComponentTest, Values(0, 1, 2, 3, 4, 5));
++
+ TEST_F(CMLauncherTest, RebalancingWithStoredNotScheduledInstances)
+ {
+     using namespace std::chrono_literals;

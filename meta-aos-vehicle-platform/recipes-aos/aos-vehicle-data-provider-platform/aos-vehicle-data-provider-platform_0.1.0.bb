@@ -20,6 +20,7 @@ SRC_URI = " \
     file://aos-vehicle-data-provider-store-layout \
     file://aos-vehicle-data-provider-store-prepare \
     file://aos-vehicle-data-provider-store-check \
+    file://aos-demo-viss-boot-projection.py \
     file://aos-vehicle-data-provider-loop.conf \
     file://aos-vehicle-data-provider.conf \
     file://30-aos-vehicle-data-provider.conf \
@@ -35,6 +36,8 @@ USERADD_PARAM:${PN} = "--system --home /nonexistent --no-create-home --shell /bi
 
 RDEPENDS:${PN} += " \
     coreutils \
+    python3-modules \
+    openssl \
     e2fsprogs-e2fsck \
     e2fsprogs-mke2fs \
     kernel-module-loop \
@@ -62,6 +65,7 @@ do_install() {
     install -m 0755 ${WORKDIR}/aos-vehicle-data-provider-store-layout ${D}${libexecdir}
     install -m 0755 ${WORKDIR}/aos-vehicle-data-provider-store-prepare ${D}${libexecdir}
     install -m 0755 ${WORKDIR}/aos-vehicle-data-provider-store-check ${D}${libexecdir}
+    install -m 0644 ${WORKDIR}/aos-demo-viss-boot-projection.py ${D}${libexecdir}
 
     install -d ${D}${systemd_system_unitdir}
     install -m 0644 ${WORKDIR}/aos-vehicle-data-provider.service ${D}${systemd_system_unitdir}
@@ -103,6 +107,7 @@ FILES:${PN} += " \
     ${libexecdir}/aos-vehicle-data-provider-store-layout \
     ${libexecdir}/aos-vehicle-data-provider-store-prepare \
     ${libexecdir}/aos-vehicle-data-provider-store-check \
+    ${libexecdir}/aos-demo-viss-boot-projection.py \
     ${systemd_system_unitdir}/aos-vehicle-data-provider.service \
     ${systemd_system_unitdir}/aos-vehicle-data-provider-selftest@.service \
     ${systemd_system_unitdir}/aos-vehicle-data-provider-store-layout.service \

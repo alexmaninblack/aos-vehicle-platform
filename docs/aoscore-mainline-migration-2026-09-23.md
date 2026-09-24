@@ -315,3 +315,31 @@ source/license/secret gate passes242tracked files. No live restart or policy
 load occurred. Current VDP114 remains READY/LIVE,0restarts after70m21s at11:23:48,
 no core; historical VDP native crash causality remains open. See the solution
 E2E report's regression-origin section for testing gaps and build exclusions.
+
+## Retained controller ignition recovery —24 September2026
+
+Stock .38 passes continuous E2E but not raw guest reboot. Desired VDP117 remains
+persisted while the generated active row is absent; the late SM report leads
+CM to stop the retained component. Patch0007 regenerates persisted generated
+component requests at startup, without changing per-monitor status authority.
+The negative control fails as expected; candidate53/53 native cases pass with
+the production toolchain, including intentional removal, stale version, foreign
+subject, absent instance and repeat startup. A reversible same-Test binary
+proof restores VDP and preserves models; stock CM and policy are restored.
+
+Separately, two systemd LoadCredential declarations live under /run and vanish
+at reboot. The existing VDP store bootstrap now validates previously enrolled
+strict Test inputs and reconstructs those declarations before native SM starts.
+It creates no identity, credential store, enrollment or source route and invokes
+no service restart. Empty/unassigned Factory and Production are no-op. Wrong
+identity/generation/certificate-key pairing, unsafe file ownership/mode and
+conflicting projection fail closed. Thirteen crypto/packaging tests and ten
+Demo Control enrollment cross-checks pass. A transient existing-bootstrap hook
+on retained Test .38 at15:54UTC proves ordered SM/VDP startup with no retries or
+process failure; models and Safe Stop are preserved. The hook is removed.
+
+Source regression217cases (215pass/2skip). Factory .39 specifies the successor
+build only; it is not built, accepted or promoted by this source checkpoint.
+Do not overwrite .38 or modify its rootfs/overlay. New-image clean boot, retained
+ignition recovery and host automatic route reconstruction require subsequent
+qualification. ExternalOFF cold boot is not inferred from continuous OFF tests.

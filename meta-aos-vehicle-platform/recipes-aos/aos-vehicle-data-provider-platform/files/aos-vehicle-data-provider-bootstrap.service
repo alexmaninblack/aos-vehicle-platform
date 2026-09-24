@@ -12,6 +12,9 @@ Before=aos-sm.service
 [Service]
 Type=oneshot
 ExecStart=/usr/libexec/aos-vehicle-data-provider-store-check
+# Rehydrate only an existing strict Test enrollment before systemd loads the
+# SM/VDP credential snapshots. No provisioning, source gate or service restart.
+ExecStartPost=/usr/bin/python3 -B /usr/libexec/aos-demo-viss-boot-projection.py
 RemainAfterExit=yes
 
 [Install]
