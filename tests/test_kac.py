@@ -9,6 +9,26 @@ from tools import validate_kac
 
 
 class KacTests(unittest.TestCase):
+    def test_crun_client_uses_exact_live_proven_rules(self) -> None:
+        validate_kac.validate_crun_client_policy(validate_kac.POLICY.read_text())
+
+    def test_crun_client_rejects_missing_or_broader_access(self) -> None:
+        policy = validate_kac.POLICY.read_text()
+        exact = "allow container_engine_t aos_kuksa_auth_runtime_t:dir { getattr search };"
+        variants = [
+            policy.replace(exact, ""),
+            policy.replace(exact, exact.replace("getattr search", "getattr search write")),
+            policy.replace("allow container_engine_t ", "allow container_engine_domain "),
+            policy + "\nallow container_engine_t aos_kuksa_pkcs11_store_t:file read;\n",
+            policy + "\naos_kuksa_auth_compat_connect(container_engine_t)\n",
+            policy + "\npermissive container_engine_t;\n",
+            policy + "\ntunable_policy(`container_mounton_non_security',`')\n",
+        ]
+        for candidate in variants:
+            with self.subTest(candidate=variants.index(candidate)):
+                with self.assertRaises(validate_kac.KacValidationError):
+                    validate_kac.validate_crun_client_policy(candidate)
+
     def test_bounded_kac_implementation_passes(self) -> None:
         validate_kac.validate_kac()
 

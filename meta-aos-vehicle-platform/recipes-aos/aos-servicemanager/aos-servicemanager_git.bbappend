@@ -22,6 +22,7 @@ SRC_URI += " \
     git://github.com/aosedge/aos_core_lib_cpp.git;protocol=https;nobranch=1;name=serviceupdatelib;destsuffix=service-update-deps/aos_core_lib_cpp \
     git://github.com/aosedge/aos_core_api.git;protocol=https;nobranch=1;name=serviceupdateapi;destsuffix=service-update-deps/aos_core_api \
     file://0003-mainline-service-replacement.patch;patchdir=../service-update-deps/aos_core_lib_cpp \
+    file://0004-preserve-async-instance-status.patch;patchdir=../service-update-deps/aos_core_lib_cpp \
     file://systemd-slot-component \
     file://resources-demo-services.cfg \
     file://aos-demo-service-inputs.py \

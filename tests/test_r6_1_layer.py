@@ -267,8 +267,25 @@ class R61LayerTests(unittest.TestCase):
                 "{ getattr search };",
                 "allow vehicle_data_provider_t initrc_runtime_t:file "
                 "{ getattr open read };",
+                "dontauditxperm vehicle_data_provider_t initrc_runtime_t:file ioctl 0x5401;",
             ],
         )
+
+    def test_optional_probes_keep_the_exact_denied_boundary(self) -> None:
+        policy = validate_r6_1_layer.POLICY.read_text(encoding="utf-8")
+        validate_r6_1_layer.validate_optional_probe_denials(policy)
+        for candidate in (
+            policy.replace("dontaudit vehicle_data_provider_t self:process getsched;", ""),
+            policy.replace("self:process getsched;", "self:process { getsched setsched };"),
+            policy.replace("ioctl 0x5401;", "ioctl { 0x5400-0x54ff };"),
+            policy + "\nallow vehicle_data_provider_t self:process getsched;\n",
+            policy + "\nallow vehicle_data_provider_t sysfs_t:file read;\n",
+            policy + "\nallowxperm vehicle_data_provider_t initrc_runtime_t:file ioctl 0x5401;\n",
+            policy + "\ndontaudit vehicle_data_provider_t aos_var_run_t:file read;\n",
+        ):
+            with self.subTest(candidate=candidate[-100:]):
+                with self.assertRaises(validate_r6_1_layer.LayerError):
+                    validate_r6_1_layer.validate_optional_probe_denials(candidate)
 
     def test_kuksa_is_ordered_but_not_a_hard_lifecycle_dependency(self) -> None:
         unit = validate_r6_1_layer.UNIT.read_text(encoding="utf-8")
@@ -467,7 +484,11 @@ class R61LayerTests(unittest.TestCase):
             if "vehicle_data_provider_t aos_var_run_t:" in line
         ]
         self.assertEqual(
-            ["allow vehicle_data_provider_t aos_var_run_t:dir search;"], rules
+            [
+                "allow vehicle_data_provider_t aos_var_run_t:dir search;",
+                "dontaudit vehicle_data_provider_t aos_var_run_t:dir getattr;",
+            ],
+            rules,
         )
 
     def test_early_store_preparation_has_no_local_fs_cycle(self) -> None:

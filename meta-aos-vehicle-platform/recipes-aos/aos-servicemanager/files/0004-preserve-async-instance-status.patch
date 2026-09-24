@@ -1,0 +1,310 @@
+From: Demo Solution Team <noreply@example.invalid>
+Subject: [PATCH] sm: preserve asynchronous runtime statuses and current identity
+
+Use the runtime start snapshot without promoting activating to active. Cache
+matching notifications, reject superseded version/runtime/digest callbacks,
+and retain a callback received during StartInstance instead of overwriting
+it with an earlier returned snapshot. Preserve start errors in full status.
+
+Upstream-Status: Pending [32 native launcher tests pass; live qualification pending]
+Base: aos_core_lib_cpp 5560291ba6914e36a5b841ade4d8fc54134a9e91
+
+diff --git a/src/core/sm/launcher/launcher.cpp b/src/core/sm/launcher/launcher.cpp
+--- a/src/core/sm/launcher/launcher.cpp
++++ b/src/core/sm/launcher/launcher.cpp
+@@ -203,12 +203,34 @@
+ {
+     Error err;
+ 
++    auto accepted = MakeUnique<InstanceStatusArray>(mAllocator);
++    if (!accepted) {
++        return AOS_ERROR_WRAP(ErrorEnum::eNoMemory);
++    }
++
+     {
+         LockGuard lock {mMutex};
+ 
+         LOG_DBG() << "Instances statuses received" << Log::Field("count", statuses.Size());
+ 
+         for (const auto& status : statuses) {
++            auto* instance = FindInstanceData(status);
++            if (instance && (instance->mInfo.mRuntimeID != status.mRuntimeID
++                    || instance->mInfo.mVersion != status.mVersion
++                    || instance->mInfo.mManifestDigest != status.mManifestDigest)) {
++                LOG_DBG() << "Ignore superseded instance status" << Log::Field("instance", status);
++                continue;
++            }
++
++            if (auto addErr = accepted->PushBack(status); !addErr.IsNone()) {
++                return AOS_ERROR_WRAP(addErr);
++            }
++
++            if (instance) {
++                instance->mStatus = status;
++                ++instance->mStatusRevision;
++            }
++
+             LOG_INF() << "Instance status received" << Log::Field("instance", status)
+                       << Log::Field("runtimeID", status.mRuntimeID) << Log::Field("state", status.mState)
+                       << Log::Field(status.mError);
+@@ -218,18 +240,22 @@
+             }
+         }
+ 
+-        if (!mFirstStart) {
+-            if (auto sendErr = mSender->SendUpdateInstancesStatuses(statuses); err.IsNone() && !sendErr.IsNone()) {
++        if (!mFirstStart && !accepted->IsEmpty()) {
++            if (auto sendErr = mSender->SendUpdateInstancesStatuses(*accepted); err.IsNone() && !sendErr.IsNone()) {
+                 err = AOS_ERROR_WRAP(sendErr);
+             }
+         }
+     }
+ 
++    if (accepted->IsEmpty() && !statuses.IsEmpty()) {
++        return err;
++    }
++
+     {
+         LockGuard lock {mSubscribersMutex};
+ 
+         for (auto* subscriber : mSubscribers) {
+-            subscriber->OnInstancesStatusesChanged(statuses);
++            subscriber->OnInstancesStatusesChanged(*accepted);
+         }
+     }
+ 
+@@ -1202,13 +1228,9 @@
+             if (auto err = StartInstance(runtime, instanceData); !err.IsNone()) {
+                 LOG_ERR() << "Failed to start instance" << Log::Field("instance", instanceData.mInfo)
+                           << Log::Field(AOS_ERROR_WRAP(err));
+-
+-                SetInstanceState(instanceData, InstanceStateEnum::eFailed, AOS_ERROR_WRAP(err));
+ 
+                 return;
+             }
+-
+-            SetInstanceState(instanceData, InstanceStateEnum::eActive);
+         });
+         !err.IsNone()) {
+         return AOS_ERROR_WRAP(err);
+@@ -1223,12 +1245,37 @@
+               << Log::Field("runtimeID", instanceData.mInfo.mRuntimeID)
+               << Log::Field("manifestDigest", instanceData.mInfo.mManifestDigest);
+ 
+-    if (auto err = runtime->StartInstance(instanceData.mInfo, instanceData.mStatus);
+-        !err.IsNone() && !err.Is(ErrorEnum::eAlreadyExist)) {
+-        return AOS_ERROR_WRAP(err);
++    // Runtime output is a snapshot, not a shared cache. A callback may arrive
++    // synchronously during StartInstance or before its return is reconciled.
++    auto status = MakeUnique<InstanceStatus>(mAllocator);
++    if (!status) {
++        SetInstanceState(instanceData, InstanceStateEnum::eFailed, AOS_ERROR_WRAP(ErrorEnum::eNoMemory));
++        return AOS_ERROR_WRAP(ErrorEnum::eNoMemory);
+     }
+ 
+-    return ErrorEnum::eNone;
++    uint64_t revision;
++    {
++        LockGuard lock {mMutex};
++        *status = instanceData.mStatus;
++        revision = instanceData.mStatusRevision;
++    }
++
++    auto err = runtime->StartInstance(instanceData.mInfo, *status);
++    if (err.Is(ErrorEnum::eAlreadyExist)) {
++        err = ErrorEnum::eNone;
++    } else if (!err.IsNone()) {
++        status->mState = InstanceStateEnum::eFailed;
++        status->mError = AOS_ERROR_WRAP(err);
++    }
++
++    {
++        LockGuard lock {mMutex};
++        if (instanceData.mStatusRevision == revision) {
++            instanceData.mStatus = *status;
++        }
++    }
++
++    return err;
+ }
+ 
+ Error Launcher::AppendInstancesWithModifiedParams(
+@@ -1469,6 +1516,7 @@
+     static_cast<InstanceIdent&>(itInstance->mStatus) = instanceInfo;
+     itInstance->mStatus.mVersion                     = instanceInfo.mVersion;
+     itInstance->mStatus.mRuntimeID                   = instanceInfo.mRuntimeID;
++    itInstance->mStatus.mManifestDigest              = instanceInfo.mManifestDigest;
+     itInstance->mStatus.mState                       = InstanceStateEnum::eInactive;
+ 
+     if (auto err = mInstanceIDProvider->GetInstanceID(instanceInfo, itInstance->mInstanceID); !err.IsNone()) {
+diff --git a/src/core/sm/launcher/launcher.hpp b/src/core/sm/launcher/launcher.hpp
+--- a/src/core/sm/launcher/launcher.hpp
++++ b/src/core/sm/launcher/launcher.hpp
+@@ -163,6 +163,7 @@
+         InstanceStatus       mStatus;
+         StaticString<cIDLen> mInstanceID;
+         Duration             mOfflineTTL;
++        uint64_t             mStatusRevision {};
+     };
+ 
+     struct UpdateItemInfo {
+diff --git a/src/core/sm/launcher/tests/launcher.cpp b/src/core/sm/launcher/tests/launcher.cpp
+--- a/src/core/sm/launcher/tests/launcher.cpp
++++ b/src/core/sm/launcher/tests/launcher.cpp
+@@ -417,6 +417,144 @@
+ 
+     err = mLauncher.Stop();
+     ASSERT_TRUE(err.IsNone()) << tests::utils::ErrorToStr(err);
++}
++
++TEST_F(LauncherTest, AsyncComponentStartMustNotBeReportedActive)
++{
++    const auto info = CreateInstanceInfo("vdp", 0, "109.0.0", "runtime0", UpdateItemTypeEnum::eComponent);
++    const std::vector stored = {info};
++    mStorage.Init(stored);
++    const auto waiting = CreateInstanceStatus(info, InstanceStateEnum::eActivating, UpdateItemTypeEnum::eComponent);
++    EXPECT_CALL(mRuntime0, StartInstance).WillOnce(DoAll(SetArgReferee<1>(waiting), Return(ErrorEnum::eNone)));
++
++    ASSERT_TRUE(mLauncher.Init(mAllocator, GetRuntimesArray(), mImageManager, mSender, mStorage, mOCISpec,
++        mItemInfoProvider, mCloudConnection, mNetworkManager, mInstanceIDProvider, mResourceInfoProvider).IsNone());
++    ASSERT_TRUE(mLauncher.Start().IsNone());
++    EXPECT_TRUE(mLauncher.GetInstancesStatuses(mReceivedStatuses).IsNone());
++    EXPECT_EQ(mReceivedStatuses.Size(), 1);
++    if (mReceivedStatuses.Size() == 1) {
++        EXPECT_EQ(mReceivedStatuses[0], waiting);
++    }
++    EXPECT_CALL(mRuntime0, StopInstance).Times(0);
++    EXPECT_TRUE(mLauncher.Stop().IsNone());
++}
++
++TEST_F(LauncherTest, AsyncComponentFailureMustUpdateCachedStatus)
++{
++    const auto info = CreateInstanceInfo("vdp", 0, "109.0.0", "runtime0", UpdateItemTypeEnum::eComponent);
++    const std::vector stored = {info};
++    mStorage.Init(stored);
++    const auto waiting = CreateInstanceStatus(info, InstanceStateEnum::eActivating, UpdateItemTypeEnum::eComponent);
++    EXPECT_CALL(mRuntime0, StartInstance).WillOnce(DoAll(SetArgReferee<1>(waiting), Return(ErrorEnum::eNone)));
++
++    ASSERT_TRUE(mLauncher.Init(mAllocator, GetRuntimesArray(), mImageManager, mSender, mStorage, mOCISpec,
++        mItemInfoProvider, mCloudConnection, mNetworkManager, mInstanceIDProvider, mResourceInfoProvider).IsNone());
++    ASSERT_TRUE(mLauncher.Start().IsNone());
++    EXPECT_TRUE(mLauncher.GetInstancesStatuses(mReceivedStatuses).IsNone());
++
++    auto failed = CreateInstanceStatus(info, InstanceStateEnum::eFailed, UpdateItemTypeEnum::eComponent);
++    failed.mError = Error(ErrorEnum::eTimeout, "safe stop wait expired");
++    const std::vector update = {failed};
++    EXPECT_TRUE(mLauncher.OnInstancesStatusesReceived(Array<InstanceStatus>(update.data(), update.size())).IsNone());
++    EXPECT_TRUE(mSender.WaitStatuses(mReceivedStatuses, cWaitTimeout).IsNone());
++    EXPECT_EQ(mReceivedStatuses.Size(), 1);
++    if (mReceivedStatuses.Size() == 1) {
++        EXPECT_EQ(mReceivedStatuses[0], failed);
++    }
++    EXPECT_TRUE(mLauncher.GetInstancesStatuses(mReceivedStatuses).IsNone());
++    EXPECT_EQ(mReceivedStatuses.Size(), 1);
++    if (mReceivedStatuses.Size() == 1) {
++        EXPECT_EQ(mReceivedStatuses[0], failed);
++    }
++    EXPECT_CALL(mRuntime0, StopInstance).Times(0);
++    EXPECT_TRUE(mLauncher.Stop().IsNone());
++}
++
++TEST_F(LauncherTest, AsyncCurrentStatusMustRemainCurrentAcrossFullRead)
++{
++    const auto info = CreateInstanceInfo("vdp", 0, "112.0.0", "runtime0", UpdateItemTypeEnum::eComponent);
++    mStorage.Init({info});
++    const auto waiting = CreateInstanceStatus(info, InstanceStateEnum::eActivating, UpdateItemTypeEnum::eComponent);
++    EXPECT_CALL(mRuntime0, StartInstance).WillOnce(DoAll(SetArgReferee<1>(waiting), Return(ErrorEnum::eNone)));
++    ASSERT_TRUE(mLauncher.Init(mAllocator, GetRuntimesArray(), mImageManager, mSender, mStorage, mOCISpec,
++        mItemInfoProvider, mCloudConnection, mNetworkManager, mInstanceIDProvider, mResourceInfoProvider).IsNone());
++    ASSERT_TRUE(mLauncher.Start().IsNone());
++    ASSERT_TRUE(mLauncher.GetInstancesStatuses(mReceivedStatuses).IsNone());
++
++    // Include error-detail changes without a state change, and recovery.
++    for (const auto state : {InstanceStateEnum::eFailed, InstanceStateEnum::eFailed, InstanceStateEnum::eActive}) {
++        auto status = CreateInstanceStatus(info, state, UpdateItemTypeEnum::eComponent);
++        if (state == InstanceStateEnum::eFailed) {
++            status.mError = Error(ErrorEnum::eTimeout, mReceivedStatuses[0].mError.IsNone() ? "first" : "second");
++        }
++        ASSERT_TRUE(mLauncher.OnInstancesStatusesReceived(Array<InstanceStatus>(&status, 1)).IsNone());
++        ASSERT_TRUE(mSender.WaitStatuses(mReceivedStatuses, cWaitTimeout).IsNone());
++        ASSERT_EQ(mReceivedStatuses.Size(), 1);
++        EXPECT_EQ(mReceivedStatuses[0], status);
++        EXPECT_STREQ(mReceivedStatuses[0].mError.Message(), status.mError.Message());
++        ASSERT_TRUE(mLauncher.GetInstancesStatuses(mReceivedStatuses).IsNone());
++        ASSERT_EQ(mReceivedStatuses.Size(), 1);
++        EXPECT_EQ(mReceivedStatuses[0], status);
++        EXPECT_STREQ(mReceivedStatuses[0].mError.Message(), status.mError.Message());
++    }
++    EXPECT_CALL(mRuntime0, StopInstance).Times(0);
++    EXPECT_TRUE(mLauncher.Stop().IsNone());
++}
++
++TEST_F(LauncherTest, AsyncCallbackDuringStartMustWinOverReturnedSnapshot)
++{
++    const auto info = CreateInstanceInfo("vdp", 0, "112.0.0", "runtime0", UpdateItemTypeEnum::eComponent);
++    mStorage.Init({info});
++    const auto waiting = CreateInstanceStatus(info, InstanceStateEnum::eActivating, UpdateItemTypeEnum::eComponent);
++    auto failed = CreateInstanceStatus(info, InstanceStateEnum::eFailed, UpdateItemTypeEnum::eComponent);
++    failed.mError = Error(ErrorEnum::eTimeout, "safe stop wait expired");
++    EXPECT_CALL(mRuntime0, StartInstance).WillOnce(Invoke([&](const InstanceInfo&, InstanceStatus& status) {
++        EXPECT_TRUE(mLauncher.OnInstancesStatusesReceived(Array<InstanceStatus>(&failed, 1)).IsNone());
++        status = waiting;
++        return ErrorEnum::eNone;
++    }));
++    ASSERT_TRUE(mLauncher.Init(mAllocator, GetRuntimesArray(), mImageManager, mSender, mStorage, mOCISpec,
++        mItemInfoProvider, mCloudConnection, mNetworkManager, mInstanceIDProvider, mResourceInfoProvider).IsNone());
++    ASSERT_TRUE(mLauncher.Start().IsNone());
++    ASSERT_TRUE(mLauncher.GetInstancesStatuses(mReceivedStatuses).IsNone());
++    ASSERT_EQ(mReceivedStatuses.Size(), 1);
++    EXPECT_EQ(mReceivedStatuses[0], failed);
++    EXPECT_CALL(mRuntime0, StopInstance).Times(0);
++    EXPECT_TRUE(mLauncher.Stop().IsNone());
++}
++
++TEST_F(LauncherTest, AsyncStaleCallbacksMustNotReplaceOrRemoveCurrentVersion)
++{
++    auto info = CreateInstanceInfo("vdp", 0, "112.0.0", "runtime0", UpdateItemTypeEnum::eComponent);
++    info.mManifestDigest = "sha256:current";
++    mStorage.Init({info});
++    auto waiting = CreateInstanceStatus(info, InstanceStateEnum::eActivating, UpdateItemTypeEnum::eComponent);
++    waiting.mManifestDigest = info.mManifestDigest;
++    EXPECT_CALL(mRuntime0, StartInstance).WillOnce(DoAll(SetArgReferee<1>(waiting), Return(ErrorEnum::eNone)));
++    ASSERT_TRUE(mLauncher.Init(mAllocator, GetRuntimesArray(), mImageManager, mSender, mStorage, mOCISpec,
++        mItemInfoProvider, mCloudConnection, mNetworkManager, mInstanceIDProvider, mResourceInfoProvider).IsNone());
++    ASSERT_TRUE(mLauncher.Start().IsNone());
++    ASSERT_TRUE(mLauncher.GetInstancesStatuses(mReceivedStatuses).IsNone());
++    for (int mismatch = 0; mismatch < 3; ++mismatch) {
++        auto stale = waiting;
++        stale.mState = InstanceStateEnum::eInactive;
++        if (mismatch == 0) stale.mVersion = "109.0.0";
++        if (mismatch == 1) stale.mRuntimeID = "runtime1";
++        if (mismatch == 2) stale.mManifestDigest = "sha256:old";
++        EXPECT_TRUE(mLauncher.OnInstancesStatusesReceived(Array<InstanceStatus>(&stale, 1)).IsNone());
++        EXPECT_TRUE(mSender.WaitStatuses(mReceivedStatuses, Time::cMilliseconds * 10).Is(ErrorEnum::eTimeout));
++        ASSERT_TRUE(mLauncher.GetInstancesStatuses(mReceivedStatuses).IsNone());
++        ASSERT_EQ(mReceivedStatuses.Size(), 1);
++        EXPECT_EQ(mReceivedStatuses[0], waiting);
++        StaticArray<InstanceInfo, 1> stored;
++        EXPECT_TRUE(mStorage.GetAllInstancesInfos(stored).IsNone());
++        EXPECT_EQ(stored.Size(), 1);
++        if (stored.Size() == 1) {
++            EXPECT_EQ(stored[0], info);
++        }
++    }
++    EXPECT_CALL(mRuntime0, StopInstance).Times(0);
++    EXPECT_TRUE(mLauncher.Stop().IsNone());
+ }
+ 
+ TEST_F(LauncherTest, LauncherStartsStoredInstancesOnModuleStart)
+@@ -1069,7 +1207,9 @@
+ 
+     EXPECT_EQ(statuses->Size(), cStartInstances.Size());
+     EXPECT_EQ((*statuses)[0], CreateInstanceStatus(cStartInstanceInfos[0], InstanceStateEnum::eActive));
+-    EXPECT_EQ((*statuses)[1], CreateInstanceStatus(cStartInstanceInfos[1], InstanceStateEnum::eFailed));
++    auto expectedFailure = CreateInstanceStatus(cStartInstanceInfos[1], InstanceStateEnum::eFailed);
++    expectedFailure.mError = ErrorEnum::eFailed;
++    EXPECT_EQ((*statuses)[1], expectedFailure);
+ 
+     EXPECT_CALL(mRuntime0, StopInstance(static_cast<const InstanceIdent&>(cStartInstanceInfos[0]), _))
+         .WillOnce(Return(ErrorEnum::eNone));
+

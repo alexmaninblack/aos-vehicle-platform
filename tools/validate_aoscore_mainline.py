@@ -63,6 +63,7 @@ def reconstruct(app: Path, lib: Path, output: Path, reference: Path | None = Non
         export(lib, LIB, targets['lib'])
         patches = re.findall(r'file://([^\s"\\]+\.patch)(;patchdir=[^\s"\\]+)?', recipe)
         assert patches, name
+        changed = {'app': set(), 'lib': set()}
         for filename, patchdir in patches:
             kind = 'lib' if patchdir else 'app'
             assert patchdir in ('', ';patchdir=../service-update-deps/aos_core_lib_cpp'), patchdir
@@ -71,8 +72,12 @@ def reconstruct(app: Path, lib: Path, output: Path, reference: Path | None = Non
             assert f'Base: aos_core_{"lib_cpp" if kind == "lib" else "cpp"} {LIB if kind == "lib" else APP}' in body, filename
             subprocess.run(['git', 'apply', '--check', str(patch)], cwd=targets[kind], check=True)
             subprocess.run(['git', 'apply', str(patch)], cwd=targets[kind], check=True)
-            if reference:
-                for path in re.findall(r'^diff --git a/(\S+) b/\S+$', body, re.M):
+            changed[kind].update(re.findall(r'^diff --git a/(\S+) b/\S+$', body, re.M))
+        # Several ordered patches may legitimately edit one file. Compare
+        # the final recipe bytes with the tested source, not intermediate states.
+        if reference:
+            for kind, paths in changed.items():
+                for path in paths:
                     assert (targets[kind] / path).read_bytes() == (reference / kind / path).read_bytes(), (name, path)
         if name == 'aos-servicemanager':
             runtime = recipe_dir / 'files/systemd-slot-component'

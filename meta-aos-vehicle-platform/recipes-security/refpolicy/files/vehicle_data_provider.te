@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 maninblack
 # SPDX-License-Identifier: Apache-2.0
 
-policy_module(vehicle_data_provider, 1.0.0)
+policy_module(vehicle_data_provider, 1.0.1)
 
 type vehicle_data_provider_t;
 type vehicle_data_provider_exec_t;
@@ -55,7 +55,10 @@ gen_require(`
     type initrc_runtime_t;
     type loop_control_device_t;
     type mount_t;
+    type node_t;
+    type proc_t;
     type sysfs_t;
+    type sysctl_vm_t;
     type systemd_modules_load_t;
     class service { start stop status reload };
 ')
@@ -68,6 +71,21 @@ allow vehicle_data_provider_t aos_var_run_t:dir search;
 # systemd's mount namespace and DAC restrictions provide the path boundary.
 allow vehicle_data_provider_t initrc_runtime_t:dir { getattr search };
 allow vehicle_data_provider_t initrc_runtime_t:file { getattr open read };
+
+# Optional library probes remain denied. Installed grpcio1.75/CPython3.12
+# transport and negative TLS tests pass with these exact syscalls returning
+# EACCES. Do not grant scheduling changes, host CPU data or listening sockets.
+# The ioctl exception is only CPython's isatty(TCGETS), never all ioctls.
+# Evidence: docs/vdp-security-closure-2026-09-24.md.
+dontaudit vehicle_data_provider_t self:process getsched;
+dontaudit vehicle_data_provider_t sysfs_t:file read;
+dontaudit vehicle_data_provider_t proc_t:file read;
+dontaudit vehicle_data_provider_t node_t:tcp_socket node_bind;
+dontauditxperm vehicle_data_provider_t initrc_runtime_t:file ioctl 0x5401;
+# Non-strict Path.resolve parent inspection and glibc2.39's optional
+# check_may_shrink_heap query. Neither requires new directory/file access.
+dontaudit vehicle_data_provider_t aos_var_run_t:dir getattr;
+dontaudit vehicle_data_provider_t sysctl_vm_t:dir search;
 
 # This domain can only be entered through the fixed-path loop helper. The
 # helper itself accepts no backing path and validates the immutable 512 MiB

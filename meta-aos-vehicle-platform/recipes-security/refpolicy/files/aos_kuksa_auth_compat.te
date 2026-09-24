@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 maninblack
 # SPDX-License-Identifier: Apache-2.0
 
-policy_module(aos_kuksa_auth_compat, 1.1.3)
+policy_module(aos_kuksa_auth_compat, 1.1.4)
 
 type aos_kuksa_auth_compat_t;
 type aos_kuksa_auth_compat_exec_t;
@@ -59,7 +59,17 @@ gen_require(`
     type sysfs_t;
     type syslogd_runtime_t;
     type ntpd_pid_t;
+    type container_engine_t;
 ')
+
+# Mainline SM executes crun instead of calling libcrun in initrc_t. The
+# generated OCI consumer keeps container_engine_t. Permit only the proven
+# read-only resource traversal and KAC socket connection, not directory/file
+# modification, private stores, broader container types or mount booleans.
+# DAC supplementary-group and KAC native IAM authorization remain mandatory.
+allow container_engine_t aos_kuksa_auth_runtime_t:dir { getattr search };
+allow container_engine_t aos_kuksa_auth_runtime_t:sock_file write;
+allow container_engine_t aos_kuksa_auth_compat_t:unix_stream_socket connectto;
 
 # These finite systemd services retain NoNewPrivileges. Permit only their
 # corresponding init-to-domain transitions.

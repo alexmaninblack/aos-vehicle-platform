@@ -212,6 +212,29 @@ def layer_source_files() -> list[Path]:
                   and not (path.parent.name == "__pycache__" and path.suffix == ".pyc"))
 
 
+VDP_OPTIONAL_PROBE_DENIALS = (
+    "dontaudit vehicle_data_provider_t self:process getsched;",
+    "dontaudit vehicle_data_provider_t sysfs_t:file read;",
+    "dontaudit vehicle_data_provider_t proc_t:file read;",
+    "dontaudit vehicle_data_provider_t node_t:tcp_socket node_bind;",
+    "dontauditxperm vehicle_data_provider_t initrc_runtime_t:file ioctl 0x5401;",
+    "dontaudit vehicle_data_provider_t aos_var_run_t:dir getattr;",
+    "dontaudit vehicle_data_provider_t sysctl_vm_t:dir search;",
+)
+
+
+def validate_optional_probe_denials(policy: str) -> None:
+    """Pin the deny/dontaudit proof, not a blanket audit suppression or grant."""
+    code = [line.split("#", 1)[0].strip() for line in policy.splitlines()]
+    rules = tuple(line for line in code if line.startswith(("dontaudit ", "dontauditxperm ")))
+    require(rules == VDP_OPTIONAL_PROBE_DENIALS, "optional-probe audit exclusions changed")
+    for target in ("self:process getsched", "sysfs_t:file", "proc_t:file", "node_t:tcp_socket"):
+        require(not any(line.startswith("allow vehicle_data_provider_t " + target)
+                        for line in code), "optional probe was granted access")
+    require(not any(line.startswith("allowxperm vehicle_data_provider_t ") for line in code),
+            "optional ioctl probe was granted access")
+
+
 def validate_layer() -> None:
     validate_iam_pkcs11_allocator.validate()
     layer_conf = read(LAYER / "conf/layer.conf")
@@ -904,6 +927,7 @@ def validate_layer() -> None:
     )
 
     policy = read(POLICY)
+    validate_optional_probe_denials(policy)
     require("vehicle_data_provider_t" in policy, "provider SELinux domain is missing")
     require("vehicle_data_provider_store_t" in policy, "provider store type is missing")
     require("manage_dirs_pattern(aos_t" in policy, "Service Manager cannot own the store")
@@ -943,6 +967,7 @@ def validate_layer() -> None:
         == [
             "allow vehicle_data_provider_t initrc_runtime_t:dir { getattr search };",
             "allow vehicle_data_provider_t initrc_runtime_t:file { getattr open read };",
+            "dontauditxperm vehicle_data_provider_t initrc_runtime_t:file ioctl 0x5401;",
         ],
         "provider credential access is broader than the reviewed read-only rules",
     )
@@ -953,7 +978,8 @@ def validate_layer() -> None:
     ]
     require(
         broad_parent_rules
-        == ["allow vehicle_data_provider_t aos_var_run_t:dir search;"],
+        == ["allow vehicle_data_provider_t aos_var_run_t:dir search;",
+            "dontaudit vehicle_data_provider_t aos_var_run_t:dir getattr;"],
         "provider has broader access to general Aos workdirs than directory search",
     )
     require("permissive" not in policy, "provider SELinux policy is permissive")

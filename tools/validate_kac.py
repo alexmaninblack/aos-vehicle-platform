@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 
@@ -45,6 +46,22 @@ def require(text: str, needle: str, label: str) -> None:
 def forbid(text: str, needle: str, label: str) -> None:
     if needle in text:
         raise KacValidationError(f"{label}: forbidden {needle!r}")
+
+
+def validate_crun_client_policy(policy: str) -> None:
+    """Keep the live-proven mainline crun client delta exact and auditable."""
+    expected = [
+        "type container_engine_t;",
+        "allow container_engine_t aos_kuksa_auth_runtime_t:dir { getattr search };",
+        "allow container_engine_t aos_kuksa_auth_runtime_t:sock_file write;",
+        "allow container_engine_t aos_kuksa_auth_compat_t:unix_stream_socket connectto;",
+    ]
+    code = "\n".join(line.split("#", 1)[0] for line in policy.splitlines())
+    actual = [line.strip() for line in code.splitlines() if "container_" in line]
+    if actual != expected:
+        raise KacValidationError("SELinux crun client exceeds the exact three-rule closure")
+    if re.search(r"\bpermissive\b|container_mounton_non_security", code):
+        raise KacValidationError("SELinux crun proof must remain enforcing without broad mount access")
 
 
 def validate_kac() -> None:
@@ -245,7 +262,8 @@ def validate_kac() -> None:
     )
 
     policy = POLICY.read_text(encoding="utf-8")
-    require(policy, "policy_module(aos_kuksa_auth_compat, 1.1.3)", "SELinux version")
+    require(policy, "policy_module(aos_kuksa_auth_compat, 1.1.4)", "SELinux version")
+    validate_crun_client_policy(policy)
     require(policy, "allow aos_kuksa_auth_compat_t initrc_runtime_t:file { getattr open read };", "verified time-marker read")
     require(policy, "aos_kuksa_auth_compat_t", "SELinux")
     require(policy, "aos_kuksa_verifier_prepare_t", "SELinux")
