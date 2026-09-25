@@ -46,9 +46,10 @@ The initial contract is qualified against these inputs:
 | KUKSA API | `kuksa.val.v1` |
 | Service CPU architecture | `arm64` |
 
-The contract contains only standard paths common to the selected VSS 5.0 and
-VSS 6.0 inputs. CARLA-specific overlay signals are deliberately outside the
-service interface.
+The early 0.1.1 contract used standard paths common to VSS 5.0 and VSS 6.0.
+The implemented VDP V3 profile additionally exposes the eight accepted CARLA
+wheel-slip overlay signals for this demo; it does not expose hidden wear/friction
+truth. See [contract compatibility](contract-compatibility.md).
 
 ## Runtime and Storage Boundary
 
@@ -76,8 +77,9 @@ root-owned verifier-preparation executable and one separately confined,
 networkless Provider-credential one-shot. Provider issuance is not reachable
 through the Service socket/API. A second Factory-integration package owns only
 the dedicated token initializer, volatile cleanup and finite systemd drop-ins.
-The image composition selects these packages, but package/image/VM and
-provisioned-Unit qualification remain later gates.
+Factory39 selects these packages. Build, native permissions, retained boot and
+externalOFF operation have scoped integration receipts; the complete negative
+and qualification matrix remains separate.
 
 A SOTA service declares its requested KUKSA paths and modes in Aos metadata.
 Service Manager registers them and injects a per-instance `AOS_SECRET`. The
@@ -99,8 +101,10 @@ VDP receives only systemd's private credential snapshot. There is no renewal
 daemon or exact in-session revocation claim; expiry is enforced at the next
 KUKSA authentication/reconnect.
 
-The VDP v1-v3 source profiles are immutable build selections. Earlier source
-prebuilds omit later release modules, and v1/v2 omit the typed-advisory module.
+VDP v1-v3 capability profiles are immutable build selections. The normal Demo
+Control preparation uses the current common runtime with one selected profile;
+V1/V2 do not activate typed advisory even when common code is present. Historical
+profile-only source prebuilds are not the current product preparation path.
 The outbound v3 implementation accepts only the two contract-owned service,
 path and canonical schema combinations, while the Gateway remains the final
 application authority. No VDP application store, log database, tenant quota or
@@ -121,13 +125,15 @@ AosCloud remains the authoritative lifecycle record.
 
 ## Current Status
 
-Repository separation and AOS-2 are complete. Provider `0.2.0` is signed and
-locally verified but not published. The production runtime and demo store are
-integrated into the unsigned local rootfs `6.1.1-maninblack.11` candidate.
-The validation Unit remains on `6.1.1-maninblack.2`; no `.11` Cloud or Unit
-mutation has occurred. The separately packaged compatibility helper, protected
-per-Unit signing integration and trusted Provider connection profile remain
-target work. KAC and Factory-integration source implementation is present but
-does not claim package, image or live qualification. The stock Aos IAM permission handler requires explicit
-`enablePermissionsHandler: true` configuration and qualification in the
-accepted Factory Image independently of provisioning state.
+The source return point is demo-v1.1 / Factory39, not the historical .11
+prototype. Native IAM permissions, KAC, per-Unit trust, selected-peer mTLS,
+common-runtime VDP FOTA and typed V3 advisory are implemented. IAM's
+`enablePermissionsHandler: true` is Factory configuration, independent of
+provisioning.
+
+See the [cross-repository implementation matrix](../../aosedge-sdv-demo/docs/architecture/current-implementation.md)
+and [Factory39 evidence](../../aosedge-sdv-demo/docs/qualification/factory-39-build-2026-09-24.md).
+Scoped ignition/offline receipts do not establish complete serial E2E, model
+calibration, every security negative or a stock-upstream AosCore build.
+Temporary VDP core capture is removed; historical VDP109 SIGSEGV cause remains
+unresolved.

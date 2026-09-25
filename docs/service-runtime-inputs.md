@@ -5,15 +5,17 @@
 
 Status: source implementation of accepted
 [ADR 0015](../../aosedge-sdv-demo/docs/architecture/decisions/0015-use-native-aos-service-runtime-inputs.md).
-Factory .32 source integration follows the successful transient Test proof.
-The clean-image cold-start result remains unqualified until recorded explicitly.
+Introduced in Factory .32, this is implemented in the current Factory .39.
+The [ignition receipt](../../aosedge-sdv-demo/docs/qualification/factory-39-ignition-2026-09-24.md)
+proves bounded retained-input recovery on the recorded Test; cold externalOFF
+and the complete fault matrix remain unqualified.
 
 Demo Control owns [input preparation and sequence](../../aosedge-sdv-demo/docs/architecture/demo-control-service-inputs.md).
 The opt-in [resource asset](../meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/files/resources-demo-services.cfg)
 contains only brake-runtime-inputs and tire-runtime-inputs. Each maps its own
 /run/aos-demo-service-inputs/<team> directory to
 /run/aosedge/platform/service-inputs with bind,ro,nosuid,nodev,noexec.
-Factory .32 merges this asset into the native resources configuration at build
+The Factory build merges this asset into the native resources configuration at build
 time, preserving the existing resources. Nothing is copied from a live VM.
 This document supplies the resource JSON's SPDX ownership.
 
@@ -46,7 +48,7 @@ instance construction. Configuration activation through Demo Control is not
 a binary replacement.
 
 The [mainline migration](aoscore-mainline-migration-2026-09-23.md) changes the
-build candidate, not the qualification status of the currently installed VM.
+source pins; only dated Factory/VM receipts establish deployment qualification.
 
 Project inputs before assignment; refresh only after committed VDP
 slot/process agreement; restore /run sources before retained assignments
@@ -64,7 +66,8 @@ mounts, peer isolation, public read-only access, KAC/TLS/subscriptions, renewal
 and scoped SELinux results. Host source tests do not establish these facts.
 Keep process, Cloud and product readiness separate. No rootfs remount,
 broader policy, TOFU or Production change is included. The user authorized the
-Factory .32 build on 12 September 2026; cold/live evidence is still required.
+Factory .32 build on 12 September 2026; subsequent .39 cold-start evidence is
+linked above. It does not replace the remaining negative/cold-offline gates.
 
 ## Source increment evidence — 2026-09-11
 

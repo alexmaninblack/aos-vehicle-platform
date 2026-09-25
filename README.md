@@ -7,27 +7,32 @@ Vehicle-computer integration for AosEdge, KUKSA, and automotive data
 providers. This repository follows the OEM platform/FOTA lifecycle and does
 not contain cloud-managed business services or CARLA simulator runtime code.
 
-## Current baseline — 23 September 2026 source audit
+## Current baseline — 24 September 2026 documentation audit
 
-The retained integration Factory is **6.1.1-maninblack.36**. Its exact image
-source/digest and qualification exclusions are recorded in the integration
-[working baseline](../aosedge-sdv-demo/docs/qualification/current-baseline.md).
-Factory integrates AosCore, KUKSA, native IAM permissions and the separately
-packaged KAC helper. VDP V1/V2/V3 are independently prepared and signed for the
-selected OEM environment; their FOTA installation requires the Safe Stop gate.
-Brake/Tire service artifacts remain outside this platform repository.
+The current source return point is **demo-v1.1**, with retained Test Factory
+**6.1.1-maninblack.39**. See the integration [return point](../aosedge-sdv-demo/docs/qualification/demo-v1.1-return-point.md)
+and [implemented architecture](../aosedge-sdv-demo/docs/architecture/current-implementation.md).
+Factory .31 is retained only for the preserved Production VM; .36/.37/.38
+binaries were retired. This documentation update rebuilds nothing.
 
-The latest repository-contained readiness correction has scoped live evidence
-for VDP98/V3 with Brake78/V3 and Tire44/V1; see
-[readiness publication](docs/advisory-readiness-publication.md) and the
-[integration receipt](../aosedge-sdv-demo/docs/qualification/advisory-readiness-renewal-2026-09-20.md).
-CI/documentation changes do not rebuild or promote Factory .36. Complete P8,
-calibration and remaining negative/reboot checks are still separate gates.
-The following .11/0.2.0 description is historical, not current runtime state.
+Factory integrates mainline-derived AosCore with explicit retained patches,
+KUKSA, native IAM permissions, KAC and the empty-slot OEM component runtime.
+VDP V1/V2/V3 are prepared unsigned using the current common runtime and signed
+for the selected OEM environment. FOTA requires Safe Stop; Brake/Tire SOTA
+artifacts belong to their own repositories.
+
+Dated .39 receipts cover VDP117/V3, Brake92/V3 and Tire49/V1: same-identity
+[ignition recovery](../aosedge-sdv-demo/docs/qualification/factory-39-ignition-2026-09-24.md)
+and [externalOFF/local continuity/replay](../aosedge-sdv-demo/docs/qualification/factory-39-offline-2026-09-24.md).
+Factory39's manifest remains `BUILT_NOT_LIVE_QUALIFIED`; full fresh serial
+progression, calibration and remaining negative/cold-offline cases are not
+implied. The older [readiness receipt](../aosedge-sdv-demo/docs/qualification/advisory-readiness-renewal-2026-09-20.md)
+is historical scoped proof, not current installed-version authority.
+The following .11/0.2.0 description is historical.
 
 ## Historical early platform baseline
 
-The current accepted implementation provides:
+The early .11 implementation provided:
 
 - vehicle telemetry profile `0.1.1` over `kuksa.val.v1`;
 - a development-only CARLA VISS-to-KUKSA provider;
@@ -99,7 +104,7 @@ Read:
 - `meta-aos-vehicle-platform/`: production Yocto runtime, storage, systemd,
   launcher, health, and SELinux integration;
 - `config/kuksa/`: non-secret KUKSA platform configuration boundary;
-- `authorization/aos-kuksa-compat/`: target separately packaged removable
+- `authorization/aos-kuksa-compat/`: implemented separately packaged removable
   current-release Service authorization helper, packaged separately from VDP;
 - `authorization/aos-kuksa/`: superseded historical design notes retained only
   to prevent accidental reuse of the former VDP-owned broker model;

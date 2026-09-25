@@ -42,10 +42,13 @@ with plausible zeroes. They mark the value unavailable after the profile's
 freshness timeout. Consumers must distinguish unavailable data from a valid
 zero measurement.
 
-The draft profile expects 30 Hz updates, accepts providers operating at 20 Hz
-or faster, and uses a 250 ms freshness timeout. This allows several missed
+The historical draft 0.1.1 profile expects 30 Hz updates, accepts providers
+operating at 20 Hz or faster, and uses a 250 ms freshness timeout. This allows several missed
 frames before a value becomes stale while still exposing a broken telemetry
-path promptly in a demonstration.
+path promptly in that prototype. This is not one global current-system budget:
+current VDP release/configuration, Brake 5-second input budgets, the selected
+FOTA Safe Stop profile and advisory lease/future bounds are separate contracts.
+See the [current protocol map](../../aosedge-sdv-demo/contracts/implementation-status.md).
 
 ## Deprecation
 

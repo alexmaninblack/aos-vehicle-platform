@@ -3,6 +3,14 @@
 
 # Coordinated AosCore mainline candidate — 23 September 2026
 
+Current disposition — 24 September: the coordinated source is published in
+demo-v1.1; Factory39 includes the later boot/storage/security corrections and
+has focused ignition/offline receipts. Factory36/37/38 binaries were retired.
+The dated candidate descriptions below retain the earlier investigation steps,
+not today's retained-image inventory. See the
+[return point](../../aosedge-sdv-demo/docs/qualification/demo-v1.1-return-point.md).
+Full fresh-image all-version qualification remains open.
+
 Status: native/source-qualified candidate, **not a qualified Factory**.
 The initial package/image and isolated .37 boot gates have passed; subsequent
 SM/KAC corrections have transient live proof but are not in immutable .37.

@@ -3,6 +3,12 @@
 
 # Aos Vehicle Platform Yocto Layer
 
+Current composition: demo-v1.1 / Factory39, documented in the
+[integration return point](../../aosedge-sdv-demo/docs/qualification/demo-v1.1-return-point.md).
+The runtime/KAC/native manager corrections have build and focused live receipts.
+The .11 paragraphs below retain the original layer milestone, not current Unit
+state or an instruction to recreate deleted images.
+
 This layer contains the OEM integration delta for the R6.1 vehicle-data
 provider component runtime. It is applied after the unchanged AosVM 6.1.0
 `qemuarm64` Main Node baseline has built and booted successfully. Boot remains
@@ -31,7 +37,7 @@ volume, controlled workdirs migration, or equivalent OEM platform storage
 boundary still requires a separate architecture decision. No signing or Cloud
 operation is implemented by this layer.
 
-The accepted local output is rootfs candidate `.11`, built from platform
+The historical early local output was rootfs candidate `.11`, built from platform
 revision `a12c0aa7f8a680b35407776b12bcc025970abc73`. It closes the runtime
 dependency chain required by provider `0.2.0`. Candidate `.11` is unsigned and
 has not been uploaded, assigned, or installed; the validation Unit therefore
@@ -44,9 +50,9 @@ rootfs FOTA candidate remains a separate retrofit/platform-maintenance
 artifact and is not required to introduce the initial runtime into a newly
 manufactured Unit.
 
-The successor Factory source composition now configures the shared
+The current Factory composition configures the shared
 Aos IAM permission handler with `enablePermissionsHandler: true` independently
-of provisioning and include the removable `aos-kuksa-auth-compat` package and
+of provisioning and includes the removable `aos-kuksa-auth-compat` package and
 its non-secret named-resource/signer-verifier preparation seams. The same
 temporary package now contains a third, strictly separate networkless one-shot
 which prepares the fixed OEM Provider JWT; its socket/API remains Service-only.
@@ -54,8 +60,9 @@ which prepares the fixed OEM Provider JWT; its socket/API remains Service-only.
 ordering, token initialization and volatile cleanup. The fixed Provider token
 persists ordinary reboot under `/var/lib/aos-kuksa-provider`, while VDP gets
 only a private systemd credential snapshot and no source-store access. The
-image recipe selects both packages, but these source bytes have not yet passed package, image or VM
-qualification and are not part of current `.11` evidence. The helper remains
+image recipe selects both packages. They were outside the historical `.11`
+evidence; later Factory39 build and focused ignition/offline receipts cover the
+current implementation without claiming complete live qualification. The helper remains
 outside the VDP component payload, and the image must contain no provisioned
 identity, private key, shared verifier, `AOS_SECRET`, Service JWT or static
 Provider/Service credential.

@@ -8,10 +8,12 @@ It runs inside AosVM, subscribes to the approved CARLA VISS 3.1 projection over
 verified TLS, validates and maps the selected VSS 6.0-compatible values, and
 publishes one `kuksa.val.v1` batch into the VSS 5.0 Databroker.
 
-The provider publishes only the paths in vehicle telemetry profile 0.1.1. A
-missing or invalid value becomes KUKSA `NotAvailable`. If no valid VISS event
-arrives for 250 ms, all retained values become unavailable exactly once; zero
-is never used as a connectivity or freshness substitute.
+The historical 0.1.1 profile used a 250 ms freshness timeout. Current packages
+select the immutable VDP V1/V2/V3 capability profile described below and its
+configured freshness bounds. Missing, malformed or expired values become
+KUKSA `NotAvailable`; zero is never a connectivity/freshness substitute. Do not
+confuse provider timing with Brake's 5-second input budget, FOTA's selected
+Safe Stop profile or the advisory lease.
 
 The runtime deliberately uses the full KUKSA `Set` API with `try_v2=False`.
 KUKSA Python SDK 0.5.0's simplified multi-value helper can repeat its v1
@@ -25,7 +27,8 @@ under `packaging/fota`.
 
 Production platform profiles must be able to exclude this component
 completely. The provider conforms to the published vehicle telemetry profile
-and does not expose CARLA-specific overlay signals to services.
+and exposes only the selected profile, including V3's approved wheel-slip
+overlay signals; no simulator oracle is exposed.
 
 ## Immutable VDP source profiles
 
@@ -35,10 +38,11 @@ standard wheel linear-speed paths and four standard wheel angular-speed paths
 in degrees per second. VDP `3.0.0` adds the eight accepted wheel-slip paths and
 the schema-bound Brake Health and Tire Health advisory policy.
 
-The deterministic prebuild copies only one release module into a candidate's
-source inputs. The v1 and v2 inputs do not contain the advisory module, and no
-runtime option selects another release. Each payload configuration is bound to
-the digest of its immutable capability manifest.
+The historical deterministic source prebuild copied one release module and
+omitted later modules. Normal Demo Control preparation now uses the current
+common runtime with one immutable selected release profile. V1/V2 never enable
+the typed-advisory capability; no operator runtime switch changes the profile.
+Each payload configuration is bound to its capability-manifest digest.
 
 Family frames must be complete, contract-valid and source-time monotonic before
 data readiness recovers. Missing, malformed, stale or disconnected data is
@@ -59,5 +63,7 @@ and correlation bounds before the narrow VISS Set. Only a correlated factual
 Gateway Status is published back to KUKSA; VISS or KUKSA transport success is
 never reported as application success. The Gateway remains final authority.
 
-This repository evidence is source-level only. Real ARM64 packaging, trusted
-Provider/VISS integration and FOTA qualification remain separate gates.
+Source tests do not prove deployment. Real ARM64 packaging, trusted Provider,
+VISS and FOTA have scoped integration evidence through Factory39; see the
+[current baseline](../../../aosedge-sdv-demo/docs/qualification/current-baseline.md).
+Full fresh .39 progression and the remaining negative matrix are separate gates.
