@@ -69,14 +69,18 @@ class KuksaDatabrokerScopePatchTests(unittest.TestCase):
             "# SPDX-License-" "Identifier: Apache-2.0\n\n"
             'FILESEXTRAPATHS:prepend := "${THISDIR}/files:"\n\n'
             "SRC_URI += "
-            '"file://0002-authorization-accept-decimal-digits-in-scope-path.patch"\n\n'
+            '"file://0002-authorization-accept-decimal-digits-in-scope-path.patch"\n'
+            'SRC_URI += "file://0003-val-v1-preserve-source-timestamps.patch"\n\n'
             "do_compile:append() {\n"
-            '    export CARGO_TARGET_AARCH64_AOS_LINUX_RUNNER="'
-            "${RECIPE_SYSROOT}/lib/ld-linux-aarch64.so.1 --library-path "
-            '${RECIPE_SYSROOT}/lib:${RECIPE_SYSROOT}/usr/lib"\n'
+            '    export CARGO_TARGET_AARCH64_AOS_LINUX_GNU_RUNNER="'
+            "${RECIPE_SYSROOT}${base_libdir}/ld-linux-aarch64.so.1 --library-path "
+            '${RECIPE_SYSROOT}${base_libdir}:${RECIPE_SYSROOT}${libdir}"\n'
             '    bbnote "Running scoped KUKSA authorization::jwt::scope tests"\n'
             '    "${CARGO}" test ${CARGO_BUILD_FLAGS} -p databroker --lib '
             "authorization::jwt::scope -- --nocapture\n"
+            '    bbnote "Running KUKSA VAL v1 source timestamp tests"\n'
+            '    "${CARGO}" test ${CARGO_BUILD_FLAGS} -p databroker --lib '
+            "source_timestamp_tests -- --nocapture\n"
             "}\n"
         )
         self.assertEqual(self.bbappend, expected)

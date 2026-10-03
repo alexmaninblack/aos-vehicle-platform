@@ -1,0 +1,204 @@
+From: AosEdge SDV Demo Maintainers
+Subject: [PATCH] VAL v1: preserve the source timestamp in outgoing datapoints
+
+The demo requires source-time preservation (REQ-VDP-004). Returning per-entry
+receipt time destroys coherence across a single provider batch and can make
+old source samples appear fresh. Retain receipt time only when no source time
+was supplied. Do not change value-only conversions, authorization or storage.
+
+Pinned-Upstream-Commit: 30e5c13abc496d0b39aaa6c25acebb088b9902e3
+Frozen-Source-Git-Blob: d9b972d13523b821682d748da19d5e76456865d3
+Upstream-Status: Pending
+
+diff --git a/databroker/src/grpc/kuksa_val_v1/conversions.rs b/databroker/src/grpc/kuksa_val_v1/conversions.rs
+index d9b972d..013100f 100644
+--- a/databroker/src/grpc/kuksa_val_v1/conversions.rs
++++ b/databroker/src/grpc/kuksa_val_v1/conversions.rs
+@@ -65,83 +65,83 @@ impl From<broker::Datapoint> for Option<proto::Datapoint> {
+             broker::DataValue::NotAvailable => None,
+             broker::DataValue::Bool(value) => Some(proto::Datapoint {
+                 value: Some(proto::datapoint::Value::Bool(value)),
+-                timestamp: Some(from.ts.into()),
++                timestamp: Some(from.source_ts.unwrap_or(from.ts).into()),
+             }),
+             broker::DataValue::String(value) => Some(proto::Datapoint {
+                 value: Some(proto::datapoint::Value::String(value)),
+-                timestamp: Some(from.ts.into()),
++                timestamp: Some(from.source_ts.unwrap_or(from.ts).into()),
+             }),
+             broker::DataValue::Int32(value) => Some(proto::Datapoint {
+                 value: Some(proto::datapoint::Value::Int32(value)),
+-                timestamp: Some(from.ts.into()),
++                timestamp: Some(from.source_ts.unwrap_or(from.ts).into()),
+             }),
+             broker::DataValue::Int64(value) => Some(proto::Datapoint {
+                 value: Some(proto::datapoint::Value::Int64(value)),
+-                timestamp: Some(from.ts.into()),
++                timestamp: Some(from.source_ts.unwrap_or(from.ts).into()),
+             }),
+             broker::DataValue::Uint32(value) => Some(proto::Datapoint {
+                 value: Some(proto::datapoint::Value::Uint32(value)),
+-                timestamp: Some(from.ts.into()),
++                timestamp: Some(from.source_ts.unwrap_or(from.ts).into()),
+             }),
+             broker::DataValue::Uint64(value) => Some(proto::Datapoint {
+                 value: Some(proto::datapoint::Value::Uint64(value)),
+-                timestamp: Some(from.ts.into()),
++                timestamp: Some(from.source_ts.unwrap_or(from.ts).into()),
+             }),
+             broker::DataValue::Float(value) => Some(proto::Datapoint {
+                 value: Some(proto::datapoint::Value::Float(value)),
+-                timestamp: Some(from.ts.into()),
++                timestamp: Some(from.source_ts.unwrap_or(from.ts).into()),
+             }),
+             broker::DataValue::Double(value) => Some(proto::Datapoint {
+                 value: Some(proto::datapoint::Value::Double(value)),
+-                timestamp: Some(from.ts.into()),
++                timestamp: Some(from.source_ts.unwrap_or(from.ts).into()),
+             }),
+             broker::DataValue::BoolArray(values) => Some(proto::Datapoint {
+                 value: Some(proto::datapoint::Value::BoolArray(proto::BoolArray {
+                     values,
+                 })),
+-                timestamp: Some(from.ts.into()),
++                timestamp: Some(from.source_ts.unwrap_or(from.ts).into()),
+             }),
+             broker::DataValue::StringArray(values) => Some(proto::Datapoint {
+                 value: Some(proto::datapoint::Value::StringArray(proto::StringArray {
+                     values,
+                 })),
+-                timestamp: Some(from.ts.into()),
++                timestamp: Some(from.source_ts.unwrap_or(from.ts).into()),
+             }),
+             broker::DataValue::Int32Array(values) => Some(proto::Datapoint {
+                 value: Some(proto::datapoint::Value::Int32Array(proto::Int32Array {
+                     values,
+                 })),
+-                timestamp: Some(from.ts.into()),
++                timestamp: Some(from.source_ts.unwrap_or(from.ts).into()),
+             }),
+             broker::DataValue::Int64Array(values) => Some(proto::Datapoint {
+                 value: Some(proto::datapoint::Value::Int64Array(proto::Int64Array {
+                     values,
+                 })),
+-                timestamp: Some(from.ts.into()),
++                timestamp: Some(from.source_ts.unwrap_or(from.ts).into()),
+             }),
+             broker::DataValue::Uint32Array(values) => Some(proto::Datapoint {
+                 value: Some(proto::datapoint::Value::Uint32Array(proto::Uint32Array {
+                     values,
+                 })),
+-                timestamp: Some(from.ts.into()),
++                timestamp: Some(from.source_ts.unwrap_or(from.ts).into()),
+             }),
+             broker::DataValue::Uint64Array(values) => Some(proto::Datapoint {
+                 value: Some(proto::datapoint::Value::Uint64Array(proto::Uint64Array {
+                     values,
+                 })),
+-                timestamp: Some(from.ts.into()),
++                timestamp: Some(from.source_ts.unwrap_or(from.ts).into()),
+             }),
+             broker::DataValue::FloatArray(values) => Some(proto::Datapoint {
+                 value: Some(proto::datapoint::Value::FloatArray(proto::FloatArray {
+                     values,
+                 })),
+-                timestamp: Some(from.ts.into()),
++                timestamp: Some(from.source_ts.unwrap_or(from.ts).into()),
+             }),
+             broker::DataValue::DoubleArray(values) => Some(proto::Datapoint {
+                 value: Some(proto::datapoint::Value::DoubleArray(proto::DoubleArray {
+                     values,
+                 })),
+-                timestamp: Some(from.ts.into()),
++                timestamp: Some(from.source_ts.unwrap_or(from.ts).into()),
+             }),
+         }
+     }
+@@ -338,3 +338,87 @@ impl From<broker::EntryUpdate> for proto::DataEntry {
+         }
+     }
+ }
++
++#[cfg(test)]
++mod source_timestamp_tests {
++    use super::*;
++    use std::time::{Duration, UNIX_EPOCH};
++
++    fn values() -> Vec<broker::DataValue> {
++        use broker::DataValue::*;
++        vec![Bool(true), String("test".into()), Int32(-3), Int64(-4), Uint32(3),
++             Uint64(4), Float(1.25), Double(2.5), BoolArray(vec![true, false]),
++             StringArray(vec!["test".into()]), Int32Array(vec![-3]), Int64Array(vec![-4]),
++             Uint32Array(vec![3]), Uint64Array(vec![4]), FloatArray(vec![1.25]),
++             DoubleArray(vec![2.5])]
++    }
++
++    #[test]
++    fn source_timestamp_preserves_all_values_and_nanoseconds() {
++        let source = UNIX_EPOCH + Duration::new(1_700_000_000, 123_456_789);
++        let receipt = source + Duration::from_secs(10);
++        for value in values() {
++            let expected_value = Option::<proto::Datapoint>::from(value.clone()).unwrap().value;
++            let result = Option::<proto::Datapoint>::from(broker::Datapoint {
++                ts: receipt, source_ts: Some(source), value,
++            }).unwrap();
++            assert_eq!(result.timestamp, Some(source.into()));
++            assert_eq!(result.value, expected_value);
++        }
++    }
++
++    #[test]
++    fn source_timestamp_roundtrip_does_not_refresh_old_or_future_data() {
++        for seconds in [1_000, 4_000_000_000] {
++            let source = UNIX_EPOCH + Duration::new(seconds, 123_000_000);
++            let input = proto::Datapoint { timestamp: Some(source.into()),
++                value: Some(proto::datapoint::Value::Float(17.0)) };
++            let internal = broker::Datapoint::from(input.clone());
++            assert_eq!(internal.source_ts, Some(source));
++            assert_eq!(Option::<proto::Datapoint>::from(internal), Some(input));
++        }
++    }
++
++    #[test]
++    fn source_timestamp_preserves_batch_across_receipt_millisecond_boundary() {
++        let source = UNIX_EPOCH + Duration::new(1_700_000_000, 0);
++        for index in 0..15 {
++            let datapoint = broker::Datapoint {
++                ts: source + Duration::from_micros(999 + index),
++                source_ts: Some(source), value: broker::DataValue::Float(index as f32),
++            };
++            let entry = proto::DataEntry::from(broker::EntryUpdate {
++                path: Some(format!("Vehicle.Test.Signal{}", index)),
++                datapoint: Some(datapoint), ..Default::default()
++            });
++            assert_eq!(entry.value.unwrap().timestamp, Some(source.into()));
++        }
++    }
++
++    #[test]
++    fn source_timestamp_missing_retains_receipt_fallback() {
++        let receipt = UNIX_EPOCH + Duration::new(1_700_000_000, 987_654_321);
++        for value in values() {
++            let result = Option::<proto::Datapoint>::from(broker::Datapoint {
++                ts: receipt, source_ts: None, value,
++            }).unwrap();
++            assert_eq!(result.timestamp, Some(receipt.into()));
++        }
++    }
++
++    #[test]
++    fn source_timestamp_not_available_stays_absent() {
++        for source_ts in [None, Some(UNIX_EPOCH)] {
++            assert!(Option::<proto::Datapoint>::from(broker::Datapoint {
++                ts: SystemTime::now(), source_ts, value: broker::DataValue::NotAvailable,
++            }).is_none());
++        }
++    }
++
++    #[test]
++    fn source_timestamp_value_only_conversion_has_no_invented_time() {
++        for value in values() {
++            assert!(Option::<proto::Datapoint>::from(value).unwrap().timestamp.is_none());
++        }
++    }
++}

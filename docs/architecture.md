@@ -67,7 +67,10 @@ production vehicle storage architecture.
 
 ## Authorization Boundary
 
-The target architecture keeps upstream Eclipse KUKSA Databroker unchanged.
+The target architecture minimizes changes to upstream Eclipse KUKSA Databroker.
+Current integration retains the explicit scope-path and source-timestamp
+[compatibility patches](contract-compatibility.md#kuksa-authorization-compatibility-seam);
+it must not be described as byte-for-byte unmodified upstream.
 The separately packaged removable current-release KUKSA Authorization
 Compatibility helper belongs to the Factory/System layer under
 `authorization/aos-kuksa-compat/`; it is outside the Vehicle Data Platform

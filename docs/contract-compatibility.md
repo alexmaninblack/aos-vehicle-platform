@@ -59,6 +59,19 @@ provider and consumer versions.
 
 ## KUKSA authorization compatibility seam
 
+The pinned KUKSA 0.5.0 integration has two explicit downstream seams: decimal
+digits in authorization scope paths, and VAL v1 source-time preservation. The
+3 October 2026 timestamp patch returns `source_ts` when supplied, otherwise
+retains the upstream receipt-time fallback. It changes none of the 16 value
+types, `NotAvailable`, value-only conversions, authorization or VSS schemas.
+The recipe gates all six timestamp regressions and 17 scope tests before
+packaging. Read-only/live proofs and exclusions are recorded in the Solution
+[M1 investigation](../../aosedge-sdv-demo/docs/qualification/m1-live-journey-2026-10-03.md).
+This is Factory integration, not a VDP-only FOTA update. The correction has
+target and reversible live proof; a rebuilt Factory and full E2E acceptance
+are still pending. An unrelated fixed JWT fixture reports `ExpiredSignature`
+in the broader upstream library suite; that suite is not claimed fully green.
+
 The removable helper implements protocol `aos-kuksa-auth-compat/v1` as an
 independent migration seam. Compatible native AosCore replacement behavior
 must preserve strict one-frame request/response schemas, fixed resource
