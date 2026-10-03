@@ -70,7 +70,8 @@ class KuksaDatabrokerScopePatchTests(unittest.TestCase):
             'FILESEXTRAPATHS:prepend := "${THISDIR}/files:"\n\n'
             "SRC_URI += "
             '"file://0002-authorization-accept-decimal-digits-in-scope-path.patch"\n'
-            'SRC_URI += "file://0003-val-v1-preserve-source-timestamps.patch"\n\n'
+            'SRC_URI += "file://0003-val-v1-preserve-source-timestamps.patch"\n'
+            'SRC_URI += "file://0004-test-renewable-jwt-fixtures.patch"\n\n'
             "do_compile:append() {\n"
             '    export CARGO_TARGET_AARCH64_AOS_LINUX_GNU_RUNNER="'
             "${RECIPE_SYSROOT}${base_libdir}/ld-linux-aarch64.so.1 --library-path "
@@ -81,6 +82,8 @@ class KuksaDatabrokerScopePatchTests(unittest.TestCase):
             '    bbnote "Running KUKSA VAL v1 source timestamp tests"\n'
             '    "${CARGO}" test ${CARGO_BUILD_FLAGS} -p databroker --lib '
             "source_timestamp_tests -- --nocapture\n"
+            '    bbnote "Running complete KUKSA library suite with renewable test JWTs"\n'
+            '    "${CARGO}" test ${CARGO_BUILD_FLAGS} -p databroker --lib\n'
             "}\n"
         )
         self.assertEqual(self.bbappend, expected)

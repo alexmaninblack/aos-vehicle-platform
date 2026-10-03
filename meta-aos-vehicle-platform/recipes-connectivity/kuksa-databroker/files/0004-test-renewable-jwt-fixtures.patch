@@ -1,0 +1,47 @@
+From: SDV Lab qualification
+Subject: [PATCH] test: generate fresh JWTs and assert expired fixture rejection
+
+Only cfg(test) changes. Production signature, expiry and audience validation
+remain enabled. The signing material is the existing upstream public test key.
+
+--- a/databroker/src/authorization/jwt/decoder.rs
++++ b/databroker/src/authorization/jwt/decoder.rs
+@@ -146,1 +146,1 @@
+-    fn test_parse_token() {
++    fn test_expired_historical_token() {
+@@ -166,7 +166,29 @@
+-        match decoder.decode(token) {
+-            Ok(claims) => {
+-                assert_eq!(claims.scope, "read:Vehicle.Speed");
+-            }
+-            Err(err) => panic!("decode should succeed but failed with:{}", err),
+-        }
++        assert!(matches!(decoder.decode(token),
++            Err(Error::DecodeError(reason)) if reason == "ExpiredSignature"));
++    }
++
++    #[test]
++    fn test_parse_fresh_token_with_full_validation() {
++        use jsonwebtoken::{encode, EncodingKey, Header};
++        use std::time::{SystemTime, UNIX_EPOCH};
++        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
++        let key = EncodingKey::from_rsa_pem(include_bytes!(
++            "../../../../certificates/jwt/jwt.key")).unwrap();
++        let decoder = Decoder::new(include_str!(
++            "../../../../certificates/jwt/jwt.key.pub")).unwrap();
++        let mut claims = serde_json::json!({
++            "sub": "test-only", "iss": "test-only", "aud": ["kuksa.val"],
++            "iat": now, "exp": now + 300, "scope": "read:Vehicle.Speed"
++        });
++        let sign = |claims: &serde_json::Value| {
++            encode(&Header::new(Algorithm::RS256), claims, &key).unwrap()
++        };
++        assert_eq!(decoder.decode(sign(&claims)).unwrap().scope, "read:Vehicle.Speed");
++        claims["exp"] = serde_json::json!(now - 120);
++        assert!(matches!(decoder.decode(sign(&claims)),
++            Err(Error::DecodeError(reason)) if reason == "ExpiredSignature"));
++        claims["exp"] = serde_json::json!(now + 300);
++        claims["aud"] = serde_json::json!(["wrong-audience"]);
++        assert!(matches!(decoder.decode(sign(&claims)),
++            Err(Error::DecodeError(reason)) if reason == "InvalidAudience"));
+     }
