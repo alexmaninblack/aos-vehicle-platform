@@ -20,6 +20,7 @@ SRC_URI += " \
     file://0003-refresh-idle-full-unit-status.patch;patchdir=../service-update-deps/aos_core_lib_cpp \
     file://0004-configure-idle-full-unit-status.patch \
     file://0006-notify-outside-transport-lock.patch \
+    file://0008-allocate-valid-unused-vlan-ids.patch \
 "
 
 SRCREV_serviceupdatelib = "5560291ba6914e36a5b841ade4d8fc54134a9e91"

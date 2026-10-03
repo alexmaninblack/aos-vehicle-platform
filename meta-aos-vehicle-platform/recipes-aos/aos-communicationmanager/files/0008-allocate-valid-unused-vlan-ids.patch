@@ -1,0 +1,127 @@
+From: AosEdge SDV Demo maintainers
+Subject: [PATCH] cm: allocate valid, unused VLAN identifiers
+
+Base: aos_core_cpp 9d613a46df3c7f550062e2f19ae3406c57715694
+Upstream-Status: Pending
+
+The M1 installed journey reproduced VLAN 4095 allocation during a Brake
+upgrade. Linux rejected it before the new container could start. Keep the
+existing bounded allocator, exclude reserved IDs, and actually retry a
+collision instead of continuing only the inner loop. Add boundary, exhaustion
+and collision regression tests. Existing persisted network records are not
+silently rewritten; this patch prevents invalid new allocations.
+
+SPDX-FileCopyrightText: 2026 maninblack
+SPDX-License-Identifier: Apache-2.0
+
+diff --git a/src/cm/networkmanager/networkmanager.cpp b/src/cm/networkmanager/networkmanager.cpp
+index 4f64f702..b45d2c0b 100644
+--- a/src/cm/networkmanager/networkmanager.cpp
++++ b/src/cm/networkmanager/networkmanager.cpp
+@@ -698,13 +698,19 @@ bool NetworkManager::IsHostExist(const std::string& hostName) const
+ uint64_t NetworkManager::GenerateVlanID()
+ {
+     for (int i = 0; i < cVlanGenerateRetries; ++i) {
+-        auto [vlanID, err] = mRandom->RandInt(cMaxVlanID);
++        // RandInt has an exclusive upper bound. VLAN 0 is priority-only;
++        // 4095 is reserved and rejected by the Linux VLAN interface.
++        auto [vlanID, err] = mRandom->RandInt(cMaxVlanID + 1);
+         AOS_ERROR_CHECK_AND_THROW(err, "error generating vlan id");
+ 
+-        for (auto& [_, networkState] : mNetworkStates) {
+-            if (networkState.mNetwork.mVlanID == vlanID) {
+-                continue;
+-            }
++        if (vlanID == 0 || vlanID > cMaxVlanID) {
++            continue;
++        }
++
++        const auto inUse = std::any_of(mNetworkStates.begin(), mNetworkStates.end(),
++            [vlanID](const auto& entry) { return entry.second.mNetwork.mVlanID == vlanID; });
++        if (inUse) {
++            continue;
+         }
+ 
+         LOG_DBG() << "Generate vlan ID" << Log::Field("vlanID", vlanID);
+diff --git a/src/cm/networkmanager/networkmanager.hpp b/src/cm/networkmanager/networkmanager.hpp
+index d211733d..7699fa79 100644
+--- a/src/cm/networkmanager/networkmanager.hpp
++++ b/src/cm/networkmanager/networkmanager.hpp
+@@ -95,7 +95,7 @@ public:
+     Error SyncNetworkState(const String& nodeID, const Array<InstanceNetworkStateInfo>& instances) override;
+ 
+ private:
+-    static constexpr uint64_t cMaxVlanID           = 4096;
++    static constexpr uint64_t cMaxVlanID           = 4094;
+     static constexpr int      cVlanGenerateRetries = 4;
+ 
+     void     RemoveExistedNetworks();
+diff --git a/src/cm/networkmanager/tests/networkmanager.cpp b/src/cm/networkmanager/tests/networkmanager.cpp
+index 4426cd10..c05d2bf1 100644
+--- a/src/cm/networkmanager/tests/networkmanager.cpp
++++ b/src/cm/networkmanager/tests/networkmanager.cpp
+@@ -1749,4 +1749,64 @@ TEST_F(CMNetworkManagerTest, SyncNetworkState_ConfirmedPendingCleanedFromDB)
+     EXPECT_TRUE(err.IsNone());
+ }
+ 
++
++TEST_F(CMNetworkManagerTest, VlanBoundarySkipsReservedAndAcceptsMaximum)
++{
++    EXPECT_CALL(*mStorage, GetNetworks(_)).WillOnce(Return(ErrorEnum::eNone));
++    EXPECT_CALL(*mRandom, RandInt(4095))
++        .WillOnce(Return(RetWithError<uint64_t>(0u, ErrorEnum::eNone)))
++        .WillOnce(Return(RetWithError<uint64_t>(4095u, ErrorEnum::eNone)))
++        .WillOnce(Return(RetWithError<uint64_t>(4094u, ErrorEnum::eNone)));
++    EXPECT_CALL(*mStorage, AddNetwork(_)).WillOnce(Invoke([](const Network& network) -> Error {
++        EXPECT_EQ(network.mVlanID, 4094u);
++        return ErrorEnum::eNone;
++    }));
++    EXPECT_CALL(*mStorage, AddHost(_, _)).WillOnce(Return(ErrorEnum::eNone));
++    ASSERT_TRUE(mNetworkManager->Init(*mStorage, *mRandom, *mDNSServer).IsNone());
++    NetworkParams result;
++    ASSERT_TRUE(mNetworkManager->GetNodeNetworkParams("boundary", "node1", result).IsNone());
++    EXPECT_EQ(result.mVlanID, 4094u);
++}
++
++TEST_F(CMNetworkManagerTest, VlanBoundaryAcceptsMinimum)
++{
++    EXPECT_CALL(*mStorage, GetNetworks(_)).WillOnce(Return(ErrorEnum::eNone));
++    EXPECT_CALL(*mRandom, RandInt(4095)).WillOnce(Return(RetWithError<uint64_t>(1u, ErrorEnum::eNone)));
++    EXPECT_CALL(*mStorage, AddNetwork(_)).WillOnce(Return(ErrorEnum::eNone));
++    EXPECT_CALL(*mStorage, AddHost(_, _)).WillOnce(Return(ErrorEnum::eNone));
++    ASSERT_TRUE(mNetworkManager->Init(*mStorage, *mRandom, *mDNSServer).IsNone());
++    NetworkParams result;
++    ASSERT_TRUE(mNetworkManager->GetNodeNetworkParams("minimum", "node1", result).IsNone());
++    EXPECT_EQ(result.mVlanID, 1u);
++}
++
++TEST_F(CMNetworkManagerTest, VlanBoundaryExhaustionDoesNotPersistNetwork)
++{
++    EXPECT_CALL(*mStorage, GetNetworks(_)).WillOnce(Return(ErrorEnum::eNone));
++    EXPECT_CALL(*mRandom, RandInt(4095)).Times(4)
++        .WillRepeatedly(Return(RetWithError<uint64_t>(0u, ErrorEnum::eNone)));
++    EXPECT_CALL(*mStorage, AddNetwork(_)).Times(0);
++    EXPECT_CALL(*mStorage, AddHost(_, _)).Times(0);
++    ASSERT_TRUE(mNetworkManager->Init(*mStorage, *mRandom, *mDNSServer).IsNone());
++    NetworkParams result;
++    EXPECT_FALSE(mNetworkManager->GetNodeNetworkParams("exhausted", "node1", result).IsNone());
++}
++
++TEST_F(CMNetworkManagerTest, VlanBoundarySkipsCollision)
++{
++    EXPECT_CALL(*mStorage, GetNetworks(_)).WillOnce(Return(ErrorEnum::eNone));
++    EXPECT_CALL(*mRandom, RandInt(4095))
++        .WillOnce(Return(RetWithError<uint64_t>(123u, ErrorEnum::eNone)))
++        .WillOnce(Return(RetWithError<uint64_t>(123u, ErrorEnum::eNone)))
++        .WillOnce(Return(RetWithError<uint64_t>(124u, ErrorEnum::eNone)));
++    EXPECT_CALL(*mStorage, AddNetwork(_)).Times(2).WillRepeatedly(Return(ErrorEnum::eNone));
++    EXPECT_CALL(*mStorage, AddHost(_, _)).Times(2).WillRepeatedly(Return(ErrorEnum::eNone));
++    ASSERT_TRUE(mNetworkManager->Init(*mStorage, *mRandom, *mDNSServer).IsNone());
++    NetworkParams first, second;
++    ASSERT_TRUE(mNetworkManager->GetNodeNetworkParams("first", "node1", first).IsNone());
++    ASSERT_TRUE(mNetworkManager->GetNodeNetworkParams("second", "node1", second).IsNone());
++    EXPECT_EQ(first.mVlanID, 123u);
++    EXPECT_EQ(second.mVlanID, 124u);
++}
++
+ } // namespace aos::cm::networkmanager
