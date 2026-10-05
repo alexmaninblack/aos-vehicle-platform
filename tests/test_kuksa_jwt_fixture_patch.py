@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
 """Bound the test fixture repair without weakening production JWT validation."""
 from pathlib import Path
 import re
