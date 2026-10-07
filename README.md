@@ -7,28 +7,31 @@ Vehicle-computer integration for AosEdge, KUKSA, and automotive data
 providers. This repository follows the OEM platform/FOTA lifecycle and does
 not contain cloud-managed business services or CARLA simulator runtime code.
 
-## Current baseline — 24 September 2026 documentation audit
+## Current baseline — 7 October 2026
 
-The current source return point is **demo-v1.1**, with retained Test Factory
-**6.1.1-maninblack.39**. See the integration [return point](../aosedge-sdv-demo/docs/qualification/demo-v1.1-return-point.md)
-and [implemented architecture](../aosedge-sdv-demo/docs/architecture/current-implementation.md).
-Factory .31 is retained only for the preserved Production VM; .36/.37/.38
-binaries were retired. This documentation update rebuilds nothing.
+The selected integration candidate is **Kit028 / Setup042 / Factory .41**.
+The [source return point](../aosedge-sdv-demo/docs/qualification/kit028-setup042-source-publication-2026-10-05.md)
+distinguishes the exact Factory build source from subsequent license-only source
+changes; the [current baseline](../aosedge-sdv-demo/docs/qualification/current-baseline.md)
+owns qualification. Historical demo-v1.1 / Factory .39 is not the current kit.
 
-Factory integrates mainline-derived AosCore with explicit retained patches,
+Factory contains mainline-derived AosCore with explicit retained patches,
 KUKSA, native IAM permissions, KAC and the empty-slot OEM component runtime.
-VDP V1/V2/V3 are prepared unsigned using the current common runtime and signed
-for the selected OEM environment. FOTA requires Safe Stop; Brake/Tire SOTA
-artifacts belong to their own repositories.
+The .41 build includes CM VLAN-allocation correction and preservation of original
+source timestamps in KUKSA VAL v1. VDP V1/V2/V3 use the common runtime and are
+prepared unsigned, then signed for the selected OEM. FOTA requires Safe Stop;
+Brake/Tire SOTA artifacts belong to their own repositories.
 
-Dated .39 receipts cover VDP117/V3, Brake92/V3 and Tire49/V1: same-identity
-[ignition recovery](../aosedge-sdv-demo/docs/qualification/factory-39-ignition-2026-09-24.md)
-and [externalOFF/local continuity/replay](../aosedge-sdv-demo/docs/qualification/factory-39-offline-2026-09-24.md).
-Factory39's manifest remains `BUILT_NOT_LIVE_QUALIFIED`; full fresh serial
-progression, calibration and remaining negative/cold-offline cases are not
-implied. The older [readiness receipt](../aosedge-sdv-demo/docs/qualification/advisory-readiness-renewal-2026-09-20.md)
-is historical scoped proof, not current installed-version authority.
-The following .11/0.2.0 description is historical.
+Kit028's installed M1 sequence passed 98 scripted steps including serial
+profiles, real products, offline recovery and ignition. Full native acceptance,
+moving SOTA, secure UI token entry and installation interruption/repair remain
+open. The immutable Factory build manifest stays `BUILT_NOT_LIVE_QUALIFIED`;
+later installed evidence does not rewrite it. VDP-TIMEOUT-01 and brief
+load-sensitive readiness remain deferred. See the
+[implementation map](../aosedge-sdv-demo/docs/architecture/current-implementation.md).
+
+The .11/0.2.0 material below is historical; its old IAM/helper gaps and Unit
+assignments are not descriptions of the current platform or live state.
 
 ## Historical early platform baseline
 

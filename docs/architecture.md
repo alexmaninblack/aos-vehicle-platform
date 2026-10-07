@@ -80,7 +80,8 @@ root-owned verifier-preparation executable and one separately confined,
 networkless Provider-credential one-shot. Provider issuance is not reachable
 through the Service socket/API. A second Factory-integration package owns only
 the dedicated token initializer, volatile cleanup and finite systemd drop-ins.
-Factory39 selects these packages. Build, native permissions, retained boot and
+Factory41 selects these packages. Kit028 installed scripted evidence is linked
+from the [current baseline](../../aosedge-sdv-demo/docs/qualification/current-baseline.md). Build, native permissions, retained boot and
 externalOFF operation have scoped integration receipts; the complete negative
 and qualification matrix remains separate.
 

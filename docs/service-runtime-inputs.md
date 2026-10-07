@@ -5,7 +5,10 @@
 
 Status: source implementation of accepted
 [ADR 0015](../../aosedge-sdv-demo/docs/architecture/decisions/0015-use-native-aos-service-runtime-inputs.md).
-Introduced in Factory .32, this is implemented in the current Factory .39.
+Introduced in Factory .32, this is implemented in the current Factory .41.
+Kit028's later installed scripted ignition/offline proof is linked from the
+[current baseline](../../aosedge-sdv-demo/docs/qualification/current-baseline.md).
+The following .39 receipt remains dated evidence, not current image selection.
 The [ignition receipt](../../aosedge-sdv-demo/docs/qualification/factory-39-ignition-2026-09-24.md)
 proves bounded retained-input recovery on the recorded Test; cold externalOFF
 and the complete fault matrix remain unqualified.
