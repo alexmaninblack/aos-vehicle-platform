@@ -3,35 +3,127 @@
 
 # Aos Vehicle Platform
 
-OEM platform integration: vehicle data, KUKSA integration and Factory/FOTA
-packaging. Functional services retain their independent SOTA lifecycle.
+OEM platform integration: vehicle data, KUKSA authorization, Factory integration and Safe Stop-gated VDP FOTA. Brake/Tire applications belong to separate SOTA repositories.
 
-## SDV Lab entry
+<a id="sdv-lab-entry"></a>
 
-For the complete demo, start at the
-[SDV Lab product repository](https://github.com/alexmaninblack/aosedge-sdv-demo).
-Operators use its prebuilt installer; developers use its pinned build route.
-This component is not a standalone installer for the whole lab. Integration
-source pins and published artifact provenance do not change when this README
-changes. Detailed historical evidence below retains its original scope.
+For the **whole demo**, start at the [SDV Lab README](https://github.com/alexmaninblack/aosedge-sdv-demo).
+Only the product repository is manually cloned for its pinned multi-component
+build. The instructions below are for working on **this component alone**;
+a host check does not publish, install or qualify a vehicle package.
 
-[Component architecture](docs/architecture.md) and
-[vehicle telemetry contract](contracts/vehicle-telemetry-profile/README.md).
+## 1 Prepare a macOS component workspace
 
-Local checks: [Validation](#validation) includes the contract and quality gates.
-Run those before any Factory rebuild; source-only checks deploy nothing.
+Use native Apple Silicon Terminal. These component commands are for development,
+not a qualified full-demo installation. Run blocks in order and stop on error.
+The revised instructions await the joint walkthrough; they were not executed
+during this documentation update.
 
+Choose an already mounted external APFS SSD:
 
-Vehicle-computer integration for AosEdge, KUKSA, and automotive data
-providers. This repository follows the OEM platform/FOTA lifecycle and does
-not contain cloud-managed business services or CARLA simulator runtime code.
+```sh
+uname -m
+printf 'Mounted external APFS volume (for example /Volumes/BUILD): '
+read -r SDV_VOLUME
+diskutil info "$SDV_VOLUME"
+df -h "$SDV_VOLUME"
+```
+
+Expect `arm64` and the actual external volume. Do not create a missing mount
+directory. After confirming storage:
+
+```sh
+SDV_WORK="$SDV_VOLUME/sdv-components"
+mkdir -p "$SDV_WORK" "$SDV_VOLUME/tmp"
+export TMPDIR="$SDV_VOLUME/tmp"
+export HOMEBREW_CACHE="$SDV_WORK/cache/homebrew"
+```
+
+Install Apple's Command Line Tools with `xcode-select --install` if missing,
+and finish the system dialog. Install [Homebrew](https://docs.brew.sh/Installation)
+if absent. Then:
+
+```sh
+eval "$(/opt/homebrew/bin/brew shellenv)"
+brew install cmake python@3.12
+export PATH="$(brew --prefix python@3.12)/libexec/bin:$PATH"
+git --version
+cmake --version
+python3 --version
+xcrun clang++ --version
+```
+
+Do not use the installed demo's private interpreter or a Rosetta toolchain.
+
+## 2 Clone this component
+
+```sh
+git clone --branch main https://github.com/alexmaninblack/aos-vehicle-platform.git "$SDV_WORK/aos-vehicle-platform"
+cd "$SDV_WORK/aos-vehicle-platform"
+git rev-parse HEAD
+```
+
+Record the printed revision with your results. `main` is current development,
+not a release pin. To reproduce the complete candidate, use the product
+repository's manifest-driven route instead of independently choosing branches.
+
+## 3 Run the source checks
+
+There is no standalone macOS platform server to launch from this repository.
+These checks inspect contracts, the layer and host-side behavior; they do not
+build or boot a Yocto image.
+
+```sh
+python3 -B tools/validate_contract.py
+python3 -B tools/validate_r6_1_layer.py
+python3 -B -m unittest discover -s tests -p 'test_*.py'
+python3 -B tools/quality_gate.py
+```
+
+Each command must exit successfully. This is source-check evidence, not
+Factory, FOTA or live service acceptance.
+
+## 4 Build and run the integrated platform
+
+Use the [product repository](https://github.com/alexmaninblack/aosedge-sdv-demo) for the complete installer.
+Its developer route **reuses** the pinned Factory .41 and VDP bases.
+For a new image, the separate
+[Factory subroute](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/5e30b410cbeadd2f73063b1bd313253aff612595/docs/getting-started/full-source-build.md#factory-subroute)
+requires the SSD-backed ARM64 Builder and explicit source/cache inputs.
+Fresh Builder acquisition is not yet a turnkey clean-Mac route.
+
+Do not copy a Factory image over a running VM's backing disk. VDP releases
+are prepared and signed by Demo Control, applied through Safe Stop and checked
+one version at a time. Source checks above need no Cloud credentials.
+
+## 5 Finish
+
+The source checks are foreground commands and leave no platform service to
+stop. Keep their results and the recorded revision. For an integrated run,
+stop through Demo Control; stopping is not destructive **Finish demo**.
+
+## Component documentation
+
+- [Architecture and ownership](docs/architecture.md)
+- [Vehicle telemetry contract](contracts/vehicle-telemetry-profile/README.md)
+- [Provider FOTA packaging](packaging/fota/README.md)
+- [Security](SECURITY.md) and [third-party notices](THIRD_PARTY_NOTICES.md)
+
+## Implementation reference and dated evidence
+
+The material below preserves detailed contracts, milestones and specialist
+examples. Historical commands are not the first-use sequence above. Original
+qualification dates/scope remain unchanged by this documentation revision.
+
+<details>
+<summary>Expand implementation reference and historical evidence</summary>
 
 ## Current baseline — 7 October 2026
 
 The selected integration candidate is **Kit028 / Setup042 / Factory .41**.
-The [source return point](../aosedge-sdv-demo/docs/qualification/kit028-setup042-source-publication-2026-10-05.md)
+The [source return point](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/5e30b410cbeadd2f73063b1bd313253aff612595/docs/qualification/kit028-setup042-source-publication-2026-10-05.md)
 distinguishes the exact Factory build source from subsequent license-only source
-changes; the [current baseline](../aosedge-sdv-demo/docs/qualification/current-baseline.md)
+changes; the [current baseline](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/5e30b410cbeadd2f73063b1bd313253aff612595/docs/qualification/current-baseline.md)
 owns qualification. Historical demo-v1.1 / Factory .39 is not the current kit.
 
 Factory contains mainline-derived AosCore with explicit retained patches,
@@ -47,7 +139,7 @@ moving SOTA, secure UI token entry and installation interruption/repair remain
 open. The immutable Factory build manifest stays `BUILT_NOT_LIVE_QUALIFIED`;
 later installed evidence does not rewrite it. VDP-TIMEOUT-01 and brief
 load-sensitive readiness remain deferred. See the
-[implementation map](../aosedge-sdv-demo/docs/architecture/current-implementation.md).
+[implementation map](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/5e30b410cbeadd2f73063b1bd313253aff612595/docs/architecture/current-implementation.md).
 
 The .11/0.2.0 material below is historical; its old IAM/helper gaps and Unit
 assignments are not descriptions of the current platform or live state.
@@ -154,3 +246,5 @@ operational logs. See [SECURITY.md](SECURITY.md).
 Original project work is Apache-2.0 under the exact copyright name
 `maninblack`. Third-party material retains its own terms; see
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+</details>
