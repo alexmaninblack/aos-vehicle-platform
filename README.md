@@ -3,6 +3,25 @@
 
 # Aos Vehicle Platform
 
+OEM platform integration: vehicle data, KUKSA integration and Factory/FOTA
+packaging. Functional services retain their independent SOTA lifecycle.
+
+## SDV Lab entry
+
+For the complete demo, start at the
+[SDV Lab product repository](https://github.com/alexmaninblack/aosedge-sdv-demo).
+Operators use its prebuilt installer; developers use its pinned build route.
+This component is not a standalone installer for the whole lab. Integration
+source pins and published artifact provenance do not change when this README
+changes. Detailed historical evidence below retains its original scope.
+
+[Component architecture](docs/architecture.md) and
+[vehicle telemetry contract](contracts/vehicle-telemetry-profile/README.md).
+
+Local checks: [Validation](#validation) includes the contract and quality gates.
+Run those before any Factory rebuild; source-only checks deploy nothing.
+
+
 Vehicle-computer integration for AosEdge, KUKSA, and automotive data
 providers. This repository follows the OEM platform/FOTA lifecycle and does
 not contain cloud-managed business services or CARLA simulator runtime code.
