@@ -130,9 +130,13 @@ class KuksaSink:
     def publish(self, values: Mapping[str, SignalValue | None]) -> None:
         from kuksa_client.grpc import DataEntry, Datapoint, EntryUpdate, Field
 
+        deadline = time.monotonic() + 2.0
         updates = []
+        latest = None
         for signal_spec in self._signals:
             item = values[signal_spec.path]
+            if item is not None:
+                latest = max(latest, item.timestamp) if latest is not None else item.timestamp
             datapoint = (
                 Datapoint(item.value, item.timestamp)
                 if item is not None
@@ -145,7 +149,22 @@ class KuksaSink:
             )
         try:
             client = self._connect()
-            client.set(updates, try_v2=False, timeout=2.0)
+            # Mac source time can lead the guest by a few milliseconds. Do not
+            # expose a future measurement to same-guest consumers, or rewrite
+            # its provenance. Wait only inside the existing publication budget;
+            # this is one in-flight frame, not a replay/buffering queue.
+            while latest is not None:
+                ahead = latest.timestamp() - time.time()
+                if ahead <= 0:
+                    break
+                remaining = deadline - time.monotonic()
+                if ahead >= remaining:
+                    raise KuksaUnavailable("KUKSA publication is unavailable")
+                time.sleep(min(ahead, 0.05))
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise KuksaUnavailable("KUKSA publication is unavailable")
+            client.set(updates, try_v2=False, timeout=remaining)
         except ProviderCredentialUnavailable:
             self.close()
             raise

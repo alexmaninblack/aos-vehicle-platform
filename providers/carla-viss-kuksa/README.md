@@ -57,6 +57,14 @@ it is not republished and does not renew freshness or recover stale data. The
 normal stale timeout is checked even on a continuously busy duplicate stream.
 Changed values at the same timestamp and backward timestamps remain invalid.
 
+Publication keeps each original source timestamp. If the Mac source clock
+slightly leads the guest clock, the single in-flight KUKSA publication waits
+until that source time has occurred in the guest. Waiting, connection and Set
+share the existing two-second publication budget; a lead outside that budget
+fails closed. Explicit unavailability is not delayed. This does not rewrite
+timestamps, introduce a queue, increase freshness/consumer future tolerance or
+change the source-time retention rules. Consumers still reject future data.
+
 VDP v3 accepts only the two frozen canonical JSON Request schemas from their
 exact service owners. It enforces path, value, freshness, lease, replay, rate
 and correlation bounds before the narrow VISS Set. Only a correlated factual
