@@ -136,7 +136,7 @@ common-runtime VDP FOTA and typed V3 advisory are implemented. IAM's
 provisioning.
 
 See the [cross-repository implementation matrix](../../aosedge-sdv-demo/docs/architecture/current-implementation.md)
-and [Factory39 evidence](../../aosedge-sdv-demo/docs/qualification/factory-39-build-2026-09-24.md).
+and [Factory39 evidence](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/84056efdf73c518d14929d66a772673212e8a2d9/docs/qualification/factory-39-build-2026-09-24.md).
 Scoped ignition/offline receipts do not establish complete serial E2E, model
 calibration, every security negative or a stock-upstream AosCore build.
 Temporary VDP core capture is removed; historical VDP109 SIGSEGV cause remains

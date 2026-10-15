@@ -3,16 +3,17 @@
 
 # Aos Vehicle Platform Yocto Layer
 
-Current composition: demo-v1.1 / Factory39, documented in the
-[integration return point](../../aosedge-sdv-demo/docs/qualification/demo-v1.1-return-point.md).
-The runtime/KAC/native manager corrections have build and focused live receipts.
-The .11 paragraphs below retain the original layer milestone, not current Unit
-state or an instruction to recreate deleted images.
+Current controller-image selection, source provenance and exact qualified
+preview follow the [integration baseline](../../aosedge-sdv-demo/docs/qualification/current-baseline.md)
+and its Factory checkpoint. The layer produces the clean Linux/AosEdge base
+for the ARM64 virtual controller, separate from later VDP and service delivery.
+The [demo-v1.1 return point](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/84056efdf73c518d14929d66a772673212e8a2d9/docs/qualification/demo-v1.1-return-point.md)
+is historical, not today's selected image.
 
-This layer contains the OEM integration delta for the R6.1 vehicle-data
-provider component runtime. It is applied after the unchanged AosVM 6.1.0
-`qemuarm64` Main Node baseline has built and booted successfully. Boot remains
-at `6.1.0`; the integration manifest assigns every immutable rootfs candidate.
+The R6.1/.11 and original AosVM 6.1.0 descriptions below retain the substrate's
+design history; they are not a current build selector, live inventory or an
+instruction to recreate deleted images. Exact immutable image identity belongs
+to the selected integration manifest, not an old boot-version example.
 
 The layer contains the accepted Service Manager component runtime, atomic
 A/B prepare/apply/revert/recovery implementation, guarded provider archive
