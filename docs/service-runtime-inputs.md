@@ -4,16 +4,16 @@
 # Test service public-input resources
 
 Status: source implementation of accepted
-[ADR 0015](../../aosedge-sdv-demo/docs/architecture/decisions/0015-use-native-aos-service-runtime-inputs.md).
+[ADR 0015](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/docs/architecture/decisions/0015-use-native-aos-service-runtime-inputs.md).
 Introduced in Factory .32, this is implemented in the current Factory .41.
 Current installed API/UI, native Setup and scoped ignition/offline proof follow the
-[current baseline](../../aosedge-sdv-demo/docs/qualification/current-baseline.md).
+[current baseline](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/docs/qualification/current-baseline.md).
 The following .39 receipt remains dated evidence, not current image selection.
 The [ignition receipt](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/84056efdf73c518d14929d66a772673212e8a2d9/docs/qualification/factory-39-ignition-2026-09-24.md)
 proves bounded retained-input recovery on the recorded Test; cold externalOFF
 and the complete fault matrix remain unqualified.
 
-Demo Control owns [input preparation and sequence](../../aosedge-sdv-demo/docs/architecture/demo-control-service-inputs.md).
+Demo Control owns [input preparation and sequence](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/docs/architecture/demo-control-service-inputs.md).
 The opt-in [resource asset](../meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/files/resources-demo-services.cfg)
 contains only brake-runtime-inputs and tire-runtime-inputs. Each maps its own
 /run/aos-demo-service-inputs/<team> directory to

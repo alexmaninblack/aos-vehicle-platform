@@ -34,11 +34,12 @@ Vehicle Gateway remains the final authoritative boundary for the QM-origin
 channel and independently denies arbitrary VSS, motion and safety-critical
 operations.
 
-## Accepted Prototype Pins
+## Interface compatibility
 
-The initial contract is qualified against these inputs:
+The implemented data boundary uses these versioned interfaces. The selected
+integration manifest owns the exact image and source identity:
 
-| Input | Pinned prototype value |
+| Input | Interface value |
 | --- | --- |
 | AosVM Databroker VSS tree | VSS 5.0 |
 | CARLA-side VISS projection | VSS 6.0-compatible standard paths |
@@ -46,8 +47,8 @@ The initial contract is qualified against these inputs:
 | KUKSA API | `kuksa.val.v1` |
 | Service CPU architecture | `arm64` |
 
-The early 0.1.1 contract used standard paths common to VSS 5.0 and VSS 6.0.
-The implemented VDP V3 profile additionally exposes the eight accepted CARLA
+Base telemetry uses standard paths common to VSS 5.0 and VSS 6.0.
+The VDP V3 profile additionally exposes the eight accepted CARLA
 wheel-slip overlay signals for this demo; it does not expose hidden wear/friction
 truth. See [contract compatibility](contract-compatibility.md).
 
@@ -80,10 +81,10 @@ root-owned verifier-preparation executable and one separately confined,
 networkless Provider-credential one-shot. Provider issuance is not reachable
 through the Service socket/API. A second Factory-integration package owns only
 the dedicated token initializer, volatile cleanup and finite systemd drop-ins.
-Factory41 selects these packages. Kit028 installed scripted evidence is linked
-from the [current baseline](../../aosedge-sdv-demo/docs/qualification/current-baseline.md). Build, native permissions, retained boot and
-externalOFF operation have scoped integration receipts; the complete negative
-and qualification matrix remains separate.
+The selected Factory image includes these packages. Exact image provenance and
+scoped native permission, boot, externalOFF and serial-update results are in
+the [current baseline](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/docs/qualification/current-baseline.md).
+The complete negative and qualification matrix remains separate.
 
 A SOTA service declares its requested KUKSA paths and modes in Aos metadata.
 Service Manager registers them and injects a per-instance `AOS_SECRET`. The
@@ -129,15 +130,15 @@ AosCloud remains the authoritative lifecycle record.
 
 ## Current Status
 
-The source return point is demo-v1.1 / Factory39, not the historical .11
-prototype. Native IAM permissions, KAC, per-Unit trust, selected-peer mTLS,
-common-runtime VDP FOTA and typed V3 advisory are implemented. IAM's
+The integration [current baseline](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/docs/qualification/current-baseline.md)
+selects the controller image and exact release evidence. Native IAM permissions,
+KAC, per-Unit trust, selected-peer mTLS, common-runtime VDP FOTA and typed V3
+advisory are implemented. IAM's
 `enablePermissionsHandler: true` is Factory configuration, independent of
 provisioning.
 
-See the [cross-repository implementation matrix](../../aosedge-sdv-demo/docs/architecture/current-implementation.md)
-and [Factory39 evidence](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/84056efdf73c518d14929d66a772673212e8a2d9/docs/qualification/factory-39-build-2026-09-24.md).
-Scoped ignition/offline receipts do not establish complete serial E2E, model
-calibration, every security negative or a stock-upstream AosCore build.
-Temporary VDP core capture is removed; historical VDP109 SIGSEGV cause remains
-unresolved.
+The [implementation matrix](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/docs/architecture/current-implementation.md)
+maps component requirements to current owners and evidence. The recorded M1
+runtime passed serial platform/service updates, ignition and offline profiles;
+those passes do not establish model calibration, every security negative,
+host sleep/wake, general-public distribution or a stock-upstream AosCore build.

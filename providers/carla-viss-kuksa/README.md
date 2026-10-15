@@ -71,7 +71,9 @@ and correlation bounds before the narrow VISS Set. Only a correlated factual
 Gateway Status is published back to KUKSA; VISS or KUKSA transport success is
 never reported as application success. The Gateway remains final authority.
 
-Source tests do not prove deployment. Real ARM64 packaging, trusted Provider,
-VISS and FOTA have scoped integration evidence through Factory39; see the
-[current baseline](../../../aosedge-sdv-demo/docs/qualification/current-baseline.md).
-Full fresh .39 progression and the remaining negative matrix are separate gates.
+Source tests do not prove deployment. The integration
+[current baseline](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/docs/qualification/current-baseline.md)
+binds the selected image/media and scoped M1 serial VDP, service, ignition and
+offline results. Full calibration, resource and negative matrices remain
+separate acceptance obligations; an older Factory checkpoint is not the
+current image selector.

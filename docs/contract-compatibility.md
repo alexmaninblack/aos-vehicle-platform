@@ -48,7 +48,7 @@ frames before a value becomes stale while still exposing a broken telemetry
 path promptly in that prototype. This is not one global current-system budget:
 current VDP release/configuration, Brake 5-second input budgets, the selected
 FOTA Safe Stop profile and advisory lease/future bounds are separate contracts.
-See the [current protocol map](../../aosedge-sdv-demo/contracts/implementation-status.md).
+See the [current protocol map](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/contracts/implementation-status.md).
 
 ## Deprecation
 
@@ -65,12 +65,12 @@ digits in authorization scope paths, and VAL v1 source-time preservation. The
 retains the upstream receipt-time fallback. It changes none of the 16 value
 types, `NotAvailable`, value-only conversions, authorization or VSS schemas.
 The recipe gates all six timestamp regressions and 17 scope tests before
-packaging. Read-only/live proofs and exclusions are recorded in the Solution
-[M1 investigation](../../aosedge-sdv-demo/docs/qualification/m1-live-journey-2026-10-03.md).
-This is Factory integration, not a VDP-only FOTA update. The correction has
-target and reversible live proof; a rebuilt Factory and full E2E acceptance
-are still pending. An unrelated fixed JWT fixture reports `ExpiredSignature`
-in the broader upstream library suite; that suite is not claimed fully green.
+packaging. The selected Factory image contains the correction; the
+[current baseline](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/docs/qualification/current-baseline.md)
+records its scoped M1 API/UI results and remaining limits. This is Factory
+integration, not a VDP-only FOTA update. Do not interpret the earlier
+investigation's then-pending rebuild as current status, or infer a completely
+green upstream suite from the focused timestamp/scope regressions.
 
 The removable helper implements protocol `aos-kuksa-auth-compat/v1` as an
 independent migration seam. Compatible native AosCore replacement behavior

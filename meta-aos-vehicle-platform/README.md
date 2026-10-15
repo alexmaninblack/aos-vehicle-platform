@@ -1,69 +1,66 @@
 <!-- SPDX-FileCopyrightText: 2026 maninblack -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Aos Vehicle Platform Yocto Layer
+# Aos Vehicle Platform Yocto layer
 
-Current controller-image selection, source provenance and exact qualified
-preview follow the [integration baseline](../../aosedge-sdv-demo/docs/qualification/current-baseline.md)
-and its Factory checkpoint. The layer produces the clean Linux/AosEdge base
-for the ARM64 virtual controller, separate from later VDP and service delivery.
-The [demo-v1.1 return point](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/84056efdf73c518d14929d66a772673212e8a2d9/docs/qualification/demo-v1.1-return-point.md)
-is historical, not today's selected image.
+This layer produces the clean Linux/AosEdge base (**Factory image**) for the
+ARM64 virtual controller. It contains platform integration, not a provisioned
+vehicle identity or preinstalled Brake/Tire applications. VDP profiles are
+delivered later through OEM FOTA; services use their independent SOTA lifecycle.
 
-The R6.1/.11 and original AosVM 6.1.0 descriptions below retain the substrate's
-design history; they are not a current build selector, live inventory or an
-instruction to recreate deleted images. Exact immutable image identity belongs
-to the selected integration manifest, not an old boot-version example.
+Use the integration [current baseline](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/docs/qualification/current-baseline.md)
+and its image/source authorities for exact inputs and qualified media. Old
+rootfs/Factory numbers are not build selectors. The normal
+[developer route](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/docs/getting-started/reproduce-demo.md)
+reuses the prepared image; specialist image builds use the separate Linux Builder.
 
-The layer contains the accepted Service Manager component runtime, atomic
-A/B prepare/apply/revert/recovery implementation, guarded provider archive
-boundary, fixed launcher and health profile, and SELinux policy. R6.1-6.5a
-adds a demo-only storage backend: a fully allocated 512 MiB ext4 image inside
-the encrypted Aos workdirs volume is mounted at the unchanged component root
-with the dedicated `vehicle_data_provider_store_t` context. Preparation and
-activation fail closed on an unexpected mount, identity, filesystem, size,
-allocation, label, UUID, capacity, or SELinux state.
+## Component runtime and storage
 
-The provider payload and its fixed native launcher run as the dedicated
-non-login `aos-vdp` account established by systemd. The unit supplies an empty
-capability bounding set. After entering `vehicle_data_provider_t`, the
-launcher verifies the fixed UID, GID, supplementary-group state, and empty
-effective, permitted, and inheritable capability sets; enables
-`no_new_privs`; and only then executes the payload. The launcher retains no
-identity-changing capability.
+The layer owns Service Manager's `systemd-slot-component` runtime, atomic
+A/B prepare/apply/revert/recovery, archive validation, fixed launcher, health
+profile and SELinux policy. The demonstration storage backend is a fully
+allocated 512 MiB ext4 image inside encrypted Aos workdirs, mounted at the
+unchanged component root with `vehicle_data_provider_store_t`.
 
-The nested filesystem is an explicitly bounded demonstration backend. It does
-not decide the production vehicle storage architecture; a dedicated logical
-volume, controlled workdirs migration, or equivalent OEM platform storage
-boundary still requires a separate architecture decision. No signing or Cloud
-operation is implemented by this layer.
+Preparation and activation reject an unexpected mount, identity, filesystem,
+size, allocation, label, UUID or capacity and require SELinux Enforcing.
+The nested filesystem is a bounded demonstration backend, not a decision
+about production vehicle storage architecture.
 
-The historical early local output was rootfs candidate `.11`, built from platform
-revision `a12c0aa7f8a680b35407776b12bcc025970abc73`. It closes the runtime
-dependency chain required by provider `0.2.0`. Candidate `.11` is unsigned and
-has not been uploaded, assigned, or installed; the validation Unit therefore
-remains on `.2` and the demo Unit on `.1`.
+The launcher runs as the fixed non-login `aos-vdp` account. It verifies UID,
+GID, supplementary groups and empty effective/permitted/inheritable
+capabilities, enables `no_new_privs`, and executes only the selected payload.
+The systemd unit supplies no identity-changing capability.
 
-The same Yocto build also produced the complete unprovisioned raw VM disk used
-for disposable qualification. In the target manufacturing flow, an accepted
-version of that complete image supplies this runtime before provisioning. The
-rootfs FOTA candidate remains a separate retrofit/platform-maintenance
-artifact and is not required to introduce the initial runtime into a newly
-manufactured Unit.
+## Authorization and boot integration
 
-The current Factory composition configures the shared
-Aos IAM permission handler with `enablePermissionsHandler: true` independently
-of provisioning and includes the removable `aos-kuksa-auth-compat` package and
-its non-secret named-resource/signer-verifier preparation seams. The same
-temporary package now contains a third, strictly separate networkless one-shot
-which prepares the fixed OEM Provider JWT; its socket/API remains Service-only.
-`aos-kuksa-factory-integration` supplies finite provisioning/reboot/deprovision
+Factory configures native IAM's `enablePermissionsHandler: true` independently
+of provisioning. The removable `aos-kuksa-auth-compat` package contains distinct
+Service authorization, public verifier preparation and networkless Provider
+credential preparation boundaries. It is outside VDP and both SOTA payloads.
+
+`aos-kuksa-factory-integration` owns finite provisioning/reboot/deprovision
 ordering, token initialization and volatile cleanup. The fixed Provider token
-persists ordinary reboot under `/var/lib/aos-kuksa-provider`, while VDP gets
-only a private systemd credential snapshot and no source-store access. The
-image recipe selects both packages. They were outside the historical `.11`
-evidence; later Factory39 build and focused ignition/offline receipts cover the
-current implementation without claiming complete live qualification. The helper remains
-outside the VDP component payload, and the image must contain no provisioned
-identity, private key, shared verifier, `AOS_SECRET`, Service JWT or static
-Provider/Service credential.
+persists ordinary reboot under `/var/lib/aos-kuksa-provider`; VDP receives
+only systemd's private credential snapshot, not source-store access. The
+Service helper's socket/API cannot issue Provider authority.
+
+KUKSA integration retains the reviewed scope-path and VAL v1 source-timestamp
+patches. See [compatibility](../docs/contract-compatibility.md) and
+[architecture](../docs/architecture.md) for exact ownership and trust rules.
+
+No provisioned identity, private key, shared verifier, `AOS_SECRET`, Service
+JWT or static Provider credential belongs in a reusable Factory image.
+Signing and Cloud operations are integration-owned, not implemented by this layer.
+
+## Image lifecycle and proof
+
+A complete unprovisioned image establishes the platform before controller
+creation/provisioning. A rootfs FOTA envelope is a separate retrofit or later
+platform-maintenance artifact, not the independently delivered VDP component.
+Never replace a backing image beneath a provisioned VM.
+
+Current scoped M1 API/UI, serial updates, ignition and offline results are
+recorded by the integration baseline. They do not establish every security
+negative, nonempty-queue power loss, host sleep/wake or production storage
+architecture. Source checks and build success are not live qualification.
