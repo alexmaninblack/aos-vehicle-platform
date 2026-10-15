@@ -50,7 +50,7 @@ without preparing/chowning sources. Bind directories must exist before
 instance construction. Configuration activation through Demo Control is not
 a binary replacement.
 
-The [mainline migration](aoscore-mainline-migration-2026-09-23.md) changes the
+The [recorded mainline migration](https://github.com/alexmaninblack/aos-vehicle-platform/blob/392654ba7336373640512b925423b01d638bbf17/docs/aoscore-mainline-migration-2026-09-23.md) changes the
 source pins; only dated Factory/VM receipts establish deployment qualification.
 
 Project inputs before assignment; refresh only after committed VDP

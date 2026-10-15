@@ -109,142 +109,23 @@ stop through Demo Control; stopping is not destructive **Finish demo**.
 - [Provider FOTA packaging](packaging/fota/README.md)
 - [Security](SECURITY.md) and [third-party notices](THIRD_PARTY_NOTICES.md)
 
-## Implementation reference and dated evidence
+## Platform reference
 
-The material below preserves detailed contracts, milestones and specialist
-examples. Historical commands are not the first-use sequence above. Original
-qualification dates/scope remain unchanged by this documentation revision.
+The Factory image is the unprovisioned Linux/AosEdge base for the ARM64
+controller. VDP profiles are delivered afterward through OEM FOTA and require
+Safe Stop; they are not separate factory images.
 
-<details>
-<summary>Expand implementation reference and historical evidence</summary>
+- [Yocto layer and image integration](meta-aos-vehicle-platform/README.md)
+- [VDP packaging and validation](packaging/fota/README.md)
+- [Native service input projection](docs/service-runtime-inputs.md)
+- [Aos/KUKSA authorization integration](authorization/aos-kuksa-compat/README.md)
 
-## Current baseline — 7 October 2026
+Use the integration repository's selected image and source plan when building
+the complete lab. Do not replace an existing controller's backing image.
 
-The selected integration candidate is **Kit028 / Setup042 / Factory .41**.
-The [source return point](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/5e30b410cbeadd2f73063b1bd313253aff612595/docs/qualification/kit028-setup042-source-publication-2026-10-05.md)
-distinguishes the exact Factory build source from subsequent license-only source
-changes; the [current baseline](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/5e30b410cbeadd2f73063b1bd313253aff612595/docs/qualification/current-baseline.md)
-owns qualification. Historical demo-v1.1 / Factory .39 is not the current kit.
+## Security and license
 
-Factory contains mainline-derived AosCore with explicit retained patches,
-KUKSA, native IAM permissions, KAC and the empty-slot OEM component runtime.
-The .41 build includes CM VLAN-allocation correction and preservation of original
-source timestamps in KUKSA VAL v1. VDP V1/V2/V3 use the common runtime and are
-prepared unsigned, then signed for the selected OEM. FOTA requires Safe Stop;
-Brake/Tire SOTA artifacts belong to their own repositories.
-
-Kit028's installed M1 sequence passed 98 scripted steps including serial
-profiles, real products, offline recovery and ignition. Full native acceptance,
-moving SOTA, secure UI token entry and installation interruption/repair remain
-open. The immutable Factory build manifest stays `BUILT_NOT_LIVE_QUALIFIED`;
-later installed evidence does not rewrite it. VDP-TIMEOUT-01 and brief
-load-sensitive readiness remain deferred. See the
-[implementation map](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/5e30b410cbeadd2f73063b1bd313253aff612595/docs/architecture/current-implementation.md).
-
-The .11/0.2.0 material below is historical; its old IAM/helper gaps and Unit
-assignments are not descriptions of the current platform or live state.
-
-## Historical early platform baseline
-
-The early .11 implementation provided:
-
-- vehicle telemetry profile `0.1.1` over `kuksa.val.v1`;
-- a development-only CARLA VISS-to-KUKSA provider;
-- immutable provider component `0.2.0`, signed and locally verified but not
-  published or assigned in AosCloud;
-- a production Service Manager `systemd-slot-component` runtime with atomic
-  A/B apply, rollback, recovery, and one active instance;
-- a fixed non-login `aos-vdp` identity, empty Linux capability set, SELinux
-  isolation, systemd credentials, fail-safe DNS/TLS behavior, and soft KUKSA
-  lifecycle dependency;
-- a bounded 512 MiB nested-ext4 provider store for the demonstration AosVM;
-- an OEM Yocto layer used by the accepted local rootfs
-  `6.1.1-maninblack.11` candidate.
-
-The `.11` rootfs candidate is unsigned and has not been uploaded or installed
-on a provisioned Unit. The validation Unit remains on
-`6.1.1-maninblack.2`; the demonstration Unit remains on
-`6.1.1-maninblack.1`. Production vehicle storage, the separately packaged
-current-release KUKSA Authorization Compatibility helper, protected per-Unit
-signing integration, and the trusted Provider connection profile remain
-explicit target architecture gates. The helper is Factory/System integration
-outside the VDP FOTA payload and both SOTA services. The current live AosVM
-configuration does not enable the stock IAM permission handler required by
-that target Service credential flow.
-
-The `.11` build produced two lifecycle-distinct outputs from the same rootfs
-content: a complete unprovisioned raw VM image and an unsigned rootfs FOTA
-envelope. The raw image is engineering evidence for an OEM factory-image
-baseline in which the provider-specific empty-slot runtime exists before Unit
-provisioning. The rootfs envelope is an optional retrofit or later platform
-update for an older provisioned Unit; it is not the independently delivered
-Vehicle Data Platform Component.
-
-Accepted provider `0.2.0` is pinned to source revision
-`e972d2bd7f14e27646bb5d7c10c7186ecdecfa9f`. The FOTA builder refuses to
-produce different bytes under that version if a release input changes.
-
-## Architecture
-
-```text
-DEVELOPMENT HOST                   AOS VEHICLE COMPUTER
-
-CARLA -> VISS 3.1 -> provider -> KUKSA Databroker -> Aos service
-                     platform      platform           separate repository
-```
-
-A production vehicle replaces the CARLA provider with CAN, SOME/IP, DDS, or
-OEM-specific providers while preserving the versioned KUKSA/VSS contract.
-
-The target demo services are QM-domain maintenance applications. This
-repository validates their outbound typed advisories as defense in depth; the
-Vehicle Gateway owns the final deny-by-default boundary and no service gains
-vehicle-motion or safety-critical authority.
-
-Read:
-
-- [architecture and ownership](docs/architecture.md);
-- [provider design and qualification](docs/aos2-provider-design.md);
-- [Service Manager runtime decision](docs/decisions/0001-service-manager-component-runtime.md);
-- [contract compatibility](docs/contract-compatibility.md);
-- [opt-in Test service public-input resources](docs/service-runtime-inputs.md);
-- [provider FOTA packaging](packaging/fota/README.md).
-
-## Repository Layout
-
-- `contracts/vehicle-telemetry-profile/`: authoritative vehicle-data contract;
-- `providers/carla-viss-kuksa/`: development-only simulation provider;
-- `packaging/fota/`: immutable provider component build and validation;
-- `meta-aos-vehicle-platform/`: production Yocto runtime, storage, systemd,
-  launcher, health, and SELinux integration;
-- `config/kuksa/`: non-secret KUKSA platform configuration boundary;
-- `authorization/aos-kuksa-compat/`: implemented separately packaged removable
-  current-release Service authorization helper, packaged separately from VDP;
-- `authorization/aos-kuksa/`: superseded historical design notes retained only
-  to prevent accidental reuse of the former VDP-owned broker model;
-- `tests/` and `tools/`: repository, contract, packaging, and layer gates.
-
-Legacy SSH side-load packaging and the qualification-only runtime probe were
-removed from the current tree after the production runtime passed. They remain
-available through Git history only.
-
-## Validation
-
-```text
-python3 tools/validate_contract.py
-python3 -m unittest discover -s tests -p 'test_*.py'
-python3 tools/validate_r6_1_layer.py
-python3 tools/quality_gate.py
-```
-
-## Security and License
-
-Never commit private keys, tokens, certificates, provisioned identities,
-Cloud account material, vehicle-specific credentials, VM images, or raw
-operational logs. See [SECURITY.md](SECURITY.md).
-
-Original project work is Apache-2.0 under the exact copyright name
-`maninblack`. Third-party material retains its own terms; see
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-</details>
+Keep certificates, keys, tokens, provisioned disks and operational data out of
+Git. See [SECURITY.md](SECURITY.md). Original work is Apache-2.0 under
+`maninblack`; see [LICENSE](LICENSE), [NOTICE](NOTICE) and
+[third-party notices](THIRD_PARTY_NOTICES.md).
