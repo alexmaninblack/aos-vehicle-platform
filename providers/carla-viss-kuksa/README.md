@@ -3,7 +3,7 @@
 
 # CARLA VISS-to-KUKSA Provider
 
-This directory contains the development-only provider implemented for AOS-2.
+This directory contains the simulation-side vehicle-data provider used by the lab.
 It runs inside AosVM, subscribes to the approved CARLA VISS 3.1 projection over
 verified TLS, validates and maps the selected VSS 6.0-compatible values, and
 publishes one `kuksa.val.v1` batch into the VSS 5.0 Databroker.

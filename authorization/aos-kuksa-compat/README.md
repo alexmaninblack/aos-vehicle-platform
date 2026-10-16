@@ -22,7 +22,9 @@ independently of provisioning. The unprovisioned image contains only
 non-secret package/configuration and signer/verifier-preparation seams. After
 provisioning, one Unit-specific protected `kuksa-jwt` key is created; private
 bytes never leave PKCS#11, and only the verified public key is reconstructed in
-volatile runtime state for unmodified KUKSA.
+volatile runtime state for KUKSA. The selected image retains the explicit
+[compatibility patches](../../docs/contract-compatibility.md#kuksa-authorization-compatibility-seam);
+this is not byte-identical upstream KUKSA.
 
 The accepted Service mapping is exact and non-widening:
 

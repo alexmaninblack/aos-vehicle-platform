@@ -1,80 +1,62 @@
 <!-- SPDX-FileCopyrightText: 2026 maninblack -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Test service public-input resources
+# Service public inputs and native credential resources
 
-Status: source implementation of accepted
+The Factory integrates the resource declarations and cold-start hook used by
 [ADR 0015](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/docs/architecture/decisions/0015-use-native-aos-service-runtime-inputs.md).
-Introduced in Factory .32, this is implemented in the current Factory .41.
-Current installed API/UI, native Setup and scoped ignition/offline proof follow the
-[current baseline](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/docs/qualification/current-baseline.md).
-The following .39 receipt remains dated evidence, not current image selection.
-The [ignition receipt](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/84056efdf73c518d14929d66a772673212e8a2d9/docs/qualification/factory-39-ignition-2026-09-24.md)
-proves bounded retained-input recovery on the recorded Test; cold externalOFF
-and the complete fault matrix remain unqualified.
+The integration [input contract](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/docs/architecture/demo-control-service-inputs.md)
+owns the exact schema/sequence. This platform document owns resource placement
+and boot ordering, not another current Factory selector.
 
-Demo Control owns [input preparation and sequence](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/docs/architecture/demo-control-service-inputs.md).
-The opt-in [resource asset](../meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/files/resources-demo-services.cfg)
-contains only brake-runtime-inputs and tire-runtime-inputs. Each maps its own
-/run/aos-demo-service-inputs/<team> directory to
-/run/aosedge/platform/service-inputs with bind,ro,nosuid,nodev,noexec.
-The Factory build merges this asset into the native resources configuration at build
-time, preserving the existing resources. Nothing is copied from a live VM.
-This document supplies the resource JSON's SPDX ownership.
+## Public resource boundary
 
-Both packages still request kuksa and kuksa-auth-client. They never request
-the peer's input resource or bind a host credential directory.
-Public files are metadata.json (five fields, schemaVersion 2) and
-kuksa-ca.pem, root-owned 0444, in a root-owned 0755 stable directory.
-Only the public /var/lib/aos-kuksa-tls/server.pem is projected.
+The [resource asset](../meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/files/resources-demo-services.cfg)
+defines separate `brake-runtime-inputs` and `tire-runtime-inputs`. Build-time
+composition merges these with existing native resources; nothing is copied
+from a live VM. Each service mounts only its own stable
+`/run/aos-demo-service-inputs/<team>` at `/run/aosedge/platform/service-inputs`
+with `bind,ro,nosuid,nodev,noexec`. It cannot mount the parent or peer resource.
 
-## Native credential placement
+Public `metadata.json` has five fields and schemaVersion 2. It and `kuksa-ca.pem`
+are root-owned 0444 in a root-owned 0755 stable directory. Only the public
+`/var/lib/aos-kuksa-tls/server.pem` is projected. Native instance identity and
+package release are separate inputs; public metadata is not an exact active
+functional-profile attestation.
 
-The existing KAC socket bind/group are unchanged. Its per-container token
-tmpfs retains rw,nosuid,nodev,noexec,size=65536; mount-root mode is now 1777.
-Bootstrap creates an unpredictable private 0700 session and a regular 0400
-token under it, owned by its actual UID/GID. Analytics receives only that path,
-not AOS_SECRET. Authorization/renewal still use KAC and native IAM permissions;
-no fixed UID, chown or SM code change is needed.
+## Private credentials
 
-The unshipped token-owner SM patch, its private header, recipe wiring and
-owner-option tests are retired. The systemd-slot component patch and all
-unrelated SM corrections remain intact. Git preserves the retired source.
-Do not activate the new mount with the legacy fixed-root bootstrap.
+Services separately request `kuksa` and `kuksa-auth-client`. The existing socket
+bind/group are unchanged. Each container has a 64-KiB token tmpfs with
+`rw,nosuid,nodev,noexec`, root mode 1777. Bootstrap creates an unpredictable
+private 0700 session and regular 0400 token owned by its actual UID/GID.
+Analytics receives only its path, never `AOS_SECRET`. KAC/native IAM own issue,
+renewal and scope; no fixed UID, privileged chown or token-owner SM patch.
+The separate systemd-slot runtime and unrelated native corrections remain.
 
-## Native constraints and qualification
+## Startup and refresh
 
-The mainline candidate `9d613a46df3c7f550062e2f19ae3406c57715694` still reads
-resourcesConfigFile at initialization, not via hot reload. It copies mounts
-without preparing/chowning sources. Bind directories must exist before
-instance construction. Configuration activation through Demo Control is not
-a binary replacement.
+The selected native resource manager reads configuration at initialization,
+not hot reload, and does not create/chown bind sources. Directories must exist
+before instance construction. Configuration activation is an explicit existing
+Demo Control action, not binary replacement or implicit status repair.
 
-The [recorded mainline migration](https://github.com/alexmaninblack/aos-vehicle-platform/blob/392654ba7336373640512b925423b01d638bbf17/docs/aoscore-mainline-migration-2026-09-23.md) changes the
-source pins; only dated Factory/VM receipts establish deployment qualification.
+Project inputs before assignment, refresh only after committed VDP/slot/process
+agreement, and reconstruct volatile `/run` inputs before retained assignments
+launch after reboot. Packaged `40-aos-demo-service-inputs.conf` uses SM
+`ExecStartPre` for cold projection and `ExecStartPost` for bounded verification,
+with the same projector source as Demo Control. Empty source directories exist
+even without compatible VDP data; unavailable metadata is withheld, not invented.
+Warm refresh is explicit `democtl service runtime-prepare test`; no autonomous
+warm-refresh daemon or persisted public-metadata cache is added.
 
-Project inputs before assignment; refresh only after committed VDP
-slot/process agreement; restore /run sources before retained assignments
-launch on cold start. No daemon, persistent metadata cache or certificate
-payload is added here. The packaged `40-aos-demo-service-inputs.conf` uses SM's
-`ExecStartPre` for cold projection and `ExecStartPost` for bounded process/slot
-verification. It runs the same projector source as Demo Control. Empty source
-directories exist before container construction even without compatible VDP
-data; unavailable metadata is withheld, not synthesized. Warm refresh remains
-the explicit existing `democtl service runtime-prepare test` operation after
-committed VDP/process agreement. No autonomous warm-refresh daemon is added.
+## Verification boundary
 
-The bounded Test proof must establish native non-root execution, real private
-mounts, peer isolation, public read-only access, KAC/TLS/subscriptions, renewal
-and scoped SELinux results. Host source tests do not establish these facts.
-Keep process, Cloud and product readiness separate. No rootfs remount,
-broader policy, TOFU or Production change is included. The user authorized the
-Factory .32 build on 12 September 2026; subsequent .39 cold-start evidence is
-linked above. It does not replace the remaining negative/cold-offline gates.
-
-## Source increment evidence — 2026-09-11
-
-Eight resource tests pass, including exact unchanged socket authority and the
-absence of token-owner patch staging. Brake and Tire private-session host
-tests pass independently. Product wire migration, package version projection
-and live service qualification remain separate gates in the Solution plan.
+Prove native non-root execution, exact private mounts, peer isolation, public
+read-only access, KAC/TLS/subscription renewal and scoped SELinux behavior under
+the actual service identity. Source tests alone establish none of those live
+facts. No rootfs remount, widened policy, TOFU or Production-role change.
+The [current integration baseline](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/docs/qualification/current-baseline.md)
+owns image-specific installed/ignition/offline proof and remaining cold-offline
+or negative cases. Earlier source increments and Factory numbers remain in Git,
+not as another installation checklist.
