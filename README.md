@@ -85,7 +85,8 @@ Factory, FOTA or live service acceptance.
 ## 4 Build and run the integrated platform
 
 Use the [product repository](https://github.com/alexmaninblack/aosedge-sdv-demo) for the complete installer.
-Its developer route **reuses** the pinned Factory .41 and VDP bases.
+Its developer route **reuses** the pinned ARM64 controller image (Factory)
+and unsigned VDP bases; it does not rebuild them for a normal installer build.
 For a new image, the separate
 [Factory subroute](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/docs/getting-started/full-source-build.md#factory-subroute)
 requires a separately prepared ARM64 Linux Builder and explicit source/cache inputs.
