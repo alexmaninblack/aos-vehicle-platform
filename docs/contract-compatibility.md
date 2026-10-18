@@ -26,13 +26,10 @@ graph rather than treating these as runtime-selectable modes:
 
 Each release has a distinct capability-manifest digest. An unknown version,
 changed manifest, contract-digest mismatch, missing path or missing capability
-fails closed. The existing Provider `0.2.0` remains historical evidence and is
-not relabelled as VDP v1.
-
-Draft 0.1.1 is a metadata-only patch: both pinned VSS trees use the unit token
-`degrees` for `Vehicle.Chassis.Axle.Row1.SteeringAngle`, while draft 0.1.0 used
-the non-standard singular spelling. The underlying value remains degrees and
-no provider or consumer conversion changes.
+fails closed. Provider package versions, functional VDP profiles and telemetry
+contract versions are separate identities. The steering-angle unit token is
+`degrees`; wheel angular speed uses degrees per second. Consumers must not
+infer a conversion or functional profile from a package number.
 
 ## Availability and Freshness
 
@@ -42,12 +39,10 @@ with plausible zeroes. They mark the value unavailable after the profile's
 freshness timeout. Consumers must distinguish unavailable data from a valid
 zero measurement.
 
-The historical draft 0.1.1 profile expects 30 Hz updates, accepts providers
-operating at 20 Hz or faster, and uses a 250 ms freshness timeout. This allows several missed
-frames before a value becomes stale while still exposing a broken telemetry
-path promptly in that prototype. This is not one global current-system budget:
-current VDP release/configuration, Brake 5-second input budgets, the selected
-FOTA Safe Stop profile and advisory lease/future bounds are separate contracts.
+There is no global current-system freshness budget. The selected VDP
+configuration, Brake 5-second input budget, FOTA Safe Stop profile and advisory
+lease/future bounds are separate contracts. Use the exact configuration for
+the consumer and path being evaluated, not a prototype's generic timeout.
 See the [current protocol map](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/contracts/implementation-status.md).
 
 ## Deprecation
@@ -61,16 +56,15 @@ provider and consumer versions.
 
 The pinned KUKSA 0.5.0 integration has two explicit downstream seams: decimal
 digits in authorization scope paths, and VAL v1 source-time preservation. The
-3 October 2026 timestamp patch returns `source_ts` when supplied, otherwise
+timestamp patch returns `source_ts` when supplied, otherwise
 retains the upstream receipt-time fallback. It changes none of the 16 value
 types, `NotAvailable`, value-only conversions, authorization or VSS schemas.
 The recipe gates all six timestamp regressions and 17 scope tests before
 packaging. The selected Factory image contains the correction; the
 [current baseline](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/docs/qualification/current-baseline.md)
 records its scoped M1 API/UI results and remaining limits. This is Factory
-integration, not a VDP-only FOTA update. Do not interpret the earlier
-investigation's then-pending rebuild as current status, or infer a completely
-green upstream suite from the focused timestamp/scope regressions.
+integration, not a VDP-only FOTA update. The focused timestamp/scope regressions
+do not establish that the complete upstream test suite passes.
 
 The removable helper implements protocol `aos-kuksa-auth-compat/v1` as an
 independent migration seam. Compatible native AosCore replacement behavior
