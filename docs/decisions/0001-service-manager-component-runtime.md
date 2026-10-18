@@ -4,8 +4,8 @@
 # ADR 0001: Use a Service Manager Runtime for the Provider Component
 
 - Status: Accepted
-- Date: 2026-08-14; demo storage amendment 2026-08-15
-- Scope: R6.1 vehicle-data-provider FOTA lifecycle
+- Date: 2026-08-14
+- Scope: vehicle-data-provider FOTA runtime and demo storage boundary
 
 ## Context
 
@@ -16,7 +16,7 @@ inventory.
 
 The released Aos Service Manager supports component runtimes for boot and
 rootfs plus the normal container runtime. It does not provide a generic
-systemd-managed A/B payload runtime. R6.1 therefore had to prove whether the
+systemd-managed A/B payload runtime. The platform qualification therefore had to prove whether the
 existing Service Manager runtime boundary can safely own a new component
 without changing the provisioned Unit identity.
 
@@ -51,7 +51,7 @@ collection behavior.
 The provisioned demonstration VM mounts the complete workdirs filesystem with
 the fixed SELinux context `aos_var_run_t`. It therefore cannot give only the
 provider subtree its accepted `vehicle_data_provider_store_t` type. For the
-R6.1-6.5a demonstration gate, use a fully allocated 512 MiB ext4 image stored
+demonstration storage boundary, use a fully allocated 512 MiB ext4 image stored
 inside workdirs and mount it at the unchanged logical root with the dedicated
 fixed provider-store context. The image has a recorded per-Unit UUID and fixed
 platform-controlled path, size, label, mount options, reserve, preparation,
@@ -82,11 +82,17 @@ introduce this runtime type.
 
 The provider FOTA bundle `type` exactly matches the reported runtime type.
 Publishing a signed bundle creates the catalog metadata and assigning it
-creates desired update state. The accepted `0.2.0` provider bundle and rootfs
-candidate `.11` remain local: signing `.11`, Cloud upload, assignment, and
-installation are separate explicit gates.
+creates desired update state. Signing, Cloud publication, assignment and
+installation remain distinct operations; a local runtime result proves none
+of the later effects. Current delivery and qualification are recorded by the
+[integration baseline](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/docs/qualification/current-baseline.md),
+not by the original candidate numbers in this decision's history.
 
 ## Qualification Evidence
+
+The [original qualification context](https://github.com/alexmaninblack/aos-vehicle-platform/blob/bd04bed26a9ef63270086a87fff843ed753e639b/docs/decisions/0001-service-manager-component-runtime.md#qualification-evidence)
+records the initial probe and candidate-specific status. It is not a current
+installed-image inventory or the status of today's Cloud qualification.
 
 Against the exact released Service Manager source revision, the isolated
 ARM64 qualification build proved:
@@ -120,17 +126,16 @@ evidence.
   payload. This preserves both the SELinux transition and a non-root payload
   on the pinned AosVM policy baseline without any identity-changing
   capability.
-- Rootfs rollback from candidate `.11` to the currently installed `.2`, which
-  lacks the nested mount support, must
-  first suspend or remove the provider assignment; transparent cross-backend
-  rollback is not claimed.
+- Rootfs rollback to an image lacking the nested mount support must first
+  suspend or remove the provider assignment; transparent cross-backend rollback
+  is not claimed.
 - The existing provisioned Unit is neither deprovisioned nor reprovisioned.
 - The Update Manager fallback is rejected for this design because the Service
   Manager extension point passed the local factory, lifecycle, protocol, and
   CM gates. It may be reconsidered only if later production constraints expose
   a new blocking property.
-- Cloud catalog acceptance, deployment, update, and rollback are not implied
-  by the local qualification and remain explicit later gates.
+- Cloud catalog acceptance, deployment, update and rollback need independent
+  candidate-bound evidence; local runtime qualification is not their proof.
 
 ## Alternatives Rejected
 
