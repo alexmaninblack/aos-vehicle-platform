@@ -45,6 +45,13 @@ persists ordinary reboot under `/var/lib/aos-kuksa-provider`; VDP receives
 only systemd's private credential snapshot, not source-store access. The
 Service helper's socket/API cannot issue Provider authority.
 
+The image recipe also reserves KUKSA's explicit TCP port 55555 from automatic
+port allocation. It composes existing effective sysctl reservations and orders
+NFS mountd and KUKSA after the normal systemd sysctl pass. Ambiguous, masked or
+later overriding policy stops image creation; no runtime repair daemon or
+recurring NFS restart is introduced. A source check is not cold-boot evidence
+for a newly assembled image.
+
 KUKSA integration retains the reviewed scope-path and VAL v1 source-timestamp
 patches. See [compatibility](../docs/contract-compatibility.md) and
 [architecture](../docs/architecture.md) for exact ownership and trust rules.

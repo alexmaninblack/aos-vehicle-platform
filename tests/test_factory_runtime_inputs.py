@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class FactoryRuntimeInputsTests(unittest.TestCase):
     def test_packaged_config_preserves_runtime_and_contains_no_live_inputs(self):
         recipe = (ROOT / "meta-aos-vehicle-platform/recipes-core/images/aos-image-vm.bbappend").read_text()
-        body = textwrap.dedent(recipe.split("python aos_demo_runtime_inputs() {\n", 1)[1].rsplit("}", 1)[0])
+        body = textwrap.dedent(recipe.split("python aos_demo_runtime_inputs() {\n", 1)[1].split("\n}", 1)[0])
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path = root / "etc/aos/sm.cfg"

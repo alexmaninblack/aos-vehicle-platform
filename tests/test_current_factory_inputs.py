@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class CurrentFactoryInputsTests(unittest.TestCase):
     def test_current_factory_inheritance_remains_complete(self):
-        for suffix, parent in ((41, 40), (40, 39)):
+        for suffix, parent in ((42, 41), (41, 40), (40, 39)):
             text = (ROOT / f"qualification/factory-{suffix}.conf").read_text()
             self.assertIn(f"require factory-{parent}.conf", text)
             self.assertIn(f'"6.1.1-maninblack.{suffix}"', text)
