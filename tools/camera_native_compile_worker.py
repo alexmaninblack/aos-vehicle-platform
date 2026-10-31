@@ -90,13 +90,18 @@ def main():
             # readonly unpacked directories. Use its established root fixture
             # identity; running it as the Builder login user is not equivalent.
             completed = subprocess.run(["sudo", "-n", str(loader), "--library-path", libraries, str(executable),
+                                        "--gtest_filter=-*RealProviderFirstInstallThroughProductionProfile:*RealProviderUpdateAndRollbackThroughProductionProfile",
                                         "--gtest_output=json:"+str(a.evidence/"gtest.json")],
                                        capture_output=True, timeout=180)
             (a.evidence/"tests.log").write_bytes(completed.stdout+completed.stderr)
             tests = json.loads((a.evidence/"gtest.json").read_bytes())
             assert completed.returncode == 0 and tests["failures"] == 0 and tests.get("disabled", 0) == 0, "TARGET_TESTS_FAILED"
+            cases = [case for suite in tests["testsuites"] for case in suite["testsuite"]]
+            assert len(cases) == 83 and all(case["result"] == "COMPLETED" for case in cases), "TARGET_CASES_NOT_COMPLETED"
             assert b"CameraAccessUsesOnlyItsExplicitTarget" in completed.stdout and b"DefaultVdpPayloadIdentityIsUnchanged" in completed.stdout, "CAMERA_TESTS_NOT_EXECUTED"
             result.update(outcome="PASS_TARGETED_NATIVE_UNIT", tests=tests["tests"],
+                          excludedLiveVdpQualifications=["RealProviderFirstInstallThroughProductionProfile",
+                                                        "RealProviderUpdateAndRollbackThroughProductionProfile"],
                           executableSha256=hashlib.sha256(executable.read_bytes()).hexdigest())
     except (AssertionError, OSError, subprocess.SubprocessError) as error:
         result["code"] = str(error) if isinstance(error, AssertionError) else type(error).__name__
