@@ -1,12 +1,14 @@
 <!-- SPDX-FileCopyrightText: 2026 maninblack -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# OEM Camera Access — Vision foundation
+# OEM Camera Access — separate Vision platform
 
 Camera Access is an independent Vision-only OEM platform component, not a VDP
 profile or an AI application. The retained Brake/Tire VM is outside its scope.
-The source foundation implements the bounded camera-data boundary; it is not
-yet an installable FOTA payload, daemon or native Aos resource grant.
+The bounded camera-data core, closed Unix IPC daemon, distinct OEM payload and
+native activation profile are implemented in source. The explicit Vision
+bootstrap/image target adds its own account and read resource, not a VDP slot.
+An implemented source target is not an installed/qualified native Aos service.
 
 ## Boundaries
 
@@ -34,7 +36,9 @@ The original sensor time remains distinct, including observed +50-ms offsets.
 `take_pair()` has one Perception delivery cursor. A repeated read returns no
 new pair; replacing an unread pair is counted. `status()` exposes fixed reason
 codes/counters, not source identifiers, calibration hashes, JPEGs or credentials.
-These are internal core APIs, not a frozen socket or HTTP protocol.
+These remain internal core APIs. The separate
+[native contract](native-activation.md) defines the closed Unix protocol,
+kernel peer checks, resource projection and independent OEM target.
 
 ## Loss, age and restart
 
@@ -58,21 +62,25 @@ association is retained honestly, not presented as a CARLA source fix.
 From this repository's root, with the prepared development Python:
 
 ```sh
-python3 -B tools/check_camera_access.py
+python3 -B tools/check_camera_access_native.py
 ```
 
-This single source scenario runs the Camera Access unit/contract tests,
-repository policy and retained telemetry/Factory-layer validators, with an
-explicit guard against modifying the old product source. It reports timed
-phases and `PASS_SOURCE_ONLY`, never deployment/live acceptance.
+This single source scenario runs Camera Access unit/contract tests, repository
+policy and retained telemetry/Factory/mainline validators, preserving Main's
+selectors, VDP bootstrap and resource defaults. It reports `PASS_NATIVE_SOURCE_ONLY`,
+never deployment/live acceptance. The earlier `check_camera_access.py` remains
+the frozen foundation-packet scope check; run it at its foundation source pin,
+not as permission to widen that earlier packet.
 The tests start no server, simulator, VM or container and use synthetic JPEG
 headers solely for envelope-validation cases. They prove neither pixel decode,
 native authorization, live camera delivery nor installed-package acceptance.
 
 ## Remaining deployment gates
 
-Freeze and prove authenticated Gateway ingress, native Aos-managed local IPC,
-actual non-root identity/peer isolation, SELinux, restart and resource revocation.
-Give Camera Access a distinct OEM payload/target and qualify the existing native
-lifecycle mechanism for that target; never rename it as VDP or use a VDP slot.
-No recipe, systemd unit or resource declaration is added to Main by this packet.
+Qualify transient non-root IPC/policy, the Vision bootstrap/image and normal
+independent Unit provisioning, native OEM activation and actual Aos-managed
+consumer delivery/revocation on M4. Authenticated Gateway ingress remains its
+own gate. The narrow policy compiles but has not yet passed live AVC/rollback
+proof; do not call it an accepted live security result. Neither manual crun,
+root socket access nor unit mocks count as native SM allocation. Current Main
+selectors, image, VM, Test and data are not modified or replaced.

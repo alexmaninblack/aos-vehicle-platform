@@ -1,0 +1,6 @@
+{
+  "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: Apache-2.0",
+  "schemaVersion": 1,
+  "component": "camera-access",
+  "profile": "front-rgb-jpeg-720p-v1"
+}

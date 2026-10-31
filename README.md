@@ -6,8 +6,8 @@
 OEM platform integration: vehicle data, KUKSA authorization, Factory integration and Safe Stop-gated VDP FOTA. Brake/Tire applications belong to separate SOTA repositories.
 
 On `codex/vision-pilot-single-node`, the independent
-[Camera Access foundation](camera-access/README.md) starts the Vision-only OEM
-camera component. It is not a VDP extension or an installed Vision release;
+[Camera Access](camera-access/README.md) implements the Vision-only OEM
+camera core and native IPC/activation source. It is not a VDP extension or an installed Vision release;
 the existing Brake/Tire platform and its build selection remain unchanged.
 
 <a id="sdv-lab-entry"></a>

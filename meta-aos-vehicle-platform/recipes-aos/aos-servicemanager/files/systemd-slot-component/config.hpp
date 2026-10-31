@@ -20,6 +20,9 @@ namespace aos::sm::launcher {
 
 /** Bootstrap configuration for the provider component runtime. */
 struct SystemdSlotComponentConfig {
+  std::string mComponentName{"vehicle-data-provider"};
+  std::string mEntrypoint{"bin/vehicle-data-provider"};
+  std::string mConfiguration{"config/provider.json"};
   std::filesystem::path mWorkingDir;
   std::string mUnit;
   std::filesystem::path mHealthAdapter;

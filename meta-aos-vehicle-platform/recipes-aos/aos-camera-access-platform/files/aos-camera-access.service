@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+[Unit]
+Description=Aos Vision Camera Access OEM component
+ConditionPathIsSymbolicLink=/var/aos/workdirs/sm/runtimes/systemd-slot-camera-access/active
+ConditionFileIsExecutable=/var/aos/workdirs/sm/runtimes/systemd-slot-camera-access/active/bin/camera-access
+After=systemd-tmpfiles-setup.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=aos-camera-access
+Group=aos-camera-read
+ExecStart=/usr/libexec/aos-camera-access-launcher
+ExecReload=/usr/libexec/aos-camera-access-launcher --mark-unavailable
+Restart=no
+TimeoutStartSec=10s
+TimeoutStopSec=5s
+UMask=0077
+RuntimeDirectory=aos-camera-access
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+ReadWritePaths=/run/aos-camera-access
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+# The fixed labelled launcher establishes no_new_privs after SELinux entry.
+
+[Install]
+# Only the native OEM component runtime owns activation; never enable this unit.

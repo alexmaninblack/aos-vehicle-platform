@@ -37,9 +37,25 @@ constexpr auto cCredentialDirectory = "/run/credentials/aos-sm.service/";
 Error ParseConfig(const RuntimeConfig &config,
                   SystemdSlotComponentConfig &result) {
   bool demoLocalInputs = false;
+  bool cameraAccess = false;
   try {
     const auto object =
         common::utils::CaseInsensitiveObjectWrapper(config.mConfig);
+
+    const auto profile = object.GetValue<std::string>(
+        "componentProfile", "vehicle-data-provider-v1");
+    if (profile != "vehicle-data-provider-v1" && profile != "camera-access-v1") {
+      return Error(ErrorEnum::eInvalidArgument, "unsupported OEM component profile");
+    }
+    cameraAccess = profile == "camera-access-v1";
+    const bool cameraType = config.mType == "camera-access" ||
+        config.mType == "aos-vm-1.0.0-main-qemuarm64-camera-access";
+    if (cameraType != cameraAccess) {
+      return Error(ErrorEnum::eInvalidArgument, "OEM component type/profile mismatch");
+    }
+    result.mComponentName = cameraAccess ? "camera-access" : "vehicle-data-provider";
+    result.mEntrypoint = cameraAccess ? "bin/camera-access" : "bin/vehicle-data-provider";
+    result.mConfiguration = cameraAccess ? "config/camera.json" : "config/provider.json";
 
     result.mWorkingDir = object.GetValue<std::string>(
         "workingDir",
@@ -85,8 +101,8 @@ Error ParseConfig(const RuntimeConfig &config,
 
   if (!result.mWorkingDir.is_absolute() ||
       result.mWorkingDir.lexically_normal() != result.mWorkingDir ||
-      result.mUnit != cProviderUnit ||
-      result.mHealthAdapter != cHealthAdapter ||
+      result.mUnit != (cameraAccess ? "aos-camera-access.service" : cProviderUnit) ||
+      result.mHealthAdapter != (cameraAccess ? "/usr/libexec/aos-camera-access-health" : cHealthAdapter) ||
       result.mLayoutVersion != cLayoutVersion || result.mMaxPayloadBytes == 0 ||
       result.mMaxPayloadBytes > 4ULL * 1024ULL * 1024ULL * 1024ULL ||
       result.mMinimumFreeBytes >
@@ -113,6 +129,15 @@ Error ParseConfig(const RuntimeConfig &config,
     return AOS_ERROR_WRAP(
         Error(ErrorEnum::eInvalidArgument,
               "invalid systemd slot component configuration"));
+  }
+
+  if (cameraAccess) {
+    const std::string type = config.mType;
+    if (result.mWorkingDir != "/var/aos/workdirs/sm/runtimes/systemd-slot-camera-access" ||
+        (type != "camera-access" &&
+         type != "aos-vm-1.0.0-main-qemuarm64-camera-access")) {
+      return Error(ErrorEnum::eInvalidArgument, "Camera Access target is not isolated");
+    }
   }
 
   if (demoLocalInputs) {

@@ -1,0 +1,26 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+set -eu
+root=/var/aos/workdirs/sm/runtimes/systemd-slot-camera-access
+fail() { printf 'STATE=%s\n' "$1" >&2; exit 1; }
+case "${1:-active}" in
+    offline)
+        [ "$#" -eq 2 ] || fail INVALID_ARGUMENTS
+        case "$2" in "$root/slots/a") slot=a ;; "$root/slots/b") slot=b ;; *) fail INVALID_SLOT ;; esac
+        timeout 12 systemctl start "aos-camera-access-selftest@$slot.service" || fail OFFLINE_FAILED
+        printf 'STATE=PREPARED\n' ;;
+    unavailable)
+        [ "$#" -eq 1 ] || fail INVALID_ARGUMENTS
+        [ -L "$root/active" ] || { printf 'STATE=UNAVAILABLE\n'; exit 0; }
+        timeout 5 systemctl reload aos-camera-access.service || fail INVALIDATE_FAILED
+        printf 'STATE=UNAVAILABLE\n' ;;
+    active)
+        [ "$#" -le 1 ] || fail INVALID_ARGUMENTS
+        [ -L "$root/active" ] || { printf 'STATE=EMPTY\n'; exit 3; }
+        case "$(readlink "$root/active")" in slots/a|slots/b) ;; *) fail INVALID_SLOT ;; esac
+        timeout 3 systemctl is-active --quiet aos-camera-access.service || fail INACTIVE
+        [ -S /run/aos-camera-access/read/camera.sock ] && [ -S /run/aos-camera-access/oem/producer.sock ] || fail ENDPOINT_MISSING
+        printf 'STATE=HEALTHY\n' ;;
+    *) fail INVALID_OPERATION ;;
+esac

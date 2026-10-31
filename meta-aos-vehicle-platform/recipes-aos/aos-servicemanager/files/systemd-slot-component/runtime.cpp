@@ -45,9 +45,6 @@ constexpr auto cFailureFile = "last-failure.json";
 constexpr auto cStagingDirectory = "staging";
 constexpr auto cInstanceFile = ".aos-instance.json";
 constexpr auto cComponentMetadata = "component.json";
-constexpr auto cProviderExecutable = "bin/vehicle-data-provider";
-constexpr auto cProviderConfiguration = "config/provider.json";
-constexpr auto cComponentName = "vehicle-data-provider";
 constexpr auto cFactoryComponentVersion = "0.0.0";
 constexpr auto cFactoryComponentSubject = "aos-vm-main";
 constexpr auto cComponentOS = "linux";
@@ -1291,7 +1288,7 @@ Error SystemdSlotComponentRuntime::ValidatePayloadTree(
                             std::filesystem::perms::group_exec |
                             std::filesystem::perms::others_exec)) !=
             std::filesystem::perms::none;
-        if (executable && relativeString != cProviderExecutable) {
+        if (executable && relativeString != mConfig.mEntrypoint) {
           return AOS_ERROR_WRAP(Error(ErrorEnum::eInvalidArgument,
                                       "unexpected executable in payload"));
         }
@@ -1344,12 +1341,12 @@ Error SystemdSlotComponentRuntime::ValidatePayloadMetadata(
     if (auto err = ParseSemVer(version, parsedVersion); !err.IsNone()) {
       return AOS_ERROR_WRAP(err);
     }
-    if (schema != 1 || component != cComponentName ||
+    if (schema != 1 || component != mConfig.mComponentName ||
         version != instance.mVersion.CStr() ||
         architecture != mRuntimeInfo.mArchInfo.mArchitecture.CStr() ||
         os != cComponentOS || runtimeInterface != cRuntimeInterface ||
-        entrypoint != cProviderExecutable ||
-        configuration != cProviderConfiguration) {
+        entrypoint != mConfig.mEntrypoint ||
+        configuration != mConfig.mConfiguration) {
       return AOS_ERROR_WRAP(Error(ErrorEnum::eInvalidArgument,
                                   "incompatible provider component metadata"));
     }
@@ -1357,8 +1354,8 @@ Error SystemdSlotComponentRuntime::ValidatePayloadMetadata(
     return AOS_ERROR_WRAP(common::utils::ToAosError(exception));
   }
 
-  const auto executable = root / cProviderExecutable;
-  const auto configuration = root / cProviderConfiguration;
+  const auto executable = root / mConfig.mEntrypoint;
+  const auto configuration = root / mConfig.mConfiguration;
   struct stat executableStatus {};
   struct stat configurationStatus {};
   if (lstat(executable.c_str(), &executableStatus) != 0 ||

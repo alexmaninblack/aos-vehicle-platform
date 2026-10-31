@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+policy_module(camera_access, 1.0.0)
+
+type camera_access_t;
+type camera_access_exec_t;
+init_daemon_domain(camera_access_t, camera_access_exec_t)
+
+type camera_access_store_t;
+files_type(camera_access_store_t)
+type camera_access_runtime_t;
+files_runtime_file(camera_access_runtime_t)
+type camera_access_read_t;
+files_runtime_file(camera_access_read_t)
+type camera_access_oem_t;
+files_runtime_file(camera_access_oem_t)
+type camera_access_unit_t;
+init_unit_file(camera_access_unit_t)
+
+allow camera_access_t self:process getcap;
+allow camera_access_t self:unix_stream_socket create_stream_socket_perms;
+allow camera_access_t self:unix_stream_socket connectto;
+allow camera_access_t self:unix_dgram_socket create_socket_perms;
+allow camera_access_t self:fifo_file rw_fifo_file_perms;
+allow camera_access_t camera_access_store_t:dir list_dir_perms;
+allow camera_access_t camera_access_store_t:file { execute execute_no_trans map };
+allow camera_access_t camera_access_store_t:lnk_file read_lnk_file_perms;
+read_files_pattern(camera_access_t, camera_access_store_t, camera_access_store_t)
+allow camera_access_t camera_access_runtime_t:dir { getattr search };
+manage_sock_files_pattern(camera_access_t, camera_access_read_t, camera_access_read_t)
+manage_sock_files_pattern(camera_access_t, camera_access_oem_t, camera_access_oem_t)
+corecmd_exec_bin(camera_access_t)
+dev_read_urand(camera_access_t)
+files_read_etc_files(camera_access_t)
+files_search_runtime(camera_access_t)
+init_dgram_send(camera_access_t)
+init_rw_script_stream_sockets(camera_access_t)
+kernel_read_system_state(camera_access_t)
+libs_use_ld_so(camera_access_t)
+libs_use_shared_libs(camera_access_t)
+miscfiles_read_localization(camera_access_t)
+
+gen_require(`
+    type aos_t;
+    type aos_var_run_t;
+    type container_t;
+    class service { start stop status reload };
+')
+allow camera_access_t aos_var_run_t:dir { getattr search };
+manage_dirs_pattern(aos_t, camera_access_store_t, camera_access_store_t)
+manage_files_pattern(aos_t, camera_access_store_t, camera_access_store_t)
+manage_lnk_files_pattern(aos_t, camera_access_store_t, camera_access_store_t)
+allow aos_t camera_access_unit_t:service { start stop status reload };
+filetrans_pattern(aos_t, aos_var_run_t, camera_access_store_t, dir, "systemd-slot-camera-access")
+# Native resource DAC/mount allocation is still required. This grants no OEM
+# socket, component-store write, Internet, camera configuration or actuation.
+stream_connect_pattern(container_t, camera_access_read_t, camera_access_read_t, camera_access_t)

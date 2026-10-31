@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+[Unit]
+Description=Offline validation of Camera Access OEM slot %i
+
+[Service]
+Type=oneshot
+User=aos-camera-access
+Group=aos-camera-read
+ExecStart=/usr/libexec/aos-camera-access-launcher --self-test %i
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+TimeoutStartSec=10s

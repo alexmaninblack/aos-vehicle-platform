@@ -4,6 +4,9 @@
 FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 
 SRC_URI += " \
+    file://camera_access.te \
+    file://camera_access.fc \
+    file://camera_access.if \
     file://0001-corenetwork-label-aos-kuksa-iam-port.patch \
     file://vehicle_data_provider.te \
     file://vehicle_data_provider.fc \
@@ -17,6 +20,9 @@ SRC_URI += " \
 "
 
 do_compile:prepend() {
+    install -m 0644 ${WORKDIR}/camera_access.te ${S}/policy/modules/services
+    install -m 0644 ${WORKDIR}/camera_access.fc ${S}/policy/modules/services
+    install -m 0644 ${WORKDIR}/camera_access.if ${S}/policy/modules/services
     install -m 0644 ${WORKDIR}/vehicle_data_provider.te ${S}/policy/modules/services
     install -m 0644 ${WORKDIR}/vehicle_data_provider.fc ${S}/policy/modules/services
     install -m 0644 ${WORKDIR}/vehicle_data_provider.if ${S}/policy/modules/services

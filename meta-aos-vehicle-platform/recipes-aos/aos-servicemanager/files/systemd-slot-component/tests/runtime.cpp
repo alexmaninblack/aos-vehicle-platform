@@ -610,6 +610,40 @@ TEST_F(SystemdSlotComponentRuntimeTest, RequiresTheFixedBootstrapContract) {
       << tests::utils::ErrorToStr(err);
 }
 
+TEST_F(SystemdSlotComponentRuntimeTest, CameraAccessUsesOnlyItsExplicitTarget) {
+  auto config = CreateConfig();
+  config.mType = "aos-vm-1.0.0-main-qemuarm64-camera-access";
+  config.mConfig->set("componentProfile", "camera-access-v1");
+  config.mConfig->set("workingDir", "/var/aos/workdirs/sm/runtimes/systemd-slot-camera-access");
+  config.mConfig->set("unit", "aos-camera-access.service");
+  config.mConfig->set("healthAdapter", "/usr/libexec/aos-camera-access-health");
+  SystemdSlotComponentConfig parsed;
+  ASSERT_TRUE(ParseConfig(config, parsed).IsNone());
+  EXPECT_EQ(parsed.mComponentName, "camera-access");
+  EXPECT_EQ(parsed.mEntrypoint, "bin/camera-access");
+  EXPECT_EQ(parsed.mConfiguration, "config/camera.json");
+  EXPECT_EQ(parsed.mSafeStopReadTimeoutMilliseconds, 250U);
+  config.mConfig->set("workingDir", "/var/aos/workdirs/sm/runtimes/systemd-slot-component");
+  EXPECT_TRUE(ParseConfig(config, parsed).Is(ErrorEnum::eInvalidArgument));
+  config.mConfig->set("workingDir", "/var/aos/workdirs/sm/runtimes/systemd-slot-camera-access");
+  config.mConfig->set("unit", "aos-vehicle-data-provider.service");
+  EXPECT_TRUE(ParseConfig(config, parsed).Is(ErrorEnum::eInvalidArgument));
+  config.mConfig->set("unit", "aos-camera-access.service");
+  config.mType = "aos-vm-1.0.0-main-qemuarm64-vehicle-data-provider";
+  EXPECT_TRUE(ParseConfig(config, parsed).Is(ErrorEnum::eInvalidArgument));
+}
+
+TEST_F(SystemdSlotComponentRuntimeTest, DefaultVdpPayloadIdentityIsUnchanged) {
+  auto config = CreateConfig();
+  SystemdSlotComponentConfig parsed;
+  ASSERT_TRUE(ParseConfig(config, parsed).IsNone());
+  EXPECT_EQ(parsed.mComponentName, "vehicle-data-provider");
+  EXPECT_EQ(parsed.mEntrypoint, "bin/vehicle-data-provider");
+  EXPECT_EQ(parsed.mConfiguration, "config/provider.json");
+  config.mConfig->set("componentProfile", "arbitrary");
+  EXPECT_TRUE(ParseConfig(config, parsed).Is(ErrorEnum::eInvalidArgument));
+}
+
 TEST_F(SystemdSlotComponentRuntimeTest, AcceptsOnlyExplicitDemoFreshnessProfile) {
   auto config = CreateConfig();
   SystemdSlotComponentConfig parsed;
