@@ -36,6 +36,17 @@ operations.
 
 ## Interface compatibility
 
+### Vision-only Camera Access
+
+The Vision branch adds [independent Camera Access](../camera-access/README.md)
+with a bounded, transport-independent source foundation. Vision has its own VM
+and OEM camera package; it does not install VDP/Brake/Tire or adopt their slot.
+Gateway capture, Camera Access admission and Perception inference have separate
+ownership. The existing native OEM lifecycle is reused only after a distinct
+Camera Access target is qualified. Source-only tests grant no native resource,
+credential, deployment or motion authority. See its
+[fixed frame profile](../contracts/camera-access/profile.json).
+
 The implemented data boundary uses these versioned interfaces. The selected
 integration manifest owns the exact image and source identity:
 
