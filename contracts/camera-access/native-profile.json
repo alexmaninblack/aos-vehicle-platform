@@ -13,6 +13,8 @@
   "configuration": "config/camera.json",
   "platformUser": "aos-camera-access",
   "readerGroup": "aos-camera-read",
+  "observedNativeConsumerDomain": "container_engine_t",
+  "domainQualification": "Pinned Aos OCI target observed as container_engine_t; require actual nonroot UID, resource GID, empty effective capabilities, NNP and read-only mount. This is not proof of a distinct per-service SELinux/MCS domain.",
   "resource": "vision-camera-read",
   "sharedCount": 1,
   "resourceSource": "/run/aos-camera-access/read",

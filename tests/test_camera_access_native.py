@@ -182,6 +182,21 @@ class NativeContractTests(unittest.TestCase):
         self.assertIn('systemd-slot-camera-access',unit)
         self.assertNotIn('ExecStart=/usr/libexec/aos-camera-access-launcher',unit)
 
+    def test_native_policy_matches_observed_resource_domain_without_oem_grants(self):
+        policy=(ROOT/'meta-aos-vehicle-platform/recipes-security/refpolicy/files/camera_access.te').read_text()
+        rules=[line for line in policy.splitlines() if line.startswith('allow container_engine_t ')]
+        self.assertEqual(rules,[
+            'allow container_engine_t camera_access_runtime_t:dir search;',
+            'allow container_engine_t camera_access_read_t:dir { getattr search };',
+            'allow container_engine_t camera_access_read_t:sock_file { getattr write };',
+            'allow container_engine_t camera_access_t:unix_stream_socket connectto;'])
+        self.assertIn('dontaudit camera_access_t cert_t:dir search;',policy)
+        self.assertIn('dontaudit camera_access_t sysctl_vm_t:dir search;',policy)
+        self.assertNotIn('allow camera_access_t cert_t:',policy)
+        self.assertNotIn('allow camera_access_t sysctl_vm_t:',policy)
+        profile=json.loads((ROOT/'contracts/camera-access/native-profile.json').read_bytes())
+        self.assertEqual('container_engine_t',profile['observedNativeConsumerDomain'])
+
     def test_payload_is_deterministic_distinct_and_has_no_credentials_or_models(self):
         spec=importlib.util.spec_from_file_location('camera_payload',ROOT/'tools/build_camera_access_payload.py')
         module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)

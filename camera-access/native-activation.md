@@ -17,6 +17,18 @@ supplementary GID, and projects only `/run/aos-camera-access/read` at
 allocation is one native service instance. Unix connect permission still
 requires DAC and SELinux; a read-only bind does not make a socket read-only.
 
+The pinned Aos OCI target was observed as `container_engine_t`, not an assumed
+`container_t`: UID 5000, allocated reader GID, zero effective capabilities and
+`NoNewPrivs=1`. The policy permits only read-mount metadata and connection to
+the read socket; it adds no OEM or component-store permission. Resource/DAC,
+actual UID and closed peer/protocol checks remain mandatory. This is not a
+claim of distinct per-service SELinux/MCS isolation. Actual runtime labels
+must be requalified if AosCore changes them.
+
+Nonessential Camera-domain certificate/VM-sysctl directory searches remained
+denied while pair delivery and revocation worked. Only those observed search
+denials are dontaudited; no certificate or sysctl read access is granted.
+
 The daemon reads Linux SO_PEERCRED. The consumer must be a non-root Aos
 service UID, not the daemon UID. The read protocol accepts only `status` or
 `pair`, with no caller-supplied service identity, camera selection, image input,

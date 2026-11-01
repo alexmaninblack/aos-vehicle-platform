@@ -52,7 +52,9 @@ miscfiles_read_localization(camera_access_t)
 gen_require(`
     type aos_t;
     type aos_var_run_t;
-    type container_t;
+    type container_engine_t;
+    type cert_t;
+    type sysctl_vm_t;
     class service { start stop status reload };
 ')
 allow camera_access_t aos_var_run_t:dir { getattr search };
@@ -105,4 +107,18 @@ allow mount_t camera_access_store_runtime_t:lnk_file read_lnk_file_perms;
 allow mount_t camera_access_store_t:filesystem relabelfrom;
 # Native resource DAC/mount allocation is still required. This grants no OEM
 # socket, component-store write, Internet, camera configuration or actuation.
-stream_connect_pattern(container_t, camera_access_read_t, camera_access_read_t, camera_access_t)
+# The pinned native Aos OCI service is observed under container_engine_t,
+# with its allocated nonroot UID/resource GID, empty capabilities and NNP.
+# Runtime setup needs metadata access to the read-only bind source. The same
+# domain's consumer still needs DAC/resource projection and closed peer/IPC
+# checks. No OEM directory/socket or component-store access is granted.
+allow container_engine_t camera_access_runtime_t:dir search;
+allow container_engine_t camera_access_read_t:dir { getattr search };
+allow container_engine_t camera_access_read_t:sock_file { getattr write };
+allow container_engine_t camera_access_t:unix_stream_socket connectto;
+
+# Both nonessential directory probes remained denied during successful native
+# pair delivery, restart and revocation. Keep the denials, not certificate or
+# VM-sysctl read grants; suppress only the observed directory-search noise.
+dontaudit camera_access_t cert_t:dir search;
+dontaudit camera_access_t sysctl_vm_t:dir search;
