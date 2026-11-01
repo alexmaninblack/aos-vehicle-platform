@@ -41,5 +41,13 @@ class DeliverySourceTests(unittest.TestCase):
         self.assertIn('aos-image-vision:do_rootfs',recipe)
         self.assertNotIn('aos-boot',recipe)
 
+    def test_native_squashfs_uses_exact_commit_without_a_missing_branch(self):
+        recipe=(ROOT/'meta-aos-vehicle-platform/recipes-devtools/squashfs-tools/squashfs-tools_git.bbappend').read_text()
+        self.assertIn('SRC_URI:append:class-native',recipe)
+        self.assertIn("d.getVar('AOS_VISION_CAMERA_INGRESS') == '1'",recipe)
+        self.assertIn('d8cb82d9840330f9344ec37b992595b5d7b44184',recipe)
+        self.assertIn('nobranch=1',recipe)
+        self.assertNotIn('BB_NO_NETWORK',recipe)
+
 
 if __name__=='__main__':unittest.main()
