@@ -12,7 +12,8 @@ def select(sm, resources, native):
     require(len(entries) == 1, "VISION_OEM_TARGET_AMBIGUOUS")
     target = entries[0]
     old = target["type"]
-    require(old in ("vehicle-data-provider", "aos-vm-1.0.0-main-qemuarm64-vehicle-data-provider"), "VISION_BASE_TARGET_UNKNOWN")
+    require(old in ("vehicle-data-provider", "aos-vm-1.0.0-main-qemuarm64-vehicle-data-provider",
+                    "aos-vision-vm-1.0.0-main-qemuarm64-vehicle-data-provider"), "VISION_BASE_TARGET_UNKNOWN")
     require(target["config"]["unit"] == "aos-vehicle-data-provider.service", "VISION_BASE_UNIT_UNKNOWN")
     target["type"] = old.removesuffix("vehicle-data-provider")+"camera-access"
     target["config"].update(componentProfile=native["componentProfile"], workingDir=native["workingDirectory"],

@@ -623,6 +623,11 @@ TEST_F(SystemdSlotComponentRuntimeTest, CameraAccessUsesOnlyItsExplicitTarget) {
   EXPECT_EQ(parsed.mEntrypoint, "bin/camera-access");
   EXPECT_EQ(parsed.mConfiguration, "config/camera.json");
   EXPECT_EQ(parsed.mSafeStopReadTimeoutMilliseconds, 250U);
+  config.mType = "aos-vision-vm-1.0.0-main-qemuarm64-camera-access";
+  EXPECT_TRUE(ParseConfig(config, parsed).IsNone());
+  config.mType = "aos-vision-vm-2.0.0-main-qemuarm64-camera-access";
+  EXPECT_TRUE(ParseConfig(config, parsed).Is(ErrorEnum::eInvalidArgument));
+  config.mType = "aos-vision-vm-1.0.0-main-qemuarm64-camera-access";
   config.mConfig->set("workingDir", "/var/aos/workdirs/sm/runtimes/systemd-slot-component");
   EXPECT_TRUE(ParseConfig(config, parsed).Is(ErrorEnum::eInvalidArgument));
   config.mConfig->set("workingDir", "/var/aos/workdirs/sm/runtimes/systemd-slot-camera-access");

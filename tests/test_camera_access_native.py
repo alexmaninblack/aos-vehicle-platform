@@ -129,6 +129,9 @@ class NativeContractTests(unittest.TestCase):
         self.assertEqual(1,len(grants))
         self.assertEqual('/run/aos-camera-access/read',grants[0]['mounts'][0]['source'])
         self.assertEqual(['aos-camera-read'],grants[0]['groups'])
+        sm['runtimes'][-1]['type']='aos-vision-vm-1.0.0-main-qemuarm64-vehicle-data-provider'
+        vision,_=select(sm,resources,native)
+        self.assertEqual('aos-vision-vm-1.0.0-main-qemuarm64-camera-access',vision['runtimes'][-1]['type'])
         with self.assertRaises(CameraError):select(selected,grants,native)
         with self.assertRaises(CameraError):select(sm,[{'name':'unreviewed'}],native)
 

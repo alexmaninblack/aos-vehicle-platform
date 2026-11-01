@@ -11,6 +11,7 @@ import time
 ROOT=Path(__file__).resolve().parents[1]
 FOUNDATION='2b2322d237eb62a0207729ed86df785ed84e5534'
 FILES={'README.md','docs/architecture.md','tests/test_camera_access_native.py','tools/check_camera_access_native.py',
+       'qualification/vision-bootstrap-1.conf',
        'tools/camera_native_compile_worker.py','tools/camera_native_primitives_worker.py',
        'tools/build_camera_access_payload.py',
        'meta-aos-vehicle-platform/recipes-core/images/aos-image-vision.bb',

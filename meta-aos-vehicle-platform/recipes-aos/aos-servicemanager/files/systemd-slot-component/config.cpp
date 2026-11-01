@@ -49,7 +49,8 @@ Error ParseConfig(const RuntimeConfig &config,
     }
     cameraAccess = profile == "camera-access-v1";
     const bool cameraType = config.mType == "camera-access" ||
-        config.mType == "aos-vm-1.0.0-main-qemuarm64-camera-access";
+        config.mType == "aos-vm-1.0.0-main-qemuarm64-camera-access" ||
+        config.mType == "aos-vision-vm-1.0.0-main-qemuarm64-camera-access";
     if (cameraType != cameraAccess) {
       return Error(ErrorEnum::eInvalidArgument, "OEM component type/profile mismatch");
     }
@@ -135,7 +136,8 @@ Error ParseConfig(const RuntimeConfig &config,
     const std::string type = config.mType;
     if (result.mWorkingDir != "/var/aos/workdirs/sm/runtimes/systemd-slot-camera-access" ||
         (type != "camera-access" &&
-         type != "aos-vm-1.0.0-main-qemuarm64-camera-access")) {
+         type != "aos-vm-1.0.0-main-qemuarm64-camera-access" &&
+         type != "aos-vision-vm-1.0.0-main-qemuarm64-camera-access")) {
       return Error(ErrorEnum::eInvalidArgument, "Camera Access target is not isolated");
     }
   }
