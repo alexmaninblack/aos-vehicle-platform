@@ -108,6 +108,9 @@ class NativeContractTests(unittest.TestCase):
     def test_component_target_and_read_resource_are_separate(self):
         p=json.loads((ROOT/'contracts/camera-access/native-profile.json').read_bytes())
         self.assertEqual('camera-access',p['component'])
+        recipe=(ROOT/'meta-aos-vehicle-platform/recipes-aos/aos-camera-access-platform/aos-camera-access-platform_0.1.0.bb').read_text()
+        shipped=next(line for line in recipe.splitlines() if line.startswith('FILES:${PN}'))
+        self.assertIn('${systemd_system_unitdir}/aos-camera-access-selftest@.service',shipped)
         self.assertEqual('aos-camera-access.service',p['unit'])
         self.assertNotIn('vehicle-data-provider',p['workingDirectory'])
         self.assertEqual(['status','pair'],p['readerOperations'])

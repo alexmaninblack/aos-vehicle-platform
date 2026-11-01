@@ -21,4 +21,4 @@ do_install() {
     install -m 0644 ${WORKDIR}/aos-camera-access.service ${WORKDIR}/aos-camera-access-selftest@.service ${D}${systemd_system_unitdir}
     install -m 0644 ${WORKDIR}/aos-camera-access.conf ${D}${libdir}/tmpfiles.d
 }
-FILES:${PN} += "${libexecdir}/aos-camera-access-* ${libdir}/tmpfiles.d/aos-camera-access.conf"
+FILES:${PN} += "${libexecdir}/aos-camera-access-* ${libdir}/tmpfiles.d/aos-camera-access.conf ${systemd_system_unitdir}/aos-camera-access-selftest@.service"
