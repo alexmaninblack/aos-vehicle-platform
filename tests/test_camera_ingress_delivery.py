@@ -25,6 +25,10 @@ class DeliverySourceTests(unittest.TestCase):
             self.assertNotIn(forbidden,te)
         self.assertIn('camera_ingress_exec_t',fc);self.assertIn('camera_access_unit_t',fc)
 
+    def test_fresh_manufacture_is_explicit_and_reuses_the_fixed_ingress_profile(self):
+        self.assertIn('require vision-ingress-1.conf',(ROOT/'qualification/vision-fresh-1.conf').read_text())
+        self.assertIn('6.1.1-vision-camera.3',(ROOT/'qualification/vision-bootstrap-1.conf').read_text())
+
     def test_main_default_has_no_ingress_and_unit_is_not_boot_enabled(self):
         recipe=(ROOT/'meta-aos-vehicle-platform/recipes-aos/aos-camera-access-platform/aos-camera-access-platform_0.1.0.bb').read_text()
         self.assertIn('AOS_VISION_CAMERA_INGRESS ??= "0"',recipe)

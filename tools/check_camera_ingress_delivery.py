@@ -11,6 +11,8 @@ ROOT=Path(__file__).resolve().parents[1]
 BASE='99501be'
 FILES={
  'qualification/vision-ingress-1.conf',
+ 'qualification/vision-fresh-1.conf',
+ 'meta-aos-vehicle-platform/recipes-core/images/aos-image-vision.bb',
  'meta-aos-vehicle-platform/recipes-devtools/squashfs-tools/squashfs-tools_git.bbappend',
  'meta-aos-vehicle-platform/recipes-aos-fota/aos-rootfs/aos-rootfs-vision.bb',
  'meta-aos-vehicle-platform/recipes-aos/aos-camera-access-platform/aos-camera-access-platform_0.1.0.bb',
