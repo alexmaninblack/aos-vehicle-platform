@@ -1,3 +1,4 @@
 ## SPDX-FileCopyrightText: 2026 maninblack
 ## SPDX-License-Identifier: Apache-2.0
+## <summary>Authenticated Vision Camera Access OEM ingress.</summary>
 ## No public interface: Source and the Camera OEM component own this domain.
