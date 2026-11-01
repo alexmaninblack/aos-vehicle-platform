@@ -29,6 +29,14 @@ def payload(version):
         for path in sorted(source.glob("*.py")):
             if path.name != "vision_image.py":
                 entries["aos_camera_access/"+path.name] = path.read_bytes()
+        if version == '0.1.2':
+            pin=json.loads((ROOT/'contracts/camera-access/vision-exchange-source.json').read_bytes())
+            for row in pin['files']:
+                path=ROOT/row['path'];raw=path.read_bytes()
+                if hashlib.sha256(raw).hexdigest()!=row['sha256']:raise ValueError('EXCHANGE_COMMON_PIN_CHANGED')
+                entries['vision_common/'+path.name]=raw
+            for path in sorted((ROOT/'camera-access/src/aos_vision_exchange').glob('*.py')):
+                entries['aos_vision_exchange/'+path.name]=path.read_bytes()
         for name, raw in sorted(entries.items()):
             item = zipfile.ZipInfo(name, (2026, 1, 1, 0, 0, 0))
             item.external_attr = 0o100644 << 16

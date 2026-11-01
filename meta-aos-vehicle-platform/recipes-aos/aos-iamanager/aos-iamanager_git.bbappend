@@ -27,6 +27,12 @@ SRC_URI += "file://0001-use-function-count-for-permission-response.patch"
 
 inherit python3native
 
+# New Vision successor only. Existing Main/Camera images retain their input
+# configuration and Core code. The node's declared DMIPS budget is unchanged.
+AOS_VISION_NATIVE_SERVICES ??= "0"
+FILESEXTRAPATHS:prepend := "${THISDIR}/../../../tools:"
+SRC_URI:append = " ${@'file://vision-cpuinfo-configure.py file://35-vision-cpuinfo.conf file://vision_cpuinfo_projection.py' if d.getVar('AOS_VISION_NATIVE_SERVICES') == '1' else ''}"
+
 # Aos IAM uses three distinct SoftHSM session keys in the accepted image:
 # aoscloud, aoscore, and aos-kuksa, all with RW|SERIAL flags. Retain all three
 # keys in the cache. Mainline now injects the application's HeapAllocator;
@@ -40,8 +46,15 @@ do_install:append() {
         --config ${D}${sysconfdir}/aos/iam.cfg
     ${PYTHON} ${WORKDIR}/aos-kuksa-iam-configure.py \
         ${D}${sysconfdir}/aos/iam.cfg
+    if [ "${AOS_VISION_NATIVE_SERVICES}" = "1" ]; then
+        install -d ${D}${libexecdir} ${D}${sysconfdir}/systemd/system/aos-iam.service.d
+        install -m 0644 ${WORKDIR}/vision_cpuinfo_projection.py ${D}${libexecdir}/aos-vision-cpuinfo.py
+        install -m 0644 ${WORKDIR}/35-vision-cpuinfo.conf ${D}${sysconfdir}/systemd/system/aos-iam.service.d
+        ${PYTHON} ${WORKDIR}/vision-cpuinfo-configure.py ${D}${sysconfdir}/aos/iam.cfg
+    fi
     # Match CM/SM: exclude the upstream nested-prefix test-only fixtures.
     if [ -d "${D}${prefix}/usr" ]; then
         find "${D}${prefix}/usr" -depth -delete
     fi
 }
+FILES:${PN}:append = " ${@'${libexecdir}/aos-vision-cpuinfo.py ${sysconfdir}/systemd/system/aos-iam.service.d/35-vision-cpuinfo.conf' if d.getVar('AOS_VISION_NATIVE_SERVICES') == '1' else ''}"

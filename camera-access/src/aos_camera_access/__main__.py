@@ -15,6 +15,9 @@ CONFIG = {"schemaVersion": 1, "component": "camera-access", "profile": PROFILE}
 
 
 def main():
+    if sys.argv[1:]==['--exchange']:
+        from aos_vision_exchange.daemon import main as exchange_main
+        return exchange_main()
     if sys.argv[1:]==['--ingress']:
         from .ingress_main import main as ingress_main
         return ingress_main()

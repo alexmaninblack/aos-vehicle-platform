@@ -1,0 +1,21 @@
+{
+  "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: Apache-2.0",
+  "schemaVersion": 1,
+  "repository": "https://github.com/alexmaninblack/vision-pilot-services",
+  "revision": "cd924e2120dcd3578274829f68995366a7e042d1",
+  "scope": "Strict typed DTO/framing only; no model, Cloud, credentials or runtime sibling",
+  "files": [
+    {
+      "path": "camera-access/shared/vision_common/__init__.py",
+      "sha256": "b8f3c99f76967b933b7fa07c56d725f04cce1b25edf2e8b49ac866326dbd09c2"
+    },
+    {
+      "path": "camera-access/shared/vision_common/protocol.py",
+      "sha256": "09c88069b582bb7c458c9ffa1181626e6a40e759df69a9cf0c50fd946039425a"
+    },
+    {
+      "path": "camera-access/shared/vision_common/ipc.py",
+      "sha256": "1f495112d89def57a985ec81e50fc5409a4c18f758eb13b4638c07478e9519e8"
+    }
+  ]
+}
