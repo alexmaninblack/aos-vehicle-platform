@@ -1,0 +1,50 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+# Transient alternative policy store only; no image/canonical-store install.
+policy_module(camera_ingress_probe, 1.0.0)
+
+type camera_ingress_t;
+type camera_ingress_exec_t;
+init_daemon_domain(camera_ingress_t, camera_ingress_exec_t)
+type camera_ingress_code_t;
+files_type(camera_ingress_code_t)
+
+gen_require(`
+    type camera_access_t;
+    type camera_access_runtime_t;
+    type camera_access_oem_t;
+    type camera_access_store_t;
+    type aos_var_run_t;
+    type initrc_runtime_t;
+    type unreserved_port_t;
+')
+
+allow camera_ingress_t self:process getcap;
+allow camera_ingress_t self:fifo_file rw_fifo_file_perms;
+allow camera_ingress_t self:unix_stream_socket { create connect read write getattr getopt setopt shutdown };
+allow camera_ingress_t self:tcp_socket { create connect read write getattr getopt setopt shutdown };
+# Port 6443 retains its existing unreserved label; changing it would affect SM.
+# Fixed binary endpoint plus systemd IPAddressDeny/Allow restricts the peer to
+# 10.0.0.1:6443; no name_bind, bind, listen, DNS or Internet allowance.
+allow camera_ingress_t unreserved_port_t:tcp_socket name_connect;
+allow camera_ingress_t aos_var_run_t:dir search;
+allow camera_ingress_t camera_access_store_t:dir { getattr search };
+allow camera_ingress_t camera_access_store_t:lnk_file read_lnk_file_perms;
+allow camera_ingress_t camera_ingress_code_t:file { getattr open read };
+allow camera_ingress_t camera_access_runtime_t:dir search;
+allow camera_ingress_t camera_access_oem_t:dir { getattr search };
+allow camera_ingress_t camera_access_oem_t:sock_file write;
+allow camera_ingress_t camera_access_t:unix_stream_socket connectto;
+# Unit-private read-only systemd mount. Camera core has no such grant, even
+# though DAC UID matches. Apps still have neither UID nor a credential mount.
+allow camera_ingress_t initrc_runtime_t:dir { getattr search open read };
+allow camera_ingress_t initrc_runtime_t:file { getattr open read };
+corecmd_exec_bin(camera_ingress_t)
+dev_read_urand(camera_ingress_t)
+files_read_etc_files(camera_ingress_t)
+files_search_runtime(camera_ingress_t)
+init_rw_script_stream_sockets(camera_ingress_t)
+kernel_read_system_state(camera_ingress_t)
+libs_use_ld_so(camera_ingress_t)
+libs_use_shared_libs(camera_ingress_t)
+miscfiles_read_localization(camera_ingress_t)

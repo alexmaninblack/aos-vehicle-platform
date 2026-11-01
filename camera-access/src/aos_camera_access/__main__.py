@@ -5,6 +5,7 @@ import argparse
 import json
 from pathlib import Path
 import socket
+import sys
 import time
 
 from . import daemon, ipc
@@ -14,6 +15,9 @@ CONFIG = {"schemaVersion": 1, "component": "camera-access", "profile": PROFILE}
 
 
 def main():
+    if sys.argv[1:]==['--ingress']:
+        from .ingress_main import main as ingress_main
+        return ingress_main()
     p = argparse.ArgumentParser()
     p.add_argument("--config", type=Path, required=True)
     p.add_argument("--self-test", action="store_true")

@@ -12,8 +12,8 @@ An implemented source target is not an installed/qualified native Aos service.
 
 ## Boundaries
 
-The simulation-side Gateway owns CARLA capture. A future authenticated OEM
-adapter supplies the trusted selected-source binding and images to Camera
+The simulation-side Gateway owns CARLA capture. The accepted ingress source
+packet adds an internal authenticated OEM adapter supplying binding/images to Camera
 Access. Perception consumes admitted frames without knowing CARLA's address or
 owning the sensor. Assessment and result delivery are separate consumers/work.
 No VDP, KUKSA, model, Cloud, provisioning or motion API is imported by this core.
@@ -93,6 +93,16 @@ headers solely for envelope-validation cases. They prove neither pixel decode,
 native authorization, live camera delivery nor installed-package acceptance.
 
 ## Remaining deployment gates
+
+The `ingress.py` bounded multipart reader and `ingress_main.py` strict nonroot
+entry use only the existing Source/systemd credentials, fixed Gateway route
+and OEM socket. Core/apps receive no TLS key. The separate launcher/service
+and transient policy fixture are source-only, not installed by the existing
+Factory recipe. `tools/check_camera_ingress.py` checks this new packet against
+its accepted platform base without widening the earlier frozen gates.
+The launcher and temporary policy compile independently; real nonroot transport,
+credential isolation, fresh AVCs and native live-frame delivery remain live
+gates. No permanent image or Cloud resource mutation follows from source tests.
 
 Qualify transient non-root IPC/policy, the Vision bootstrap/image and normal
 independent Unit provisioning, native OEM activation and actual Aos-managed

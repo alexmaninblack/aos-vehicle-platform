@@ -1,0 +1,38 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+[Unit]
+Description=Aos Vision internal Camera Access Gateway ingress
+Requires=aos-camera-access.service
+After=aos-camera-access.service
+BindsTo=aos-camera-access.service
+PartOf=aos-camera-access.service
+
+[Service]
+Type=exec
+User=aos-camera-access
+Group=aos-camera-read
+ExecStart=/usr/libexec/aos-camera-ingress-launcher
+Restart=no
+TimeoutStartSec=5s
+TimeoutStopSec=5s
+UMask=0077
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET
+SocketBindDeny=any
+IPAddressDeny=any
+IPAddressAllow=10.0.0.1/32
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+# The labelled launcher sets NoNewPrivileges after the init-domain transition.
+# Source alone projects the exact selection and existing per-instance identity
+# with LoadCredential. This unit is never enabled as a boot/default service.
