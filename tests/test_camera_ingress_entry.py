@@ -3,6 +3,8 @@
 """Unit fixtures for strict nonroot entry; no credential or network use."""
 from pathlib import Path
 import sys
+import stat
+import struct
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -13,6 +15,21 @@ from aos_camera_access.core import CameraError
 
 
 class EntryTests(unittest.TestCase):
+    def test_root_owned_systemd_acl_is_exact_not_a_group_or_world_grant(self):
+        undefined=2**32-1
+        entries=[(1,4,undefined),(2,4,992),(4,0,undefined),(16,4,undefined),(32,0,undefined)]
+        encode=lambda rows:struct.pack('<I',2)+b''.join(struct.pack('<HHI',*v) for v in rows)
+        info=SimpleNamespace(st_mode=stat.S_IFREG|0o440,st_uid=0,st_gid=0,st_nlink=1)
+        m.credential_access(info,992,encode(entries))
+        for index,replacement in ((1,(2,4,5000)),(2,(4,4,undefined)),(4,(32,4,undefined))):
+            bad=list(entries);bad[index]=replacement
+            with self.assertRaises(CameraError):m.credential_access(info,992,encode(bad))
+        with self.assertRaises(CameraError):m.credential_access(info,992,encode(entries+[entries[1]]))
+        with self.assertRaises(CameraError):m.credential_access(info,992,None)
+        owned=SimpleNamespace(st_mode=stat.S_IFREG|0o400,st_uid=992,st_gid=990,st_nlink=1)
+        m.credential_access(owned,992,None)
+        owned.st_mode|=0o004
+        with self.assertRaises(CameraError):m.credential_access(owned,992,None)
     def test_identity_requires_exact_uid_group_domain_nnp_and_empty_caps(self):
         status='NoNewPrivs: 1\n'+''.join(k+': 0\n' for k in ('CapEff','CapInh','CapPrm','CapAmb','CapBnd'))
         with patch.object(m.pwd,'getpwnam',return_value=SimpleNamespace(pw_uid=992)), \
