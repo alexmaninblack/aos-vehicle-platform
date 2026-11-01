@@ -10,6 +10,18 @@ FILESEXTRAPATHS:prepend := "${THISDIR}/../../../contracts/camera-access:${THISDI
 SRC_URI += "file://native-profile.json file://vision_image.py file://core.py"
 ROOTFS_POSTPROCESS_COMMAND:append = " aos_vision_native_profile; "
 
+# FOTA needs the fully preprocessed tree, not an old manufacturing build's
+# shared link. The inherited do_create_shared_links also depends on image_wic;
+# this explicit task exports only a link and never assembles a filesystem/disk.
+AOS_VISION_FOTA_ROOTFS_DIR = "${TMPDIR}/work-shared/aos-vision-fota-${MACHINE}"
+do_prepare_vision_rootfs_fota[cleandirs] = "${AOS_VISION_FOTA_ROOTFS_DIR}"
+do_prepare_vision_rootfs_fota() {
+    test "${AOS_VISION_CAMERA_INGRESS}" = "1"
+    test -d "${IMAGE_ROOTFS}"
+    ln -r -s "${IMAGE_ROOTFS}" "${AOS_VISION_FOTA_ROOTFS_DIR}/rootfs"
+}
+addtask prepare_vision_rootfs_fota after do_image
+
 # Image recipes disable normal unpack tasks. Resolve the build-time helpers
 # from the layer and include their actual bytes in do_rootfs signatures.
 python __anonymous() {
