@@ -1,0 +1,53 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+# Transient exact-scope candidate. Not installed by an image recipe yet.
+policy_module(vision_exchange, 1.0.0)
+
+type vision_exchange_t;
+type vision_exchange_exec_t;
+init_daemon_domain(vision_exchange_t, vision_exchange_exec_t)
+type vision_exchange_runtime_t;
+files_runtime_file(vision_exchange_runtime_t)
+type vision_exchange_socket_t;
+files_runtime_file(vision_exchange_socket_t)
+
+gen_require(`
+    type container_engine_t;
+    type camera_access_store_t;
+    type aos_var_run_t;
+    type initrc_runtime_t;
+    type kubernetes_port_t;
+    type cert_t;
+')
+
+allow vision_exchange_t self:process getcap;
+allow vision_exchange_t self:fifo_file rw_fifo_file_perms;
+allow vision_exchange_t self:unix_stream_socket { create listen accept bind connect read write getattr getopt setopt shutdown };
+allow vision_exchange_t self:tcp_socket { create connect read write getattr getopt setopt shutdown };
+allow vision_exchange_t kubernetes_port_t:tcp_socket name_connect;
+allow vision_exchange_t aos_var_run_t:dir search;
+allow vision_exchange_t camera_access_store_t:dir { getattr search };
+allow vision_exchange_t camera_access_store_t:lnk_file read_lnk_file_perms;
+allow vision_exchange_t camera_access_store_t:file { getattr open read };
+allow vision_exchange_t vision_exchange_runtime_t:dir { getattr search };
+manage_sock_files_pattern(vision_exchange_t, vision_exchange_socket_t, vision_exchange_socket_t)
+allow vision_exchange_t initrc_runtime_t:dir { getattr search open read };
+allow vision_exchange_t initrc_runtime_t:file { getattr open read };
+corecmd_exec_bin(vision_exchange_t)
+dev_read_urand(vision_exchange_t)
+files_read_etc_files(vision_exchange_t)
+files_search_runtime(vision_exchange_t)
+init_rw_script_stream_sockets(vision_exchange_t)
+kernel_read_system_state(vision_exchange_t)
+libs_use_ld_so(vision_exchange_t)
+libs_use_shared_libs(vision_exchange_t)
+miscfiles_read_localization(vision_exchange_t)
+
+# Native groups/DAC and read-only role projections remain separate guards.
+allow container_engine_t vision_exchange_runtime_t:dir { getattr search };
+allow container_engine_t vision_exchange_socket_t:dir { getattr search };
+allow container_engine_t vision_exchange_socket_t:sock_file { getattr write };
+allow container_engine_t vision_exchange_t:unix_stream_socket connectto;
+dontauditxperm vision_exchange_t camera_access_store_t:file ioctl 0x5401;
+dontauditxperm vision_exchange_t initrc_runtime_t:file ioctl 0x5401;
+dontaudit vision_exchange_t cert_t:dir search;

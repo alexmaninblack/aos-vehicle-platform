@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+[Unit]
+Description=Aos Vision internal typed exchange
+Requires=aos-camera-access.service
+After=aos-camera-access.service
+BindsTo=aos-camera-access.service
+PartOf=aos-camera-access.service
+
+[Service]
+Type=exec
+User=aos-vision-exchange
+Group=aos-vision-exchange
+SupplementaryGroups=aos-vision-perception-publish aos-vision-perception-read aos-vision-context-read aos-vision-assessment-publish
+ExecStart=/usr/libexec/aos-vision-exchange-launcher
+Restart=no
+TimeoutStartSec=5s
+TimeoutStopSec=5s
+UMask=0077
+ReadWritePaths=/run/aos-vision-exchange
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET
+SocketBindDeny=any
+IPAddressDeny=any
+IPAddressAllow=10.0.0.1/32
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+# Fixed labelled launcher sets NNP after its init-domain transition. Source
+# alone projects the four exact read-only systemd credentials and UID egress.
+# Never enable at boot or grant the Camera core these credentials.
