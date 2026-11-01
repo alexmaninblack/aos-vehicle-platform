@@ -156,7 +156,16 @@ inline Error ValidatePath(const std::string &name, char type,
 } // namespace detail
 
 /** Validates the restricted, uncompressed USTAR provider layer before tar. */
-inline Error ValidateProviderArchive(const std::filesystem::path &archivePath) {
+inline Error ValidateProviderArchive(
+    const std::filesystem::path &archivePath,
+    const std::string &entrypoint = "bin/vehicle-data-provider") {
+  // Runtime configuration derives this value from a closed component profile.
+  // Do not turn the archive gate into a general executable allowlist.
+  if (entrypoint != "bin/vehicle-data-provider" &&
+      entrypoint != "bin/camera-access") {
+    return Error(ErrorEnum::eInvalidArgument,
+                 "provider archive executable profile is invalid");
+  }
   std::error_code filesystemError;
   const auto status =
       std::filesystem::symlink_status(archivePath, filesystemError);
@@ -282,7 +291,7 @@ inline Error ValidateProviderArchive(const std::filesystem::path &archivePath) {
     }
     if ((mode & (07000U | 0022U)) != 0 ||
         (type != '5' && (mode & 0111U) != 0 &&
-         canonical != "bin/vehicle-data-provider")) {
+         canonical != entrypoint)) {
       return Error(ErrorEnum::eInvalidArgument,
                    "provider archive permissions are unsafe");
     }

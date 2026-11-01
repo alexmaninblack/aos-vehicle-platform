@@ -26,6 +26,8 @@ def main():
     p.add_argument("--source", type=Path, required=True)
     p.add_argument("--scratch", type=Path, required=True)
     p.add_argument("--evidence", type=Path, required=True)
+    p.add_argument("--transient-sm", action="store_true",
+                   help="Also link only the changed SM target for a reversible /run proof")
     a = p.parse_args()
     assert os.uname().sysname == "Linux" and os.uname().machine == "aarch64"
     assert all(x.is_absolute() and not x.is_symlink() for x in (a.work, a.source, a.scratch, a.evidence))
@@ -97,12 +99,30 @@ def main():
             tests = json.loads((a.evidence/"gtest.json").read_bytes())
             assert completed.returncode == 0 and tests["failures"] == 0 and tests.get("disabled", 0) == 0, "TARGET_TESTS_FAILED"
             cases = [case for suite in tests["testsuites"] for case in suite["testsuite"]]
-            assert len(cases) == 83 and all(case["result"] == "COMPLETED" for case in cases), "TARGET_CASES_NOT_COMPLETED"
+            assert len(cases) == 86 and all(case["result"] == "COMPLETED" for case in cases), "TARGET_CASES_NOT_COMPLETED"
             assert b"CameraAccessUsesOnlyItsExplicitTarget" in completed.stdout and b"DefaultVdpPayloadIdentityIsUnchanged" in completed.stdout, "CAMERA_TESTS_NOT_EXECUTED"
             result.update(outcome="PASS_TARGETED_NATIVE_UNIT", tests=tests["tests"],
                           excludedLiveVdpQualifications=["RealProviderFirstInstallThroughProductionProfile",
                                                         "RealProviderUpdateAndRollbackThroughProductionProfile"],
                           executableSha256=hashlib.sha256(executable.read_bytes()).hexdigest())
+            if a.transient_sm:
+                app = build/"src/sm/app"
+                args = shlex.split((app/"CMakeFiles/aos_sm_app.dir/link.txt").read_text())
+                output = a.evidence/"aos-sm-profile-proof"
+                args[args.index("-o")+1] = str(output)
+                matches = [i for i, token in enumerate(args)
+                           if token.endswith("libaos_sm_runtimes_systemdslotcomponent.a")]
+                assert len(matches) == 1, "SM_RUNTIME_LINK_BINDING"
+                args[matches[0]] = str(library)
+                completed = subprocess.run(args, cwd=app, env=env, capture_output=True, timeout=90)
+                (a.evidence/"sm-link.log").write_bytes(completed.stdout+completed.stderr)
+                assert completed.returncode == 0, "SM_TARGET_LINK_FAILED"
+                strip = compiler.with_name("aarch64-aos-linux-strip")
+                subprocess.run([str(strip), str(output)], check=True, timeout=20)
+                output.chmod(0o500)
+                result["transientSm"] = dict(bytes=output.stat().st_size,
+                    sha256=hashlib.sha256(output.read_bytes()).hexdigest(),
+                    purpose="REVERSIBLE_RUN_PROOF_ONLY_NOT_FACTORY_ACCEPTANCE")
     except (AssertionError, OSError, subprocess.SubprocessError) as error:
         result["code"] = str(error) if isinstance(error, AssertionError) else type(error).__name__
     result.update(seconds=round(time.monotonic()-start, 2), scratchRemoved=True)

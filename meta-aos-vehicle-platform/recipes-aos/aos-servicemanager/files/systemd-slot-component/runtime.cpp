@@ -1074,7 +1074,8 @@ Error SystemdSlotComponentRuntime::PrepareCandidate(
         !err.IsNone()) {
       return AOS_ERROR_WRAP(err);
     }
-    if (auto err = imagemanager::ValidateProviderArchive(archivePath);
+    if (auto err = imagemanager::ValidateProviderArchive(archivePath,
+                                                       mConfig.mEntrypoint);
         !err.IsNone()) {
       return AOS_ERROR_WRAP(err);
     }

@@ -120,6 +120,35 @@ TEST_F(ProviderArchiveTest, RejectsEscapingPathBeforeExtraction) {
       ValidateProviderArchive(mArchive).Is(ErrorEnum::eInvalidArgument));
 }
 
+TEST_F(ProviderArchiveTest, CameraExecutableRequiresItsExactProfile) {
+  WriteArchive(mArchive, {{"bin/camera-access", '0', 0755, "camera", {}}});
+  EXPECT_TRUE(ValidateProviderArchive(mArchive).Is(ErrorEnum::eInvalidArgument));
+  EXPECT_TRUE(ValidateProviderArchive(mArchive, "bin/camera-access").IsNone());
+  EXPECT_TRUE(ValidateProviderArchive(mArchive, "bin/arbitrary")
+                  .Is(ErrorEnum::eInvalidArgument));
+}
+
+TEST_F(ProviderArchiveTest, CameraProfileRejectsVdpAndExtraExecutables) {
+  WriteArchive(mArchive,
+               {{"bin/vehicle-data-provider", '0', 0755, "vdp", {}}});
+  EXPECT_TRUE(ValidateProviderArchive(mArchive, "bin/camera-access")
+                  .Is(ErrorEnum::eInvalidArgument));
+  WriteArchive(mArchive, {{"bin/camera-access", '0', 0755, "camera", {}},
+                          {"bin/helper", '0', 0755, "unsafe", {}}});
+  EXPECT_TRUE(ValidateProviderArchive(mArchive, "bin/camera-access")
+                  .Is(ErrorEnum::eInvalidArgument));
+}
+
+TEST_F(ProviderArchiveTest, CameraProfileKeepsUnsafeModeAndLinkDenials) {
+  WriteArchive(mArchive, {{"bin/camera-access", '0', 0775, "camera", {}}});
+  EXPECT_TRUE(ValidateProviderArchive(mArchive, "bin/camera-access")
+                  .Is(ErrorEnum::eInvalidArgument));
+  WriteArchive(mArchive,
+               {{"bin/camera-access", '2', 0755, {}, "/etc/passwd"}});
+  EXPECT_TRUE(ValidateProviderArchive(mArchive, "bin/camera-access")
+                  .Is(ErrorEnum::eInvalidArgument));
+}
+
 TEST_F(ProviderArchiveTest, RejectsSymbolicLinkBeforeExtraction) {
   WriteArchive(mArchive, {{"escape", '2', 0777, {}, "/etc/passwd"}});
   EXPECT_TRUE(

@@ -17,7 +17,8 @@ FILES={'README.md','docs/architecture.md','tests/test_camera_access_native.py','
        'meta-aos-vehicle-platform/recipes-core/images/aos-image-vision.bb',
        'meta-aos-vehicle-platform/recipes-security/refpolicy/refpolicy-aos_git.bbappend'}
 RUNTIME='meta-aos-vehicle-platform/recipes-aos/aos-servicemanager/files/systemd-slot-component/'
-FILES.update(RUNTIME+s for s in ('config.cpp','config.hpp','runtime.cpp','tests/runtime.cpp'))
+FILES.update(RUNTIME+s for s in ('config.cpp','config.hpp','runtime.cpp','tests/runtime.cpp',
+                               'providerarchive.hpp','tests/providerarchive.cpp'))
 PREFIXES=('camera-access/','contracts/camera-access/',
           'meta-aos-vehicle-platform/recipes-aos/aos-camera-access-platform/',
           'meta-aos-vehicle-platform/recipes-security/refpolicy/files/camera_access.')
