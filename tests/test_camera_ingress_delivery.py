@@ -38,7 +38,8 @@ class DeliverySourceTests(unittest.TestCase):
         recipe=(ROOT/'meta-aos-vehicle-platform/recipes-aos-fota/aos-rootfs/aos-rootfs-vision.bb').read_text()
         self.assertIn('require recipes-aos-fota/aos-rootfs/aos-rootfs.bb',recipe)
         self.assertIn('AOS_ROOTFS_IMAGE_TYPE = "full"',recipe)
-        self.assertIn('aos-image-vision:do_rootfs',recipe)
+        self.assertIn('aos-image-vision:do_image',recipe)
+        self.assertNotIn('aos-image-vision:do_rootfs',recipe)
         self.assertNotIn('aos-boot',recipe)
 
     def test_native_squashfs_uses_exact_commit_without_a_missing_branch(self):
