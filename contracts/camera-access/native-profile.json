@@ -6,6 +6,7 @@
   "runtimePlugin": "systemd-slot-component",
   "runtimeTypeSuffix": "camera-access",
   "workingDirectory": "/var/aos/workdirs/sm/runtimes/systemd-slot-camera-access",
+  "storageContract": "contracts/camera-access/store.v1.json",
   "unit": "aos-camera-access.service",
   "healthAdapter": "/usr/libexec/aos-camera-access-health",
   "entrypoint": "bin/camera-access",

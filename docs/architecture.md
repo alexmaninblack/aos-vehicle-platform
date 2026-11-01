@@ -38,6 +38,12 @@ operations.
 
 ### Vision-only Camera Access
 
+The [Camera store](../contracts/camera-access/store.v1.json) has an independent
+512-MiB ext4 backing file, per-Unit UUID, fixed Camera SELinux context and native
+bootstrap dependency chain. It does not relabel shared workdirs or reuse VDP
+storage. Refuse a nonempty unmounted target or contradictory identity instead
+of silently hiding/migrating data. Source only verifies this owner after boot.
+
 The Vision branch adds [independent Camera Access](../camera-access/README.md)
 with a bounded core and a separate native IPC/OEM profile. Vision has its own VM
 and OEM camera package; it does not install VDP/Brake/Tire or adopt their slot.

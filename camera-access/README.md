@@ -57,6 +57,23 @@ guest monotonic clocks are not subtracted; pixel/capture-time alignment and
 end-to-end age remain unqualified. The existing engineering world-frame
 association is retained honestly, not presented as a CARLA source fix.
 
+## Independent Camera store
+
+The [storage contract](../contracts/camera-access/store.v1.json) keeps Camera's
+A/B root at `/var/aos/workdirs/sm/runtimes/systemd-slot-camera-access`. Aos
+workdirs forces a shared SELinux context, so the Vision bootstrap mounts a
+separate fully allocated 512-MiB ext4 image there with `camera_access_store_t`.
+It records a new filesystem UUID for each Unit, verifies the backing/loop
+identity and retains a 512-MiB creation reserve. Preparation rejects wrong
+identity, unsafe permissions, contradictory partial state and a nonempty
+unmounted root rather than hiding or migrating existing data.
+
+Only the storage bootstrap is enabled at boot, before SM and Source restoration.
+Native OEM activation still owns the Camera process. Full util-linux tools and
+the pinned kernel loop driver are package dependencies; BusyBox replacements
+are not accepted by preparation. VDP storage, shared workdirs labeling and the
+retained Brake/Tire VM remain unchanged.
+
 ## Run offline source checks
 
 From this repository's root, with the prepared development Python:
@@ -80,7 +97,7 @@ native authorization, live camera delivery nor installed-package acceptance.
 Qualify transient non-root IPC/policy, the Vision bootstrap/image and normal
 independent Unit provisioning, native OEM activation and actual Aos-managed
 consumer delivery/revocation on M4. Authenticated Gateway ingress remains its
-own gate. The narrow policy compiles but has not yet passed live AVC/rollback
-proof; do not call it an accepted live security result. Neither manual crun,
+own gate. Storage-admin-only transient proofs are distinct from Camera daemon
+and container security acceptance. Neither manual crun,
 root socket access nor unit mocks count as native SM allocation. Current Main
 selectors, image, VM, Test and data are not modified or replaced.

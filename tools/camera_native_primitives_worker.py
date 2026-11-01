@@ -37,6 +37,7 @@ def main():
         scratch=Path(temporary)
         print('CAMERA_LAUNCHER_COMPILE_STARTED',flush=True)
         run([*shlex.split(values['CC']),'-Wall','-Wextra','-Werror',str(launcher),'-o',str(a.evidence/'aos-camera-access-launcher')])
+        run([*shlex.split(values['CC']),'-Wall','-Wextra','-Werror',str(launcher.with_name('aos-camera-access-loop.c')),'-o',str(a.evidence/'aos-camera-access-loop')])
         policy=a.policy_work/'refpolicy'
         flags=['NAME=aos','TYPE=mcs','DISTRO=debian','UBAC=n','UNK_PERMS=allow','DIRECT_INITRC=y','SYSTEMD=y',
                'MONOLITHIC=n','CUSTOM_BUILDOPT=','MLS_SENS=0','MLS_CATS=1024','MCS_CATS=1024',

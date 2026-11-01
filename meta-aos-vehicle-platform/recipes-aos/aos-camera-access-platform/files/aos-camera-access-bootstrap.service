@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+[Unit]
+Description=Prepare the Aos Camera Access component store
+RequiresMountsFor=/var/aos/workdirs
+RequiresMountsFor=/var/aos/workdirs/sm/runtimes/systemd-slot-camera-access
+ConditionPathIsMountPoint=/var/aos/workdirs
+ConditionPathIsMountPoint=/var/aos/workdirs/sm/runtimes/systemd-slot-camera-access
+Before=aos-sm.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/aos-camera-access-store-check
+RemainAfterExit=yes
+
+[Install]
+WantedBy=aos.target

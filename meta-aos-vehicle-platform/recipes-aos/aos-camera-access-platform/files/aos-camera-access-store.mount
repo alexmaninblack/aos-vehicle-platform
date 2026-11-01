@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+[Unit]
+Description=Isolated Aos Camera Access component store
+DefaultDependencies=no
+Requires=aos-camera-access-store-attach.service
+After=aos-camera-access-store-attach.service
+Conflicts=umount.target
+Before=aos-camera-access-bootstrap.service aos-sm.service umount.target
+
+[Mount]
+What=/run/aos-camera-access-store/loop
+Where=/var/aos/workdirs/sm/runtimes/systemd-slot-camera-access
+Type=ext4
+Options=nodev,nosuid,noatime,errors=remount-ro,context=system_u:object_r:camera_access_store_t:s0
+TimeoutSec=30s

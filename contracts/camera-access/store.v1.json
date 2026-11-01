@@ -1,0 +1,20 @@
+{
+  "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: Apache-2.0",
+  "schemaVersion": 1,
+  "componentProfile": "camera-access-v1",
+  "backend": "loop-ext4",
+  "workingDirectory": "/var/aos/workdirs/sm/runtimes/systemd-slot-camera-access",
+  "backingFile": "/var/aos/workdirs/sm/runtimes/.camera-access-store.ext4",
+  "identityFile": "/var/aos/workdirs/sm/runtimes/.camera-access-store.identity",
+  "runtimeLoop": "/run/aos-camera-access-store/loop",
+  "bytes": 536870912,
+  "minimumRemainingBytes": 536870912,
+  "filesystemLabel": "aos-camera-store",
+  "context": "system_u:object_r:camera_access_store_t:s0",
+  "mountOptions": ["rw", "nodev", "nosuid", "noatime", "errors=remount-ro"],
+  "identityMode": "0600 root:root; schema/backend/size/label and new per-Unit UUID",
+  "reuse": "Exact recorded filesystem UUID, regular fully allocated backing file and matching loop inode/device only",
+  "recovery": "Reject unknown partial identity, contradictory final/partial files, wrong backing identity or nonempty unmounted root; never silently migrate or hide data",
+  "authority": "Existing OEM bootstrap layout/prepare/attach/mount/check pattern, before Service Manager and Source restoration",
+  "excluded": ["Shared VDP backing or UUID", "Workdirs context change", "Root Camera daemon", "Generic Aos-file access for Camera", "Rootfs remount", "Overlay rebase"]
+}

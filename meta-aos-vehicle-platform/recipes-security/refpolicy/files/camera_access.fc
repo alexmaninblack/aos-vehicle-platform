@@ -1,6 +1,9 @@
 # SPDX-FileCopyrightText: 2026 maninblack
 # SPDX-License-Identifier: Apache-2.0
 /usr/libexec/aos-camera-access-launcher -- gen_context(system_u:object_r:camera_access_exec_t,s0)
+/usr/libexec/aos-camera-access-loop -- gen_context(system_u:object_r:camera_access_store_admin_exec_t,s0)
+/usr/libexec/aos-camera-access-store-prepare -- gen_context(system_u:object_r:camera_access_store_prepare_exec_t,s0)
+/run/aos-camera-access-store(/.*)? gen_context(system_u:object_r:camera_access_store_runtime_t,s0)
 /usr/lib/systemd/system/aos-camera-access.* -- gen_context(system_u:object_r:camera_access_unit_t,s0)
 /var/aos/workdirs/sm/runtimes/systemd-slot-camera-access(/.*)? gen_context(system_u:object_r:camera_access_store_t,s0)
 /run/aos-camera-access gen_context(system_u:object_r:camera_access_runtime_t,s0)

@@ -152,7 +152,34 @@ class NativeContractTests(unittest.TestCase):
             self.assertIn(setting,unit)
         for setting in ('LoadCredential=','kuksa','vehicle-data-provider','WantedBy='):
             self.assertNotIn(setting,unit)
-        self.assertIn('SYSTEMD_AUTO_ENABLE:${PN} = "disable"',next(folder.glob('*.bb')).read_text())
+        recipe=next(folder.glob('*.bb')).read_text()
+        self.assertIn('SYSTEMD_SERVICE:${PN} = "aos-camera-access-bootstrap.service"',recipe)
+        self.assertNotIn('WantedBy=',unit)
+
+    def test_camera_store_has_its_own_backend_identity_and_label(self):
+        folder=ROOT/'meta-aos-vehicle-platform/recipes-aos/aos-camera-access-platform/files'
+        prepare=(folder/'aos-camera-access-store-prepare').read_text()
+        for value in ('store_size=536870912','minimum_remaining=536870912',
+                      '.camera-access-store.ext4','aos-camera-store',
+                      'unmounted component root is not empty',
+                      'partial store identity requires manual reconciliation',
+                      'store backing file is sparse or incompletely allocated'):
+            self.assertIn(value,prepare)
+        for name in ('aos-camera-access-loop.c','aos-camera-access-store-check','aos-camera-access-store.mount'):
+            value=(folder/name).read_text()
+            self.assertNotIn('vehicle-data-provider',value)
+            self.assertNotIn('vehicle_data_provider',value)
+            self.assertIn('camera-access',value)
+        self.assertIn('context=system_u:object_r:camera_access_store_t:s0',
+                      (folder/'aos-camera-access-store.mount').read_text())
+
+    def test_camera_storage_bootstrap_does_not_restore_vdp_or_enable_camera(self):
+        folder=ROOT/'meta-aos-vehicle-platform/recipes-aos/aos-camera-access-platform/files'
+        unit=(folder/'aos-camera-access-bootstrap.service').read_text()
+        self.assertNotIn('viss-boot-projection',unit)
+        self.assertIn('Before=aos-sm.service',unit)
+        self.assertIn('systemd-slot-camera-access',unit)
+        self.assertNotIn('ExecStart=/usr/libexec/aos-camera-access-launcher',unit)
 
     def test_payload_is_deterministic_distinct_and_has_no_credentials_or_models(self):
         spec=importlib.util.spec_from_file_location('camera_payload',ROOT/'tools/build_camera_access_payload.py')

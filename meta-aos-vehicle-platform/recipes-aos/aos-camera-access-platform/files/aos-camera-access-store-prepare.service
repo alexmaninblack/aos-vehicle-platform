@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+[Unit]
+Description=Prepare the isolated Aos Camera Access store
+DefaultDependencies=no
+Requires=var-aos-workdirs.mount aos-camera-access-store-layout.service
+After=var-aos-workdirs.mount systemd-modules-load.service aos-camera-access-store-layout.service
+Before=aos-camera-access-store-attach.service aos-camera-access-bootstrap.service aos-sm.service
+ConditionPathIsMountPoint=/var/aos/workdirs
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/aos-camera-access-store-prepare prepare
+RemainAfterExit=yes
+UMask=0077
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadWritePaths=/var/aos/workdirs/sm/runtimes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=

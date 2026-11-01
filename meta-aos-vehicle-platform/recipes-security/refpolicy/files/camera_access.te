@@ -9,6 +9,14 @@ init_daemon_domain(camera_access_t, camera_access_exec_t)
 
 type camera_access_store_t;
 files_type(camera_access_store_t)
+type camera_access_store_prepare_t;
+type camera_access_store_prepare_exec_t;
+init_daemon_domain(camera_access_store_prepare_t, camera_access_store_prepare_exec_t)
+type camera_access_store_admin_t;
+type camera_access_store_admin_exec_t;
+init_daemon_domain(camera_access_store_admin_t, camera_access_store_admin_exec_t)
+type camera_access_store_runtime_t;
+files_runtime_file(camera_access_store_runtime_t)
 type camera_access_runtime_t;
 files_runtime_file(camera_access_runtime_t)
 type camera_access_read_t;
@@ -53,6 +61,48 @@ manage_files_pattern(aos_t, camera_access_store_t, camera_access_store_t)
 manage_lnk_files_pattern(aos_t, camera_access_store_t, camera_access_store_t)
 allow aos_t camera_access_unit_t:service { start stop status reload };
 filetrans_pattern(aos_t, aos_var_run_t, camera_access_store_t, dir, "systemd-slot-camera-access")
+
+gen_require(`
+    type loop_control_device_t;
+    type mount_t;
+    type sysfs_t;
+')
+# This domain can only be entered through the fixed-path loop helper. The
+# helper itself accepts no backing path and validates the immutable 512 MiB
+# store contract before issuing any loop ioctl.
+allow camera_access_store_admin_t self:capability sys_admin;
+allow camera_access_store_admin_t aos_var_run_t:dir search;
+allow camera_access_store_admin_t aos_var_run_t:file { getattr ioctl lock open read write };
+allow camera_access_store_admin_t aos_var_run_t:filesystem getattr;
+init_rw_script_stream_sockets(camera_access_store_admin_t)
+files_search_runtime(camera_access_store_admin_t)
+manage_lnk_files_pattern(camera_access_store_admin_t, camera_access_store_runtime_t, camera_access_store_runtime_t)
+dev_rw_loop_control(camera_access_store_admin_t)
+storage_raw_rw_fixed_disk(camera_access_store_admin_t)
+
+# The immutable preparation script accepts no path or size overrides. It has
+# no capabilities, executes filesystem tools without entering the generic
+# fsadm_t domain, and is write-confined further by its systemd mount namespace.
+corecmd_exec_bin(camera_access_store_prepare_t)
+corecmd_exec_shell(camera_access_store_prepare_t)
+files_read_etc_files(camera_access_store_prepare_t)
+fstools_exec(camera_access_store_prepare_t)
+init_rw_script_stream_sockets(camera_access_store_prepare_t)
+kernel_read_system_state(camera_access_store_prepare_t)
+allow camera_access_store_prepare_t self:fifo_file rw_fifo_file_perms;
+allow camera_access_store_prepare_t aos_var_run_t:filesystem getattr;
+allow camera_access_store_prepare_t loop_control_device_t:chr_file getattr;
+allow camera_access_store_prepare_t sysfs_t:dir read;
+allow camera_access_store_prepare_t sysfs_t:file read;
+allow camera_access_store_prepare_t sysfs_t:lnk_file read;
+manage_dirs_pattern(camera_access_store_prepare_t, aos_var_run_t, aos_var_run_t)
+manage_files_pattern(camera_access_store_prepare_t, aos_var_run_t, aos_var_run_t)
+read_lnk_files_pattern(camera_access_store_prepare_t, aos_var_run_t, aos_var_run_t)
+storage_raw_read_fixed_disk(camera_access_store_prepare_t)
+
+allow mount_t camera_access_store_runtime_t:dir search;
+allow mount_t camera_access_store_runtime_t:lnk_file read_lnk_file_perms;
+allow mount_t camera_access_store_t:filesystem relabelfrom;
 # Native resource DAC/mount allocation is still required. This grants no OEM
 # socket, component-store write, Internet, camera configuration or actuation.
 stream_connect_pattern(container_t, camera_access_read_t, camera_access_read_t, camera_access_t)
