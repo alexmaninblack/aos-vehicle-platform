@@ -114,6 +114,8 @@ class NativeContractTests(unittest.TestCase):
         image=(ROOT/'meta-aos-vehicle-platform/recipes-core/images/aos-image-vision.bb').read_text()
         self.assertIn('d.appendVarFlag("do_rootfs", "file-checksums"',image)
         self.assertNotIn('work = Path(d.getVar("WORKDIR"))',image)
+        override=(ROOT/'qualification/vision-bootstrap-1.conf').read_text()
+        self.assertNotIn('IMAGE_BASENAME:forcevariable',override)
         self.assertEqual('aos-camera-access.service',p['unit'])
         self.assertNotIn('vehicle-data-provider',p['workingDirectory'])
         self.assertEqual(['status','pair'],p['readerOperations'])
