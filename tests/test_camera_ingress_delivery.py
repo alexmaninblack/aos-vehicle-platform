@@ -12,7 +12,7 @@ class DeliverySourceTests(unittest.TestCase):
         new=(ROOT/'qualification/vision-ingress-1.conf').read_text()
         self.assertIn('6.1.1-vision-camera.3',old)
         self.assertIn('require vision-bootstrap-1.conf',new)
-        self.assertIn('6.1.1-vision-camera.4',new)
+        self.assertIn('6.1.1-vision-camera.5',new)
         self.assertIn('AOS_VISION_CAMERA_INGRESS:forcevariable = "1"',new)
 
     def test_native_policy_reads_sealed_store_not_the_transient_code_type(self):
