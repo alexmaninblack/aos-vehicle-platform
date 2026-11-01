@@ -111,6 +111,7 @@ class NativeContractTests(unittest.TestCase):
         recipe=(ROOT/'meta-aos-vehicle-platform/recipes-aos/aos-camera-access-platform/aos-camera-access-platform_0.1.0.bb').read_text()
         shipped=next(line for line in recipe.splitlines() if line.startswith('FILES:${PN}'))
         self.assertIn('${systemd_system_unitdir}/aos-camera-access-selftest@.service',shipped)
+        self.assertIn('${systemd_system_unitdir}/aos-camera-access.service',shipped)
         image=(ROOT/'meta-aos-vehicle-platform/recipes-core/images/aos-image-vision.bb').read_text()
         self.assertIn('d.appendVarFlag("do_rootfs", "file-checksums"',image)
         self.assertNotIn('work = Path(d.getVar("WORKDIR"))',image)

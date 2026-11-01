@@ -37,5 +37,5 @@ do_install() {
     install -m 0644 ${WORKDIR}/camera-store.conf ${D}${libdir}/aos-camera-access/store.conf
     install -m 0644 ${WORKDIR}/30-aos-camera-access.conf ${D}${sysconfdir}/systemd/system/aos-sm.service.d
 }
-FILES:${PN} += "${libexecdir}/aos-camera-access-* ${libdir}/tmpfiles.d/aos-camera-access.conf ${systemd_system_unitdir}/aos-camera-access-selftest@.service"
+FILES:${PN} += "${libexecdir}/aos-camera-access-* ${libdir}/tmpfiles.d/aos-camera-access.conf ${systemd_system_unitdir}/aos-camera-access.service ${systemd_system_unitdir}/aos-camera-access-selftest@.service"
 FILES:${PN} += "${systemd_system_unitdir}/aos-camera-access-* ${systemd_system_unitdir}/var-aos-workdirs-sm-runtimes-systemd*camera*access.mount ${libdir}/aos-camera-access/store.conf ${sysconfdir}/modules-load.d/aos-camera-access-loop.conf ${sysconfdir}/systemd/system/aos-sm.service.d/30-aos-camera-access.conf"
