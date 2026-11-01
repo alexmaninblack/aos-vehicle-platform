@@ -18,6 +18,7 @@ class DeliverySourceTests(unittest.TestCase):
     def test_native_policy_reads_sealed_store_not_the_transient_code_type(self):
         folder=ROOT/'meta-aos-vehicle-platform/recipes-security/refpolicy/files'
         te=(folder/'camera_ingress.te').read_text();fc=(folder/'camera_ingress.fc').read_text()
+        self.assertIn('## <summary>',te)  # refpolicy conf generator selects documented modules
         self.assertIn('allow camera_ingress_t camera_access_store_t:file { getattr open read };',te)
         self.assertNotIn('camera_ingress_code_t',te)
         for forbidden in ('execute_no_trans','name_bind','self:capability','permissive camera_ingress','unconfined'):

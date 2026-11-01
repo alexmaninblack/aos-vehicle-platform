@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: 2026 maninblack
 # SPDX-License-Identifier: Apache-2.0
+## <summary>Authenticated Vision Camera Access OEM ingress.</summary>
 # Vision-only permanent OEM ingress; core and native Aos domains stay separate.
 policy_module(camera_ingress, 1.0.0)
 
