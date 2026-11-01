@@ -9,6 +9,16 @@ FILESEXTRAPATHS:prepend := "${THISDIR}/../../../contracts/camera-access:${THISDI
 SRC_URI += "file://native-profile.json file://vision_image.py file://core.py"
 ROOTFS_POSTPROCESS_COMMAND:append = " aos_vision_native_profile; "
 
+# Image recipes disable normal unpack tasks. Resolve the build-time helpers
+# from the layer and include their actual bytes in do_rootfs signatures.
+python __anonymous() {
+    for name in ("native-profile.json", "vision_image.py", "core.py"):
+        path = bb.utils.which(d.getVar("FILESPATH"), name)
+        if not path:
+            bb.fatal("Missing Vision build input: " + name)
+        d.appendVarFlag("do_rootfs", "file-checksums", " " + path + ":True")
+}
+
 python aos_vision_native_profile() {
     import json
     import importlib.util
@@ -16,7 +26,7 @@ python aos_vision_native_profile() {
     import types
     from pathlib import Path
     root = Path(d.getVar("IMAGE_ROOTFS"))
-    work = Path(d.getVar("WORKDIR"))
+    work = Path(bb.utils.which(d.getVar("FILESPATH"), "vision_image.py")).parent
     # Load the exact source-owned build-time selector without importing host code.
     package = types.ModuleType("aos_camera_access")
     package.__path__ = [str(work)]
@@ -28,7 +38,7 @@ python aos_vision_native_profile() {
         spec.loader.exec_module(module)
         config = root / "etc/aos/sm.cfg"
         resource = root / "etc/aos/resources.cfg"
-        native = json.loads((work / "native-profile.json").read_text())
+        native = json.loads(Path(bb.utils.which(d.getVar("FILESPATH"), "native-profile.json")).read_text())
         sm, resources = module.select(json.loads(config.read_text()), json.loads(resource.read_text()), native)
         config.write_text(json.dumps(sm, indent=4) + "\n")
         resource.write_text(json.dumps(resources, indent=4) + "\n")
