@@ -3,6 +3,11 @@
 
 FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 
+# Existing Main policy inputs remain unchanged unless the explicit Vision-only
+# delivery configuration selects this domain.
+AOS_VISION_CAMERA_INGRESS ??= "0"
+SRC_URI:append = " ${@'file://camera_ingress.te file://camera_ingress.fc file://camera_ingress.if' if d.getVar('AOS_VISION_CAMERA_INGRESS') == '1' else ''}"
+
 SRC_URI += " \
     file://camera_access.te \
     file://camera_access.fc \
@@ -20,6 +25,15 @@ SRC_URI += " \
 "
 
 do_compile:prepend() {
+    if [ "${AOS_VISION_CAMERA_INGRESS}" = "1" ]; then
+        install -m 0644 ${WORKDIR}/camera_ingress.te ${S}/policy/modules/services
+        install -m 0644 ${WORKDIR}/camera_ingress.fc ${S}/policy/modules/services
+        install -m 0644 ${WORKDIR}/camera_ingress.if ${S}/policy/modules/services
+    else
+        # This recipe's warm S can have been used by the explicit Vision task.
+        # Remove only our three optional inputs before rebuilding Main policy.
+        rm -f ${S}/policy/modules/services/camera_ingress.te ${S}/policy/modules/services/camera_ingress.fc ${S}/policy/modules/services/camera_ingress.if
+    fi
     install -m 0644 ${WORKDIR}/camera_access.te ${S}/policy/modules/services
     install -m 0644 ${WORKDIR}/camera_access.fc ${S}/policy/modules/services
     install -m 0644 ${WORKDIR}/camera_access.if ${S}/policy/modules/services

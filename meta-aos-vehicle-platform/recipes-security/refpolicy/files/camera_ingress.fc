@@ -1,0 +1,4 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+/usr/libexec/aos-camera-ingress-launcher -- gen_context(system_u:object_r:camera_ingress_exec_t,s0)
+/usr/lib/systemd/system/aos-camera-ingress\.service -- gen_context(system_u:object_r:camera_access_unit_t,s0)

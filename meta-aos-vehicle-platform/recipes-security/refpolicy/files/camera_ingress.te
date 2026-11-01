@@ -1,0 +1,52 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+# Vision-only permanent OEM ingress; core and native Aos domains stay separate.
+policy_module(camera_ingress, 1.0.0)
+
+type camera_ingress_t;
+type camera_ingress_exec_t;
+init_daemon_domain(camera_ingress_t, camera_ingress_exec_t)
+
+gen_require(`
+    type camera_access_t;
+    type camera_access_runtime_t;
+    type camera_access_oem_t;
+    type camera_access_store_t;
+    type aos_var_run_t;
+    type initrc_runtime_t;
+    type kubernetes_port_t;
+    type cert_t;
+')
+
+allow camera_ingress_t self:process getcap;
+allow camera_ingress_t self:fifo_file rw_fifo_file_perms;
+allow camera_ingress_t self:unix_stream_socket { create connect read write getattr getopt setopt shutdown };
+allow camera_ingress_t self:tcp_socket { create connect read write getattr getopt setopt shutdown };
+# Source additionally owns the exact UID/destination/port nft rule. No listener,
+# DNS, public Internet, motion or camera configuration permission is allocated.
+allow camera_ingress_t kubernetes_port_t:tcp_socket name_connect;
+allow camera_ingress_t aos_var_run_t:dir search;
+allow camera_ingress_t camera_access_store_t:dir { getattr search };
+allow camera_ingress_t camera_access_store_t:lnk_file read_lnk_file_perms;
+# The interpreter reads the sealed active OEM zip; it never executes/writes it.
+allow camera_ingress_t camera_access_store_t:file { getattr open read };
+allow camera_ingress_t camera_access_runtime_t:dir search;
+allow camera_ingress_t camera_access_oem_t:dir { getattr search };
+allow camera_ingress_t camera_access_oem_t:sock_file write;
+allow camera_ingress_t camera_access_t:unix_stream_socket connectto;
+# Exact Source-assigned read-only systemd credentials; the core gets no grant.
+allow camera_ingress_t initrc_runtime_t:dir { getattr search open read };
+allow camera_ingress_t initrc_runtime_t:file { getattr open read };
+corecmd_exec_bin(camera_ingress_t)
+dev_read_urand(camera_ingress_t)
+files_read_etc_files(camera_ingress_t)
+files_search_runtime(camera_ingress_t)
+init_rw_script_stream_sockets(camera_ingress_t)
+kernel_read_system_state(camera_ingress_t)
+libs_use_ld_so(camera_ingress_t)
+libs_use_shared_libs(camera_ingress_t)
+miscfiles_read_localization(camera_ingress_t)
+# Optional isatty/default-directory probes stay denied, not extra permissions.
+dontauditxperm camera_ingress_t camera_access_store_t:file ioctl 0x5401;
+dontauditxperm camera_ingress_t initrc_runtime_t:file ioctl 0x5401;
+dontaudit camera_ingress_t cert_t:dir search;

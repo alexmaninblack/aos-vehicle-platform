@@ -11,6 +11,8 @@ SRC_URI += "file://aos-camera-access-loop.c file://aos-camera-access-loop.conf \
  file://aos-camera-access-store-check file://camera-store.conf \
  file://aos-camera-access-bootstrap.service file://30-aos-camera-access.conf"
 S = "${WORKDIR}"
+AOS_VISION_CAMERA_INGRESS ??= "0"
+SRC_URI:append = " ${@'file://aos-camera-ingress-launcher.c file://aos-camera-ingress.service' if d.getVar('AOS_VISION_CAMERA_INGRESS') == '1' else ''}"
 inherit systemd useradd
 USERADD_PACKAGES = "${PN}"
 GROUPADD_PARAM:${PN} = "--system aos-camera-read"
@@ -22,9 +24,16 @@ SYSTEMD_AUTO_ENABLE:${PN} = "enable"
 do_compile() {
     ${CC} ${CFLAGS} ${CPPFLAGS} ${LDFLAGS} -Wall -Wextra -Werror ${WORKDIR}/aos-camera-access-launcher.c -o ${B}/aos-camera-access-launcher
     ${CC} ${CFLAGS} ${CPPFLAGS} ${LDFLAGS} -Wall -Wextra -Werror ${WORKDIR}/aos-camera-access-loop.c -o ${B}/aos-camera-access-loop
+    if [ "${AOS_VISION_CAMERA_INGRESS}" = "1" ]; then
+        ${CC} ${CFLAGS} ${CPPFLAGS} ${LDFLAGS} -Wall -Wextra -Werror ${WORKDIR}/aos-camera-ingress-launcher.c -o ${B}/aos-camera-ingress-launcher
+    fi
 }
 do_install() {
     install -d ${D}${libexecdir} ${D}${systemd_system_unitdir} ${D}${libdir}/tmpfiles.d
+    if [ "${AOS_VISION_CAMERA_INGRESS}" = "1" ]; then
+        install -m 0755 ${B}/aos-camera-ingress-launcher ${D}${libexecdir}
+        install -m 0644 ${WORKDIR}/aos-camera-ingress.service ${D}${systemd_system_unitdir}
+    fi
     install -m 0755 ${B}/aos-camera-access-launcher ${WORKDIR}/aos-camera-access-health ${D}${libexecdir}
     install -m 0644 ${WORKDIR}/aos-camera-access.service ${WORKDIR}/aos-camera-access-selftest@.service ${D}${systemd_system_unitdir}
     install -m 0644 ${WORKDIR}/aos-camera-access.conf ${D}${libdir}/tmpfiles.d
@@ -39,3 +48,4 @@ do_install() {
 }
 FILES:${PN} += "${libexecdir}/aos-camera-access-* ${libdir}/tmpfiles.d/aos-camera-access.conf ${systemd_system_unitdir}/aos-camera-access.service ${systemd_system_unitdir}/aos-camera-access-selftest@.service"
 FILES:${PN} += "${systemd_system_unitdir}/aos-camera-access-* ${systemd_system_unitdir}/var-aos-workdirs-sm-runtimes-systemd*camera*access.mount ${libdir}/aos-camera-access/store.conf ${sysconfdir}/modules-load.d/aos-camera-access-loop.conf ${sysconfdir}/systemd/system/aos-sm.service.d/30-aos-camera-access.conf"
+FILES:${PN} += "${libexecdir}/aos-camera-ingress-launcher ${systemd_system_unitdir}/aos-camera-ingress.service"

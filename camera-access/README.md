@@ -47,7 +47,8 @@ Identical active selection is idempotent. Disconnect clears pixels, not the
 current epoch's frame/time high-water marks; reconnect under the same binding
 therefore still rejects replay. A process restart has no persisted replay
 database: the authenticated adapter must establish a new session/epoch before
-live admission. This condition must be proven in the future native scenario.
+live admission. The reversible M4 ingress scenario proves this behavior;
+permanent installed delivery has its separate acceptance gate.
 
 Both pair members must be no more than one second old in the **receiver's
 monotonic clock**. Rejected packets cannot refresh them. Delivery becomes
@@ -92,22 +93,32 @@ The tests start no server, simulator, VM or container and use synthetic JPEG
 headers solely for envelope-validation cases. They prove neither pixel decode,
 native authorization, live camera delivery nor installed-package acceptance.
 
-## Remaining deployment gates
+## Ingress delivery and acceptance boundary
 
 The `ingress.py` bounded multipart reader and `ingress_main.py` strict nonroot
 entry use only the existing Source/systemd credentials, fixed Gateway route
-and OEM socket. Core/apps receive no TLS key. The separate launcher/service
-and transient policy fixture are source-only, not installed by the existing
-Factory recipe. `tools/check_camera_ingress.py` checks this new packet against
-its accepted platform base without widening the earlier frozen gates.
-The launcher and temporary policy compile independently; real nonroot transport,
-credential isolation, fresh AVCs and native live-frame delivery remain live
-gates. No permanent image or Cloud resource mutation follows from source tests.
+and OEM socket. Core/apps receive no TLS key. The permanent launcher/service
+and native store policy are selected only by the explicit
+`qualification/vision-ingress-1.conf` profile. Main defaults remain disabled;
+the existing manufacturing profile remains `6.1.1-vision-camera.3`.
+The new profile prepares native rootfs FOTA `6.1.1-vision-camera.4`, not a new
+manufacturing disk or boot update. Ingress is not boot-enabled: the normal
+Source owner starts it only after valid enrollment.
 
-Qualify transient non-root IPC/policy, the Vision bootstrap/image and normal
-independent Unit provisioning, native OEM activation and actual Aos-managed
-consumer delivery/revocation on M4. Authenticated Gateway ingress remains its
-own gate. Storage-admin-only transient proofs are distinct from Camera daemon
-and container security acceptance. Neither manual crun,
-root socket access nor unit mocks count as native SM allocation. Current Main
-selectors, image, VM, Test and data are not modified or replaced.
+`tools/check_camera_ingress.py` is the frozen earlier source gate.
+`tools/check_camera_ingress_delivery.py` checks the accepted permanent delta
+without widening that earlier packet. Native policy/launcher compilation and
+the exact permanent-store reversible M4 proof passed for nonroot transport,
+credential/network isolation, restart and fresh AVCs. The earlier
+transient-policy campaign separately proved native reader delivery/revocation.
+Those transient results are not permanent installed acceptance. The latter
+requires recovery first, account-level recipient isolation, native rootfs and
+Camera component updates, a signed host-tooling successor and a new serial
+read/revoke cycle. No Cloud mutation follows merely from source tests.
+
+The permanent campaign preserves the same Vision VM, Unit, credentials,
+Camera store/data and manufacturing receipt. It never reprovisions a new Unit
+or rebases the guest disk. Storage-admin-only proofs are distinct from daemon
+and container security acceptance. Neither manual crun, root socket access nor
+unit mocks count as native SM allocation. Current Main selectors, image, VM,
+Test and data are not modified or replaced.
