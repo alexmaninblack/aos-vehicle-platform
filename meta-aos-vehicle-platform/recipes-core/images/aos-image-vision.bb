@@ -4,6 +4,7 @@
 # Explicit specialist target. aos-image-vm and its bbappend remain Main-owned.
 require recipes-core/images/aos-image-vm.bb
 SUMMARY = "Isolated Vision ARM64 controller bootstrap"
+IMAGE_BASENAME = "aos-image-vision"
 IMAGE_INSTALL:append = " aos-camera-access-platform"
 FILESEXTRAPATHS:prepend := "${THISDIR}/../../../contracts/camera-access:${THISDIR}/../../../camera-access/src/aos_camera_access:"
 SRC_URI += "file://native-profile.json file://vision_image.py file://core.py"
