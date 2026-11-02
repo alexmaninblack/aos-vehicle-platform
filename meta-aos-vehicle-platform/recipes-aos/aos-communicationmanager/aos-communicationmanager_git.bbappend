@@ -8,6 +8,10 @@ FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 # This changes storage capacity only, never scopes or authorization decisions.
 CXXFLAGS:append = " -DAOS_CONFIG_TYPES_FUNCTION_LEN=256"
 
+# Match SM's five-resource node-info ABI only in the isolated Vision profile.
+AOS_VISION_NATIVE_SERVICES ??= "0"
+CXXFLAGS:append = "${@' -DAOS_CONFIG_TYPES_MAX_NUM_NODE_RESOURCES=5' if d.getVar('AOS_VISION_NATIVE_SERVICES') == '1' else ''}"
+
 # Coordinated mainline baseline for CM, SM and IAM. Upstream already owns
 # shared gRPC write serialization; keep only tested residual behavior.
 SRCREV = "9d613a46df3c7f550062e2f19ae3406c57715694"

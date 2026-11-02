@@ -8,6 +8,12 @@ FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 # This changes storage capacity only, never scopes or authorization decisions.
 CXXFLAGS:append = " -DAOS_CONFIG_TYPES_FUNCTION_LEN=256"
 
+# The isolated Vision profile has Camera plus four exchange resources. The
+# upstream four-entry node array truncates SM's advertised resource set.
+# Apply to the whole application/private Core ABI; Main retains its default.
+AOS_VISION_NATIVE_SERVICES ??= "0"
+CXXFLAGS:append = "${@' -DAOS_CONFIG_TYPES_MAX_NUM_NODE_RESOURCES=5' if d.getVar('AOS_VISION_NATIVE_SERVICES') == '1' else ''}"
+
 # Upgrade the application and private Core dependencies as one pinned triplet.
 SRCREV = "9d613a46df3c7f550062e2f19ae3406c57715694"
 SRCREV_default = "9d613a46df3c7f550062e2f19ae3406c57715694"
