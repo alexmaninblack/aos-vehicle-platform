@@ -18,7 +18,7 @@ SRC_URI:append = " ${@'file://aos-vision-exchange-launcher.c file://aos-vision-e
 SRC_URI:append = " ${@'file://aos-camera-ingress-launcher.c file://aos-camera-ingress.service' if d.getVar('AOS_VISION_CAMERA_INGRESS') == '1' else ''}"
 inherit systemd useradd
 USERADD_PACKAGES = "${PN}"
-GROUPADD_PARAM:${PN} = "${@'--system --gid 990 aos-camera-read; --system --gid 989 aos-vision-exchange; --system --gid 988 aos-vision-perception-publish; --system --gid 987 aos-vision-perception-read; --system --gid 986 aos-vision-context-read; --system --gid 985 aos-vision-assessment-publish' if d.getVar('AOS_VISION_NATIVE_SERVICES') == '1' else '--system aos-camera-read'}"
+GROUPADD_PARAM:${PN} = "${@'--system --gid 990 aos-camera-read; --system --gid 989 aos-vision-exchange; --system --gid 988 aos-vision-perc-pub; --system --gid 987 aos-vision-perc-read; --system --gid 986 aos-vision-context-read; --system --gid 985 aos-vision-assess-pub' if d.getVar('AOS_VISION_NATIVE_SERVICES') == '1' else '--system aos-camera-read'}"
 USERADD_PARAM:${PN} = "--system ${@'--uid 992' if d.getVar('AOS_VISION_NATIVE_SERVICES') == '1' else ''} --home /nonexistent --no-create-home --shell /bin/false --gid aos-camera-read aos-camera-access"
 USERADD_PARAM:${PN}:append = "${@'; --system --uid 989 --home /nonexistent --no-create-home --shell /bin/false --gid aos-vision-exchange aos-vision-exchange' if d.getVar('AOS_VISION_NATIVE_SERVICES') == '1' else ''}"
 RDEPENDS:${PN} = "python3-modules coreutils e2fsprogs-e2fsck e2fsprogs-mke2fs kernel-module-loop util-linux-blkid util-linux-losetup util-linux-findmnt"

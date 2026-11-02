@@ -29,6 +29,8 @@ class NativeProfileTests(unittest.TestCase):
         for row in resources:
             self.assertEqual(row['sharedCount'],1)
             self.assertEqual(row['mounts'][0]['options'],['bind','ro','nosuid','nodev','noexec'])
+        self.assertTrue(all(len(name)<=24 for name in self.services['groupNames'].values()))
+        self.assertEqual([row['groups'][0] for row in resources[1:]],list(self.services['groupNames'].values()))
         _,legacy=select(self.sm,[],self.camera)
         self.assertEqual(len(legacy),1);self.assertNotIn('imageManager',self.sm)
 
@@ -42,7 +44,13 @@ class NativeProfileTests(unittest.TestCase):
     def test_known_native_accounts_and_no_boot_enabled_exchange(self):
         self.assertEqual((self.services['ownerUid'],self.services['ownerGid'],self.services['cameraUid'],self.services['cameraGid']),(989,989,992,990))
         self.assertEqual(list(self.services['groups'].values()),[988,987,986,985])
+        recipe=(ROOT/'meta-aos-vehicle-platform/recipes-aos/aos-camera-access-platform/aos-camera-access-platform_0.1.0.bb').read_text()
+        tmpfiles=(ROOT/'meta-aos-vehicle-platform/recipes-aos/aos-camera-access-platform/files/aos-vision-exchange.conf').read_text()
         unit=(ROOT/'tests/fixtures/vision-native-exchange/aos-vision-exchange.service').read_text()
+        for role,name in self.services['groupNames'].items():
+            self.assertLessEqual(len(name),24)
+            self.assertIn('--gid '+str(self.services['groups'][role])+' '+name,recipe)
+            self.assertIn(name,unit);self.assertIn('/'+role+' 0750 aos-vision-exchange '+name,tmpfiles)
         self.assertNotIn('[Install]',unit);self.assertIn('Restart=no',unit);self.assertIn('SocketBindDeny=any',unit)
         image=(ROOT/'qualification/vision-services-1.conf').read_text()
         self.assertIn('6.1.1-vision-camera.6',image);self.assertIn('AOS_VISION_NATIVE_SERVICES:forcevariable = "1"',image)

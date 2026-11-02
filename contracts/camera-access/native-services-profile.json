@@ -7,6 +7,7 @@
   "cameraUid": 992,
   "cameraGid": 990,
   "groups": {"perception-publish": 988, "perception-read": 987, "context-read": 986, "assessment-publish": 985},
+  "groupNames": {"perception-publish": "aos-vision-perc-pub", "perception-read": "aos-vision-perc-read", "context-read": "aos-vision-context-read", "assessment-publish": "aos-vision-assess-pub"},
   "imagePaths": {"communication": "/var/aos/downloads/vision-services/cm-images", "service": "/var/aos/downloads/vision-services/sm-images"},
   "roles": ["perception-publish", "perception-read", "context-read", "assessment-publish"],
   "mountOptions": ["bind", "ro", "nosuid", "nodev", "noexec"]

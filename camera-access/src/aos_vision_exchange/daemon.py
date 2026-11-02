@@ -20,13 +20,15 @@ from .transport import Gateway
 ROOT=Path('/run/aos-vision-exchange')
 CREDENTIALS=Path('/run/credentials/aos-vision-exchange.service')
 USER='aos-vision-exchange'
+ROLE_GROUPS=dict(zip(('perception-publish','perception-read','context-read','assessment-publish'),
+    ('aos-vision-perc-pub','aos-vision-perc-read','aos-vision-context-read','aos-vision-assess-pub')))
 NAMES={'vision-ca','vision-certificate','vision-private-key','vision-selection'}
 
 
 def identity():
     uid=pwd.getpwnam(USER).pw_uid;gid=grp.getgrnam(USER).gr_gid
     p.require(uid>0 and gid>0 and os.getuid()==os.geteuid()==uid and os.getgid()==os.getegid()==gid,'EXCHANGE_IDENTITY_INVALID')
-    roles={grp.getgrnam('aos-vision-'+role).gr_gid for role in ROLES}
+    roles={grp.getgrnam(ROLE_GROUPS[role]).gr_gid for role in ROLES}
     p.require(set(os.getgroups())<=roles|{gid},'EXCHANGE_GROUPS_INVALID')
     values=dict(row.split(':',1) for row in Path('/proc/self/status').read_text().splitlines() if ':' in row)
     p.require(values['NoNewPrivs'].strip()=='1' and all(int(values[k].strip(),16)==0 for k in
@@ -90,7 +92,7 @@ class Server:
         sockets=[];threads=[]
         try:
             for role in ROLES:
-                parent=ROOT/role;info=parent.lstat();gid=grp.getgrnam('aos-vision-'+role).gr_gid
+                parent=ROOT/role;info=parent.lstat();gid=grp.getgrnam(ROLE_GROUPS[role]).gr_gid
                 p.require(stat.S_ISDIR(info.st_mode) and info.st_uid==self.uid and info.st_gid==gid
                     and stat.S_IMODE(info.st_mode)==0o750,'EXCHANGE_SOCKET_PARENT_INVALID')
                 path=parent/'exchange.sock';p.require(not path.exists() and not path.is_symlink(),'EXCHANGE_SOCKET_CONFLICT')

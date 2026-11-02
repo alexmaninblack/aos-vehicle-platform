@@ -11,6 +11,7 @@ ROOT=Path(__file__).resolve().parents[1]
 BASE='1736e189'
 FILES={
  'camera-access/src/aos_camera_access/vision_image.py',
+ 'camera-access/src/aos_vision_exchange/daemon.py',
  'contracts/camera-access/native-services-profile.json',
  'meta-aos-vehicle-platform/recipes-aos/aos-camera-access-platform/aos-camera-access-platform_0.1.0.bb',
  'meta-aos-vehicle-platform/recipes-aos/aos-camera-access-platform/files/36-vision-image-storage.conf',
@@ -22,6 +23,7 @@ FILES={
  'qualification/vision-services-1.conf',
  *('tests/fixtures/vision-native-exchange/vision_exchange.'+x for x in ('te','fc','if')),
  'tests/test_vision_native_profile.py','tests/test_vision_resource_capacity.py',
+ 'tests/fixtures/vision-native-exchange/aos-vision-exchange.service',
  'tools/vision_resource_capacity_compile_worker.py','tools/check_vision_services_delivery.py'}
 
 

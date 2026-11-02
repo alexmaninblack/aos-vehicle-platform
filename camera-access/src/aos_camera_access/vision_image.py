@@ -33,7 +33,8 @@ def select(sm, resources, native, services=None):
             and services['mountOptions']==['bind','ro','nosuid','nodev','noexec'],'VISION_SERVICE_PROFILE_INVALID')
         require('imagePath' not in result.get('imageManager',{}),'VISION_IMAGE_PATH_OVERRIDE_CONFLICT')
         result.setdefault('imageManager',{})['imagePath']=services['imagePaths']['service']
-        selected += [dict(name='vision-'+role,sharedCount=1,groups=['aos-vision-'+role],mounts=[dict(
+        require(set(services['groupNames'])==set(roles) and all(len(n)<=24 for n in services['groupNames'].values()),'VISION_GROUP_NAME_INVALID')
+        selected += [dict(name='vision-'+role,sharedCount=1,groups=[services['groupNames'][role]],mounts=[dict(
             source='/run/aos-vision-exchange/'+role,destination='/run/aosedge/vision/'+role,type='bind',options=list(services['mountOptions']))]) for role in roles]
     return result, selected
 
