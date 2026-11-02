@@ -1,0 +1,13 @@
+{
+  "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: Apache-2.0",
+  "schemaVersion": 1,
+  "owner": "aos-vision-exchange",
+  "ownerUid": 989,
+  "ownerGid": 989,
+  "cameraUid": 992,
+  "cameraGid": 990,
+  "groups": {"perception-publish": 988, "perception-read": 987, "context-read": 986, "assessment-publish": 985},
+  "imagePaths": {"communication": "/var/aos/downloads/vision-services/cm-images", "service": "/var/aos/downloads/vision-services/sm-images"},
+  "roles": ["perception-publish", "perception-read", "context-read", "assessment-publish"],
+  "mountOptions": ["bind", "ro", "nosuid", "nodev", "noexec"]
+}

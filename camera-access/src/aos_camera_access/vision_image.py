@@ -6,7 +6,7 @@ from copy import deepcopy
 from .core import require
 
 
-def select(sm, resources, native):
+def select(sm, resources, native, services=None):
     result = deepcopy(sm)
     entries = [r for r in result["runtimes"] if r["plugin"] == "systemd-slot-component"]
     require(len(entries) == 1, "VISION_OEM_TARGET_AMBIGUOUS")
@@ -26,4 +26,22 @@ def select(sm, resources, native):
     resource = dict(name=native["resource"], sharedCount=native["sharedCount"],
                     groups=[native["readerGroup"]], mounts=[dict(source=native["resourceSource"],
                     destination=native["resourceDestination"], type="bind", options=native["mountOptions"])])
-    return result, [resource]
+    selected=[resource]
+    if services is not None:
+        roles=['perception-publish','perception-read','context-read','assessment-publish']
+        require(services['schemaVersion']==1 and services['roles']==roles
+            and services['mountOptions']==['bind','ro','nosuid','nodev','noexec'],'VISION_SERVICE_PROFILE_INVALID')
+        require('imagePath' not in result.get('imageManager',{}),'VISION_IMAGE_PATH_OVERRIDE_CONFLICT')
+        result.setdefault('imageManager',{})['imagePath']=services['imagePaths']['service']
+        selected += [dict(name='vision-'+role,sharedCount=1,groups=['aos-vision-'+role],mounts=[dict(
+            source='/run/aos-vision-exchange/'+role,destination='/run/aosedge/vision/'+role,type='bind',options=list(services['mountOptions']))]) for role in roles]
+    return result, selected
+
+
+def select_communication(cm, services):
+    result=deepcopy(cm)
+    require(result.get('imageManager',{}).get('installPath')=='/var/aos/workdirs/cm/imagemanager/install','VISION_CM_IMAGE_PATH_OVERRIDE_CONFLICT')
+    require(services['imagePaths']==dict(communication='/var/aos/downloads/vision-services/cm-images',service='/var/aos/downloads/vision-services/sm-images'),
+        'VISION_IMAGE_PATH_PROFILE_INVALID')
+    result['imageManager']['installPath']=services['imagePaths']['communication']
+    return result

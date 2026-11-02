@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 maninblack
 # SPDX-License-Identifier: Apache-2.0
-# Transient exact-scope candidate. Not installed by an image recipe yet.
+# Shared exact-scope policy: transient proof and explicit Vision successor only.
 policy_module(vision_exchange, 1.0.0)
 
 type vision_exchange_t;

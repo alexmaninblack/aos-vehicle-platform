@@ -6,6 +6,9 @@ FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 # Existing Main policy inputs remain unchanged unless the explicit Vision-only
 # delivery configuration selects this domain.
 AOS_VISION_CAMERA_INGRESS ??= "0"
+AOS_VISION_NATIVE_SERVICES ??= "0"
+FILESEXTRAPATHS:prepend := "${THISDIR}/../../../tests/fixtures/vision-native-exchange:"
+SRC_URI:append = " ${@'file://vision_exchange.te file://vision_exchange.fc file://vision_exchange.if' if d.getVar('AOS_VISION_NATIVE_SERVICES') == '1' else ''}"
 SRC_URI:append = " ${@'file://camera_ingress.te file://camera_ingress.fc file://camera_ingress.if' if d.getVar('AOS_VISION_CAMERA_INGRESS') == '1' else ''}"
 
 SRC_URI += " \
@@ -25,6 +28,11 @@ SRC_URI += " \
 "
 
 do_compile:prepend() {
+    if [ "${AOS_VISION_NATIVE_SERVICES}" = "1" ]; then
+        install -m 0644 ${WORKDIR}/vision_exchange.te ${WORKDIR}/vision_exchange.fc ${WORKDIR}/vision_exchange.if ${S}/policy/modules/services
+    else
+        rm -f ${S}/policy/modules/services/vision_exchange.te ${S}/policy/modules/services/vision_exchange.fc ${S}/policy/modules/services/vision_exchange.if
+    fi
     if [ "${AOS_VISION_CAMERA_INGRESS}" = "1" ]; then
         install -m 0644 ${WORKDIR}/camera_ingress.te ${S}/policy/modules/services
         install -m 0644 ${WORKDIR}/camera_ingress.fc ${S}/policy/modules/services

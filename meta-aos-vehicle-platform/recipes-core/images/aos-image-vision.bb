@@ -7,7 +7,8 @@ SUMMARY = "Isolated Vision ARM64 controller bootstrap"
 IMAGE_BASENAME = "aos-image-vision"
 IMAGE_INSTALL:append = " aos-camera-access-platform"
 FILESEXTRAPATHS:prepend := "${THISDIR}/../../../contracts/camera-access:${THISDIR}/../../../camera-access/src/aos_camera_access:"
-SRC_URI += "file://native-profile.json file://vision_image.py file://core.py"
+SRC_URI += "file://native-profile.json file://native-services-profile.json file://vision_image.py file://core.py"
+AOS_VISION_NATIVE_SERVICES ??= "0"
 ROOTFS_POSTPROCESS_COMMAND:append = " aos_vision_native_profile; "
 
 # FOTA needs the fully preprocessed tree, not an old manufacturing build's
@@ -25,7 +26,7 @@ addtask prepare_vision_rootfs_fota after do_image
 # Image recipes disable normal unpack tasks. Resolve the build-time helpers
 # from the layer and include their actual bytes in do_rootfs signatures.
 python __anonymous() {
-    for name in ("native-profile.json", "vision_image.py", "core.py"):
+    for name in ("native-profile.json", "native-services-profile.json", "vision_image.py", "core.py"):
         path = bb.utils.which(d.getVar("FILESPATH"), name)
         if not path:
             bb.fatal("Missing Vision build input: " + name)
@@ -52,9 +53,13 @@ python aos_vision_native_profile() {
         config = root / "etc/aos/sm.cfg"
         resource = root / "etc/aos/resources.cfg"
         native = json.loads(Path(bb.utils.which(d.getVar("FILESPATH"), "native-profile.json")).read_text())
-        sm, resources = module.select(json.loads(config.read_text()), json.loads(resource.read_text()), native)
+        services = json.loads(Path(bb.utils.which(d.getVar("FILESPATH"), "native-services-profile.json")).read_text()) if d.getVar("AOS_VISION_NATIVE_SERVICES") == "1" else None
+        sm, resources = module.select(json.loads(config.read_text()), json.loads(resource.read_text()), native, services)
         config.write_text(json.dumps(sm, indent=4) + "\n")
         resource.write_text(json.dumps(resources, indent=4) + "\n")
+        if services is not None:
+            cm = root / "etc/aos/cm.cfg"
+            cm.write_text(json.dumps(module.select_communication(json.loads(cm.read_text()), services), indent=4) + "\n")
     finally:
         for key in ("aos_camera_access.core", "aos_camera_access.vision_image", "aos_camera_access"):
             sys.modules.pop(key, None)
